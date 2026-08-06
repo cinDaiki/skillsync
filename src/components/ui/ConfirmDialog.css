@@ -1,0 +1,130 @@
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(16, 24, 40, 0.45);
+  backdrop-filter: blur(4px);
+  animation: confirmFadeIn 0.2s ease;
+}
+
+@keyframes confirmFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.confirm-dialog {
+  width: min(100%, 420px);
+  padding: 28px 28px 24px;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(16, 24, 40, 0.18);
+  text-align: center;
+  animation: confirmSlideUp 0.22s ease;
+}
+
+@keyframes confirmSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.confirm-dialog-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.confirm-dialog-icon.default {
+  background: #f1e5ff;
+  color: #7c3aed;
+}
+
+.confirm-dialog-icon.danger {
+  background: #ffe4e6;
+  color: #e11d48;
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 10px;
+  color: #101828;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.4px;
+}
+
+.confirm-dialog p {
+  margin: 0;
+  color: #667085;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.confirm-dialog-actions {
+  margin-top: 24px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.confirm-btn {
+  min-width: 120px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.confirm-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.confirm-btn-cancel {
+  border: 1px solid #e4e7ec;
+  background: #ffffff;
+  color: #344054;
+}
+
+.confirm-btn-cancel:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.confirm-btn-confirm.default {
+  border: none;
+  background: linear-gradient(135deg, #58158f, #9b24ff);
+  color: #ffffff;
+}
+
+.confirm-btn-confirm.default:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.confirm-btn-confirm.danger {
+  border: none;
+  background: linear-gradient(135deg, #e11d48, #f13093);
+  color: #ffffff;
+}
+
+.confirm-btn-confirm.danger:hover:not(:disabled) {
+  filter: brightness(1.05);
+}

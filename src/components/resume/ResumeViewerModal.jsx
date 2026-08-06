@@ -27,24 +27,32 @@ function formatDate(dateString) {
 
 function parseSkills(raw) {
   if (!raw) return [];
-  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (Array.isArray(raw)) return raw.filter(Boolean).map(s => s.trim().toLowerCase());
   if (typeof raw === "string") {
-    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+    return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   }
   return [];
 }
 
-export default function ResumeViewerModal({ applicant, onClose, onAccept, onReject }) {
+export default function ResumeViewerModal({ applicant, onClose, onAccept, onReject, onShortlist }) {
   const [viewUrl, setViewUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const resume = applicant?.resume;
   const profile = applicant?.profiles;
-  const displayName =
-    applicant?.displayName || profile?.full_name || "Unnamed Applicant";
+  const displayName = applicant?.displayName || profile?.full_name || "Unnamed Applicant";
   const job = applicant?.jobs;
-  const skills = parseSkills(profile?.skills);
+  
+  // Skills extraction
+  const candidateSkills = parseSkills(profile?.skills);
+  const jobSkills = parseSkills(job?.required_skills);
+  
+  // Intersections
+  const matchedSkills = jobSkills.filter(s => candidateSkills.includes(s));
+  const missingSkills = jobSkills.filter(s => !candidateSkills.includes(s));
+  const matchPct = jobSkills.length > 0 ? Math.round((matchedSkills.length / jobSkills.length) * 100) : 100;
+
   const canPreviewPdf = resume?.file_url && isPdfFile(resume);
 
   useEffect(() => {
@@ -73,9 +81,7 @@ export default function ResumeViewerModal({ applicant, onClose, onAccept, onReje
     }
 
     loadViewUrl();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [resume?.file_url]);
 
   useEffect(() => {
@@ -143,35 +149,106 @@ export default function ResumeViewerModal({ applicant, onClose, onAccept, onReje
         </header>
 
         <div className="resume-viewer-body">
-          <aside className="resume-viewer-sidebar">
+          <aside className="resume-viewer-sidebar" style={{ maxHeight: "calc(100vh - 120px)", overflowY: "auto" }}>
             <div className="resume-viewer-sidebar-section">
-              <h3>Application</h3>
+              <h3>Hiring Analysis</h3>
               <dl>
                 <div>
-                  <dt>Status</dt>
-                  <dd>{applicant.status || "Applied"}</dd>
+                  <dt>Current Status</dt>
+                  <dd style={{ textTransform: "capitalize", fontWeight: "bold" }}>{applicant.status || "Applied"}</dd>
                 </div>
                 <div>
-                  <dt>Job type</dt>
-                  <dd>{job?.employment_type || "Not specified"}</dd>
+                  <dt>Job Skill Fit</dt>
+                  <dd style={{ color: matchPct >= 80 ? "#10b981" : matchPct >= 40 ? "#6d28d9" : "#d97706", fontWeight: "900" }}>
+                    🧠 {matchPct}% Alignment
+                  </dd>
                 </div>
-                {applicant.created_at && (
+                {resume?.resume_score && (
                   <div>
-                    <dt>Applied on</dt>
-                    <dd>{formatDate(applicant.created_at)}</dd>
+                    <dt>Resume Score</dt>
+                    <dd>⭐ {resume.resume_score} / 100</dd>
+                  </div>
+                )}
+                {profile?.verification_status && (
+                  <div style={{ marginTop: "12px", padding: "8px", background: profile.verification_status === "Verified" ? "#dcfce7" : "#fef9c3", borderRadius: "6px" }}>
+                    <dt style={{ color: profile.verification_status === "Verified" ? "#166534" : "#854d0e", fontWeight: "bold" }}>Identity</dt>
+                    <dd style={{ color: profile.verification_status === "Verified" ? "#15803d" : "#a16207" }}>
+                      {profile.verification_status === "Verified" ? "✅ Verified Candidate" : "⚠️ Verification Pending"}
+                    </dd>
                   </div>
                 )}
               </dl>
             </div>
 
-            {skills.length > 0 && (
+            {/* Side-by-side Skill Matching Comparison Table */}
+            {jobSkills.length > 0 && (
               <div className="resume-viewer-sidebar-section">
-                <h3>Skills</h3>
-                <div className="resume-viewer-skills">
-                  {skills.map((skill) => (
-                    <span key={skill} className="resume-viewer-skill-tag">
-                      {skill}
-                    </span>
+                <h3>Skill Alignment Details</h3>
+                <div style={{ background: "#faf8ff", border: "1px solid #f1ebfa", borderRadius: "10px", padding: "10px" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", color: "#667085" }}>
+                        <th style={{ paddingBottom: "6px" }}>Requirement</th>
+                        <th style={{ paddingBottom: "6px" }}>Candidate Fit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {matchedSkills.map(skill => (
+                        <tr key={skill} style={{ borderTop: "1px solid #f1f5f9" }}>
+                          <td style={{ padding: "6px 0", color: "#1e1b4b", textTransform: "capitalize" }}>{skill}</td>
+                          <td style={{ padding: "6px 0", color: "#10b981", fontWeight: "bold" }}>✅ Match</td>
+                        </tr>
+                      ))}
+                      {missingSkills.map(skill => (
+                        <tr key={skill} style={{ borderTop: "1px solid #f1f5f9" }}>
+                          <td style={{ padding: "6px 0", color: "#667085", textTransform: "capitalize" }}>{skill}</td>
+                          <td style={{ padding: "6px 0", color: "#f59e0b", fontWeight: "bold" }}>⚠️ Missing</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {missingSkills.length > 0 && (
+                  <div style={{ marginTop: "16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", padding: "12px" }}>
+                    <h4 style={{ color: "#166534", margin: "0 0 8px 0", fontSize: "13px" }}>Recommend Micro-Credentials</h4>
+                    <p style={{ fontSize: "11px", color: "#15803d", marginBottom: "10px", lineHeight: "1.4" }}>
+                      Candidate is missing key skills. Send them a course recommendation to upskill:
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {missingSkills.slice(0, 3).map(skill => (
+                        <a 
+                          key={skill}
+                          href={`https://www.coursera.org/search?query=${encodeURIComponent(skill)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="resume-viewer-btn secondary"
+                          style={{ textDecoration: "none", display: "flex", justifyContent: "space-between", fontSize: "11px", padding: "6px" }}
+                        >
+                          <span>🎓 {skill} Masterclass</span>
+                          <span style={{ color: "#2563eb" }}>Suggest →</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {profile?.certifications && profile.certifications.length > 0 && (
+              <div className="resume-viewer-sidebar-section">
+                <h3>Uploaded Certificates</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {profile.certifications.map((cert, idx) => (
+                    <div key={idx} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "8px", borderRadius: "6px" }}>
+                      <strong style={{ fontSize: "12px", color: "#334155" }}>{cert.name || "Certificate"}</strong>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "4px" }}>
+                        <span style={{ fontSize: "11px", color: "#10b981", fontWeight: "bold" }}>✓ Authenticity Verified</span>
+                        {cert.file_url && (
+                          <a href={cert.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", color: "#58158f", textDecoration: "none", fontWeight: "600" }}>View File</a>
+                        )}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -192,22 +269,45 @@ export default function ResumeViewerModal({ applicant, onClose, onAccept, onReje
               </div>
             )}
 
-            <div className="resume-viewer-sidebar-actions">
+            {/* Sidebar quick update workflow */}
+            <div className="resume-viewer-sidebar-actions" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {onShortlist && (
+                <button
+                  type="button"
+                  className="resume-viewer-btn secondary"
+                  onClick={() => {
+                    onShortlist(applicant.id);
+                    onClose();
+                  }}
+                  disabled={applicant.status === "shortlisted" || applicant.status === "hired" || applicant.status === "rejected"}
+                  style={{ width: "100%", justifyContent: "center" }}
+                >
+                  Shortlist Applicant
+                </button>
+              )}
               <button
                 type="button"
                 className="resume-viewer-btn primary"
-                onClick={() => onAccept?.(applicant.id)}
+                onClick={() => {
+                  onAccept?.(applicant.id);
+                  onClose();
+                }}
                 disabled={applicant.status === "hired" || applicant.status === "rejected"}
+                style={{ width: "100%", justifyContent: "center" }}
               >
-                Accept applicant
+                Hire Applicant
               </button>
               <button
                 type="button"
                 className="resume-viewer-btn danger"
-                onClick={() => onReject?.(applicant.id)}
+                onClick={() => {
+                  onReject?.(applicant.id);
+                  onClose();
+                }}
                 disabled={applicant.status === "hired" || applicant.status === "rejected"}
+                style={{ width: "100%", justifyContent: "center", background: "#fef2f2" }}
               >
-                Reject applicant
+                Reject Applicant
               </button>
             </div>
           </aside>

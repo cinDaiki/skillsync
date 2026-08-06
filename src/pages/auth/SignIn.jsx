@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { signIn } from "../../services/authService";
 import { supabase } from "../../services/supabase";
 import { setCurrentUser } from "../../services/localStorageService";
 import { getDashboardPath } from "../../utils/getDashboardPath";
+import { isDevMode } from "../../services/devMode";
 import "./SignIn.css";
 
 function resolveRole(profileRole, metadataRole) {
@@ -12,8 +13,15 @@ function resolveRole(profileRole, metadataRole) {
   return role;
 }
 
+function safeRedirectPath(value) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
+  return value;
+}
+
 export default function SignIn() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTo = safeRedirectPath(searchParams.get("redirect"));
 
   const [formData, setFormData] = useState({
     email: "",
@@ -54,20 +62,39 @@ export default function SignIn() {
         return;
       }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role, full_name, email")
-        .eq("id", data.user.id)
-        .maybeSingle();
+      // DEV MODE: user object already has role/full_name — skip Supabase profile query
+      let role;
+      if (isDevMode()) {
+        role = resolveRole(data.user?.role, data.user?.user_metadata?.role);
+        setCurrentUser({
+          id:        data.user.id,
+          email:     data.user.email,
+          role,
+          full_name: data.user?.full_name || data.user?.user_metadata?.full_name || "",
+        });
+      } else {
+        // PRODUCTION: fetch role from profiles table
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role, full_name, email, profile_picture_url")
+          .eq("id", data.user.id)
+          .maybeSingle();
 
-      const role = resolveRole(profile?.role, data.user?.user_metadata?.role);
+        role = resolveRole(profile?.role, data.user?.user_metadata?.role);
 
-      setCurrentUser({
-        id: data.user.id,
-        email: profile?.email || data.user.email,
-        role,
-        full_name: profile?.full_name || data.user?.user_metadata?.full_name || "",
-      });
+        setCurrentUser({
+          id:                  data.user.id,
+          email:               profile?.email || data.user.email,
+          role,
+          full_name:           profile?.full_name || data.user?.user_metadata?.full_name || "",
+          profile_picture_url: profile?.profile_picture_url || "",
+        });
+      }
+
+      if (redirectTo) {
+        navigate(redirectTo);
+        return;
+      }
 
       const path = getDashboardPath(role);
       navigate(path === "/" ? "/candidate/dashboard" : path);

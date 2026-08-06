@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import { signOut } from "../../services/authService";
 
 const sidebarLinks = {
@@ -10,14 +12,16 @@ const sidebarLinks = {
     { label: "Resume Vault", icon: "📁", path: "/admin/resumes" },
     { label: "Applications", icon: "↗", path: "/admin/applications" },
     { label: "Reports", icon: "⚙", path: "/admin/reports" },
+    { label: "My Profile", icon: "👤", path: "/admin/profile" },
   ],
 
   candidate: [
-    { label: "Dashboard", icon: "⌂", path: "/candidate/dashboard" },
-    { label: "Resume", icon: "▤", path: "/candidate/resume" },
-    { label: "Job Matches", icon: "◎", path: "/candidate/jobs" },
-    { label: "Applications", icon: "▣", path: "/candidate/applications" },
-    { label: "Profile", icon: "👤", path: "/candidate/profile" },
+    { label: "Dashboard",   icon: "⌂",  path: "/candidate/dashboard"  },
+    { label: "Resume",      icon: "▤",  path: "/candidate/resume"      },
+    { label: "Job Matches", icon: "◎",  path: "/candidate/jobs"        },
+    { label: "AI Matches",  icon: "🤖", path: "/candidate/ai-matches"  },
+    { label: "Applications",icon: "▣",  path: "/candidate/applications"},
+    { label: "Profile",     icon: "👤", path: "/candidate/profile"     },
   ],
 
   employer: [
@@ -31,6 +35,8 @@ const sidebarLinks = {
 
 export default function Sidebar({ role }) {
   const navigate = useNavigate();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const links = sidebarLinks[role] || sidebarLinks.candidate;
 
@@ -45,16 +51,29 @@ export default function Sidebar({ role }) {
       : "Career Workspace";
 
   async function handleLogout() {
+    setLoggingOut(true);
     try {
       await signOut();
-    } finally {
       navigate("/sign-in", { replace: true });
+    } finally {
+      setLoggingOut(false);
+      setShowLogoutConfirm(false);
     }
   }
 
+  const workspaceLabel =
+    role === "admin"
+      ? "admin panel"
+      : role === "employer"
+      ? "employer workspace"
+      : "career workspace";
+
   return (
     <aside className="dashboard-sidebar">
-      <NavLink to="/" className="dashboard-logo">
+      <NavLink 
+        to={role === "admin" ? "/admin/dashboard" : role === "employer" ? "/employer/dashboard" : "/candidate/dashboard"} 
+        className="dashboard-logo"
+      >
         <span className="dashboard-logo-icon">✓</span>
         <span>
           <strong>SkillSync</strong>
@@ -82,9 +101,25 @@ export default function Sidebar({ role }) {
         ))}
       </nav>
 
-      <button type="button" className="sidebar-logout" onClick={handleLogout}>
+      <button
+        type="button"
+        className="sidebar-logout"
+        onClick={() => setShowLogoutConfirm(true)}
+      >
         Logout
       </button>
+
+      <ConfirmDialog
+        open={showLogoutConfirm}
+        title="Log out?"
+        message={`You will leave your ${workspaceLabel} and need to sign in again to continue.`}
+        confirmLabel="Log out"
+        cancelLabel="Stay signed in"
+        variant="danger"
+        loading={loggingOut}
+        onCancel={() => !loggingOut && setShowLogoutConfirm(false)}
+        onConfirm={handleLogout}
+      />
     </aside>
   );
 }

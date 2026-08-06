@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { supabase } from "../../services/supabase";
 import { setCurrentUser } from "../../services/localStorageService";
+import { isDevMode, devGetSession } from "../../services/devMode";
 
 function normalizeRole(role) {
   if (role === "job_seeker") return "candidate";
@@ -20,19 +21,41 @@ export default function RoleRoute({ allowedRoles, children }) {
 
   useEffect(() => {
     async function checkAuth() {
-      // Check if we have an admin user in local storage to support local admin accounts
-      try {
-        const localUserStr = localStorage.getItem("skillsync_user");
-        if (localUserStr) {
-          const localUser = JSON.parse(localUserStr);
-          if (localUser?.role === "admin" && allowedRoles.includes("admin")) {
-            setStatus("allowed");
-            return;
-          }
+
+      // ── DEV MODE: read session from localStorage only, skip Supabase ──────
+      if (isDevMode()) {
+        const { data: { session }, fakeProfile } = devGetSession();
+
+        if (!session?.user) {
+          setStatus("unauthenticated");
+          return;
         }
-      } catch (e) {
-        console.error("Error parsing local admin session:", e);
+
+        const role = normalizeRole(
+          fakeProfile?.role || session.user?.user_metadata?.role
+        );
+
+        // Preserve any profile_picture_url already in localStorage
+        const existingUser = (() => {
+          try { return JSON.parse(localStorage.getItem("skillsync_user")) || {}; } catch { return {}; }
+        })();
+
+        setCurrentUser({
+          ...existingUser,
+          id:        session.user.id,
+          email:     fakeProfile?.email || session.user.email,
+          role,
+          full_name: fakeProfile?.full_name || session.user?.user_metadata?.full_name || "",
+        });
+
+        if (roleIsAllowed(role, allowedRoles)) {
+          setStatus("allowed");
+        } else {
+          setStatus("unauthorized");
+        }
+        return;
       }
+      // ── END DEV MODE ───────────────────────────────────────────────────────
 
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
@@ -42,7 +65,7 @@ export default function RoleRoute({ allowedRoles, children }) {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("role, full_name, email")
+        .select("role, full_name, email, profile_picture_url")
         .eq("id", session.user.id)
         .maybeSingle();
 
@@ -51,11 +74,11 @@ export default function RoleRoute({ allowedRoles, children }) {
       );
 
       setCurrentUser({
-        id: session.user.id,
-        email: profile?.email || session.user.email,
+        id:                  session.user.id,
+        email:               profile?.email || session.user.email,
         role,
-        full_name:
-          profile?.full_name || session.user?.user_metadata?.full_name || "",
+        full_name:           profile?.full_name || session.user?.user_metadata?.full_name || "",
+        profile_picture_url: profile?.profile_picture_url || "",
       });
 
       if (roleIsAllowed(role, allowedRoles)) {

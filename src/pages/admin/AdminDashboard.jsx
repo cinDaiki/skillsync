@@ -9,6 +9,7 @@ import {
   fetchAdminApplications,
   displayUserName,
 } from "../../services/adminService";
+import { supabase } from "../../services/supabase";
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -20,6 +21,9 @@ export default function AdminDashboard() {
     totalApplications: 0,
     totalResumes: 0,
     totalUsers: 0,
+    aiMatches: 0,
+    aiAvgScore: 0,
+    topMissingSkills: []
   });
   const [recentResumes, setRecentResumes] = useState([]);
   const [activityLogs, setActivityLogs] = useState([]);
@@ -79,7 +83,33 @@ export default function AdminDashboard() {
         closedJobs,
         totalApplications: totalApps,
         totalResumes,
+        aiMatches: 0,
+        aiAvgScore: 0,
+        topMissingSkills: []
       });
+
+      // Fetch Matching Engine Stats
+      const { data: matches } = await supabase.from("job_matches").select("match_score, missing_skills");
+      if (matches && matches.length > 0) {
+        const avgScore = Math.round(matches.reduce((sum, m) => sum + (m.match_score || 0), 0) / matches.length);
+        
+        const skillCounts = {};
+        matches.forEach(m => {
+          if (Array.isArray(m.missing_skills)) {
+            m.missing_skills.forEach(s => {
+              skillCounts[s] = (skillCounts[s] || 0) + 1;
+            });
+          }
+        });
+        const sortedSkills = Object.entries(skillCounts).sort((a,b) => b[1] - a[1]).slice(0, 4).map(k => k[0]);
+
+        setStats(prev => ({
+          ...prev,
+          aiMatches: matches.length,
+          aiAvgScore: avgScore,
+          topMissingSkills: sortedSkills
+        }));
+      }
 
       setRecentResumes(resumesList.slice(0, 4));
 
@@ -280,49 +310,66 @@ export default function AdminDashboard() {
         )}
 
         {/* METRICS OVERVIEW */}
-        <section className="overview-grid" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
-          <article className="overview-card" style={{ borderLeft: "4px solid #8b18ff" }}>
-            <span>👥</span>
-            <div>
+        <section className="enterprise-stats-grid" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+          <article className="enterprise-stat-card" style={{ borderLeft: "4px solid #8b18ff" }}>
+            <div className="enterprise-stat-icon purple">👥</div>
+            <div className="enterprise-stat-info">
               <h3>{stats.totalUsers}</h3>
               <p>Total Users</p>
             </div>
           </article>
-          <article className="overview-card" style={{ borderLeft: "4px solid #3b82f6" }}>
-            <span>▤</span>
-            <div>
+          <article className="enterprise-stat-card" style={{ borderLeft: "4px solid #3b82f6" }}>
+            <div className="enterprise-stat-icon blue">▤</div>
+            <div className="enterprise-stat-info">
               <h3>{stats.employers}</h3>
               <p>Recruiters</p>
             </div>
           </article>
-          <article className="overview-card" style={{ borderLeft: "4px solid #ec4899" }}>
-            <span>👤</span>
-            <div>
+          <article className="enterprise-stat-card" style={{ borderLeft: "4px solid #ec4899" }}>
+            <div className="enterprise-stat-icon pink">👤</div>
+            <div className="enterprise-stat-info">
               <h3>{stats.jobSeekers}</h3>
               <p>Applicants</p>
             </div>
           </article>
-          <article className="overview-card" style={{ borderLeft: "4px solid #10b981" }}>
-            <span>📁</span>
-            <div>
-              <h3>{stats.totalResumes}</h3>
-              <p>Resumes</p>
+          <article className="enterprise-stat-card" style={{ borderLeft: "4px solid #10b981" }}>
+            <div className="enterprise-stat-icon green">🧠</div>
+            <div className="enterprise-stat-info">
+              <h3>{stats.aiMatches}</h3>
+              <p>AI Matches Generated</p>
             </div>
           </article>
-          <article className="overview-card" style={{ borderLeft: "4px solid #f59e0b" }}>
-            <span>↗</span>
-            <div>
-              <h3>{stats.totalApplications}</h3>
-              <p>Applications</p>
+          <article className="enterprise-stat-card" style={{ borderLeft: "4px solid #f59e0b" }}>
+            <div className="enterprise-stat-icon orange">⚡</div>
+            <div className="enterprise-stat-info">
+              <h3>{stats.aiAvgScore}%</h3>
+              <p>Average Match Score</p>
             </div>
           </article>
         </section>
 
+        {/* AI INSIGHTS PANEL */}
+        {stats.topMissingSkills.length > 0 && (
+          <section className="enterprise-panel" style={{ marginTop: "24px" }}>
+             <div className="enterprise-panel-header">
+               <h2>Platform Skill Gap Analysis</h2>
+               <p style={{ fontSize: "13px", color: "#64748b" }}>Most frequently missing skills across all job candidates based on AI matching.</p>
+             </div>
+             <div style={{ display: "flex", gap: "12px", padding: "16px" }}>
+               {stats.topMissingSkills.map((skill, idx) => (
+                 <div key={idx} style={{ background: "#fee2e2", border: "1px solid #fecaca", padding: "8px 16px", borderRadius: "8px", color: "#991b1b", fontWeight: "bold" }}>
+                   ✗ {skill}
+                 </div>
+               ))}
+             </div>
+          </section>
+        )}
+
         {/* INTERACTIVE ANALYTICS & CHARTS */}
         <section className="dashboard-overview-columns">
           {/* USER MIX CHART */}
-          <section className="dashboard-panel" style={{ minHeight: "360px" }}>
-            <div className="panel-header">
+          <section className="enterprise-panel" style={{ minHeight: "360px" }}>
+            <div className="enterprise-panel-header">
               <div className="panel-header-content">
                 <h2>User Alignment Metrics</h2>
                 <p>Proportion of candidates vs employers registered on SkillSync.</p>
@@ -381,8 +428,8 @@ export default function AdminDashboard() {
           </section>
 
           {/* JOBS MONITORING BAR CHART */}
-          <section className="dashboard-panel" style={{ minHeight: "360px" }}>
-            <div className="panel-header">
+          <section className="enterprise-panel" style={{ minHeight: "360px" }}>
+            <div className="enterprise-panel-header">
               <div className="panel-header-content">
                 <h2>Job Posts Funnel</h2>
                 <p>Status summary of posted roles in employer workspaces.</p>
@@ -446,8 +493,8 @@ export default function AdminDashboard() {
         {/* LOGS, STORAGE FILES & DETAILS */}
         <section className="dashboard-overview-columns" style={{ gridTemplateColumns: "1fr 1.1fr" }}>
           {/* RECENT UPLOADED RESUMES */}
-          <section className="dashboard-panel">
-            <div className="panel-header">
+          <section className="enterprise-panel">
+            <div className="enterprise-panel-header">
               <div className="panel-header-content">
                 <h2>Uploaded Resumes Vault</h2>
                 <p>Direct view of documents securely held in storage.</p>
@@ -460,7 +507,7 @@ export default function AdminDashboard() {
               {loading ? (
                 <div style={{ textAlign: "center", padding: "40px 0" }}>Loading files...</div>
               ) : recentResumes.length === 0 ? (
-                <div className="empty-state compact-empty-state">
+                <div className="enterprise-empty-state">
                   <span>📁</span>
                   <h3>No resumes uploaded</h3>
                   <p>When candidates add their resumes, files will be shown here.</p>
@@ -507,8 +554,8 @@ export default function AdminDashboard() {
           </section>
 
           {/* DYNAMIC SYSTEM ACTIVITY LOGS TIMELINE */}
-          <section className="dashboard-panel">
-            <div className="panel-header" style={{ borderBottom: "none", marginBottom: "8px" }}>
+          <section className="enterprise-panel">
+            <div className="enterprise-panel-header" style={{ borderBottom: "none", marginBottom: "8px" }}>
               <div className="panel-header-content">
                 <h2>System Activity Logs</h2>
                 <p>Real-time updates of platform activities and user actions.</p>
@@ -564,7 +611,7 @@ export default function AdminDashboard() {
               {loading ? (
                 <div style={{ textAlign: "center", padding: "40px 0" }}>Compiling timeline logs...</div>
               ) : filteredLogs.length === 0 ? (
-                <div className="empty-state compact-empty-state" style={{ borderStyle: "none" }}>
+                <div className="enterprise-empty-state" style={{ borderStyle: "none" }}>
                   <span>📋</span>
                   <h3>No activity logged</h3>
                   <p>Adjust your search query or filter tags.</p>

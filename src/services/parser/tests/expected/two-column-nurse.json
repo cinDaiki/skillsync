@@ -1,0 +1,41 @@
+{
+  "id": "two-column-nurse",
+  "savedAt": "2026-08-03T05:42:40.712Z",
+  "overall": {
+    "passed": 5,
+    "total": 9,
+    "pct": 56
+  },
+  "categories": {
+    "contact": {
+      "pct": 100,
+      "passed": 3,
+      "total": 3
+    },
+    "education": {
+      "pct": 0,
+      "passed": 0,
+      "total": 2
+    },
+    "experience": {
+      "pct": 0,
+      "passed": 0,
+      "total": 2
+    },
+    "projects": {
+      "pct": 100,
+      "passed": 0,
+      "total": 0
+    },
+    "certifications": {
+      "pct": 100,
+      "passed": 2,
+      "total": 2
+    },
+    "sections": {
+      "pct": 100,
+      "passed": 0,
+      "total": 0
+    }
+  }
+}

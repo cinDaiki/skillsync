@@ -1,0 +1,41 @@
+{
+  "id": "senior-software-engineer",
+  "savedAt": "2026-08-03T05:42:40.697Z",
+  "overall": {
+    "passed": 17,
+    "total": 19,
+    "pct": 89
+  },
+  "categories": {
+    "contact": {
+      "pct": 100,
+      "passed": 5,
+      "total": 5
+    },
+    "education": {
+      "pct": 100,
+      "passed": 3,
+      "total": 3
+    },
+    "experience": {
+      "pct": 100,
+      "passed": 7,
+      "total": 7
+    },
+    "projects": {
+      "pct": 100,
+      "passed": 0,
+      "total": 0
+    },
+    "certifications": {
+      "pct": 33,
+      "passed": 1,
+      "total": 3
+    },
+    "sections": {
+      "pct": 100,
+      "passed": 1,
+      "total": 1
+    }
+  }
+}

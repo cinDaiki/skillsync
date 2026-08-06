@@ -1,0 +1,20 @@
+/** @type {import('./index.js').SkillEntry[]} */
+export default [
+  { canonical: 'AutoCAD',            category: 'Engineering', weight: 0.90, aliases: ['Auto CAD', 'AutoCAD 2D', 'AutoCAD 3D', 'CAD Drawing'] },
+  { canonical: 'SolidWorks',         category: 'Engineering', weight: 0.87, aliases: ['Solid Works', 'SolidWorks CAD'] },
+  { canonical: 'CATIA',              category: 'Engineering', weight: 0.83, aliases: ['CATIA V5', 'CATIA Software'] },
+  { canonical: 'Revit',              category: 'Engineering', weight: 0.85, aliases: ['Autodesk Revit', 'Revit Architecture'] },
+  { canonical: 'Civil Engineering',  category: 'Engineering', weight: 0.85, aliases: ['Civil Construction', 'Civil Works'] },
+  { canonical: 'Structural Engineering', category: 'Engineering', weight: 0.83, aliases: ['Structural Analysis', 'Structural Design'] },
+  { canonical: 'Mechanical Engineering', category: 'Engineering', weight: 0.83, aliases: ['Mechanical Design', 'Mechanical Systems'] },
+  { canonical: 'Electrical Engineering', category: 'Engineering', weight: 0.83, aliases: ['Electrical Design', 'Electrical Systems', 'Electrical Works'] },
+  { canonical: 'PLC Programming',    category: 'Engineering', weight: 0.82, aliases: ['PLC', 'Programmable Logic Controller', 'PLC Automation'] },
+  { canonical: 'SCADA',              category: 'Engineering', weight: 0.82, aliases: ['SCADA Systems', 'Industrial Automation'] },
+  { canonical: 'Project Management', category: 'Engineering', weight: 0.88, aliases: ['PM', 'Project Manager', 'Project Planning', 'Project Coordination'] },
+  { canonical: 'Construction Management', category: 'Engineering', weight: 0.83, aliases: ['Construction Project Management', 'Construction Supervision'] },
+  { canonical: 'Quality Control',    category: 'Engineering', weight: 0.85, aliases: ['QC', 'Quality Inspection', 'QC Inspection'] },
+  { canonical: 'Six Sigma',          category: 'Engineering', weight: 0.83, aliases: ['Six Sigma Green Belt', 'Six Sigma Black Belt', 'Lean Six Sigma'] },
+  { canonical: 'Lean Manufacturing', category: 'Engineering', weight: 0.82, aliases: ['Lean', 'Lean Production', 'Lean Process'] },
+  { canonical: 'ISO Standards',      category: 'Engineering', weight: 0.83, aliases: ['ISO 9001', 'ISO Certification', 'ISO Compliance'] },
+  { canonical: 'Technical Drawing',  category: 'Engineering', weight: 0.80, aliases: ['Blueprint Reading', 'Engineering Drawings', 'Blueprints'] },
+]

@@ -1,0 +1,332 @@
+/* Resume page specific styles */
+
+.resume-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 16px;
+}
+
+@media (max-width: 1024px) {
+  .resume-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.resume-metrics-card {
+  background: #ffffff;
+  border: 1px solid #e7e2f2;
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.resume-score-gauge {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin: 16px 0;
+}
+
+.resume-score-circle-bg {
+  fill: none;
+  stroke: #f1f0f5;
+  stroke-width: 8;
+}
+
+.resume-score-circle-bar {
+  fill: none;
+  stroke: url(#score-gradient);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  transition: stroke-dashoffset 0.8s ease;
+}
+
+.resume-score-number {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.resume-score-val {
+  font-size: 28px;
+  font-weight: 950;
+  color: #58158f;
+}
+
+.resume-score-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #667085;
+  margin-top: 2px;
+}
+
+.resume-score-rating {
+  font-size: 15px;
+  font-weight: 900;
+  color: #58158f;
+  margin: 8px 0;
+}
+
+.resume-score-rating.excellent {
+  color: #15803d;
+}
+
+.resume-score-rating.good {
+  color: #8b18ff;
+}
+
+.resume-score-rating.poor {
+  color: #b7791f;
+}
+
+/* Extracted skills section */
+.extracted-skills-card {
+  background: #ffffff;
+  border: 1px solid #e7e2f2;
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.04);
+}
+
+.extracted-skills-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #eee7f7;
+  padding-bottom: 12px;
+}
+
+.extracted-skills-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 900;
+  color: #1e1b4b;
+}
+
+.skills-count-badge {
+  background: #f5ecff;
+  color: #58158f;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.skills-editor-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.skills-editor-input {
+  flex: 1;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #d8dee9;
+  border-radius: 10px;
+  outline: none;
+  font-size: 13px;
+}
+
+.skills-editor-input:focus {
+  border-color: #58158f;
+}
+
+.skills-editor-add-btn {
+  padding: 0 14px;
+  background: #f5ecff;
+  color: #58158f;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.skills-editor-add-btn:hover {
+  background: #e2cff8;
+}
+
+/* Upload History Section */
+.upload-history-card {
+  background: #ffffff;
+  border: 1px solid #e7e2f2;
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.04);
+  margin-top: 24px;
+}
+
+.upload-history-card h3 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 950;
+  color: #1e1b4b;
+  border-bottom: 1px solid #eee7f7;
+  padding-bottom: 12px;
+}
+
+.history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #faf8ff;
+  border: 1px solid #f1ebfa;
+  padding: 12px 18px;
+  border-radius: 14px;
+}
+
+.history-item-info h4 {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  color: #1e1b4b;
+  font-weight: 800;
+  word-break: break-all;
+}
+
+.history-item-info p {
+  margin: 0;
+  font-size: 12px;
+  color: #667085;
+}
+
+.history-item-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.history-action-link {
+  color: #58158f;
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.history-action-link:hover {
+  text-decoration: underline;
+}
+
+.history-action-badge {
+  background: #e9fbef;
+  color: #15803d;
+  padding: 3px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+/* Circular Completeness gauge on metrics card */
+.completeness-metric {
+  margin-top: 14px;
+  width: 100%;
+}
+
+.completeness-metric-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 800;
+  color: #101828;
+  margin-bottom: 6px;
+}
+
+.completeness-metric-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: #f1f0f5;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.completeness-metric-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #58158f, #f13093);
+  border-radius: 99px;
+  transition: width 0.6s ease;
+}
+
+/* Preview Modal styling */
+.preview-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(16, 24, 40, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-modal-content {
+  background: #ffffff;
+  border-radius: 24px;
+  width: 90%;
+  max-width: 800px;
+  height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(16, 24, 40, 0.16);
+}
+
+.preview-modal-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid #eee7f7;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.preview-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 950;
+  color: #1e1b4b;
+}
+
+.preview-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #667085;
+  cursor: pointer;
+}
+
+.preview-modal-close:hover {
+  color: #dc2626;
+}
+
+.preview-modal-body {
+  flex: 1;
+  padding: 16px;
+  background: #f8fafc;
+}
+
+.preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 12px;
+}

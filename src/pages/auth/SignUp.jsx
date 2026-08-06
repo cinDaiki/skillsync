@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { signUp } from "../../services/authService";
+import { isDevMode } from "../../services/devMode";
 import "./SignIn.css";
 
 export default function SignUp() {
@@ -54,14 +55,17 @@ export default function SignUp() {
       return;
     }
 
-    // Save profile to profiles table
-    const { supabase } = await import("../../services/supabase");
-    await supabase.from("profiles").insert([{
-      id: data.user.id,
-      full_name: formData.fullName.trim(),
-      email: formData.email.toLowerCase().trim(),
-      role: formData.accountType,
-    }]);
+    // DEV MODE: devSignUp already stored the user locally — skip Supabase insert
+    if (!isDevMode()) {
+      // PRODUCTION: save profile to Supabase profiles table
+      const { supabase } = await import("../../services/supabase");
+      await supabase.from("profiles").insert([{
+        id:        data.user.id,
+        full_name: formData.fullName.trim(),
+        email:     formData.email.toLowerCase().trim(),
+        role:      formData.accountType,
+      }]);
+    }
 
     setLoading(false);
     navigate("/sign-in");

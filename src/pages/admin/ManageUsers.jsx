@@ -19,11 +19,13 @@ export default function ManageUsers() {
   
   const [selectedUser, setSelectedUser] = useState(null);
   const [editUser, setEditUser] = useState(null);
+  const [verifyingId, setVerifyingId] = useState(null); // userId being approved/rejected
   
   // Search and Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [verifyFilter, setVerifyFilter] = useState("all"); // NEW: filter by verification status
   
   const [toast, setToast] = useState({ text: "", type: "success" });
   const [loadError, setLoadError] = useState("");
@@ -107,6 +109,35 @@ export default function ManageUsers() {
     showToast("User account successfully removed.");
   }
 
+  // Approve / Reject Identity Verification
+  async function handleVerificationDecision(userId, decision) {
+    // decision: 'Verified' or 'Rejected'
+    setVerifyingId(userId);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ verification_status: decision })
+      .eq("id", userId);
+
+    if (error) {
+      showToast(`Failed to update verification: ${error.message}`, "error");
+      setVerifyingId(null);
+      return;
+    }
+
+    setProfiles((prev) =>
+      prev.map((p) => p.id === userId ? { ...p, verification_status: decision } : p)
+    );
+    if (selectedUser?.id === userId) {
+      setSelectedUser((prev) => ({ ...prev, verification_status: decision }));
+    }
+    setVerifyingId(null);
+    showToast(
+      decision === "Verified"
+        ? "✅ Identity Verified — Job Seeker can now apply to jobs."
+        : "❌ Verification Rejected — Job Seeker has been notified."
+    );
+  }
+
   // Save User Edit
   async function handleSaveEdit(e) {
     e.preventDefault();
@@ -161,26 +192,35 @@ export default function ManageUsers() {
 
   // Filter Logic
   const filteredUsers = profiles.filter((user) => {
-    // Search filter
     const matchesSearch =
       displayUserName(user).toLowerCase().includes(searchQuery.toLowerCase()) ||
       (user.email || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       (user.contact_number || "").includes(searchQuery);
 
-    // Role filter
     const matchesRole =
       roleFilter === "all" ||
       (roleFilter === "employer" && user.role === "employer") ||
       (roleFilter === "candidate" && (user.role === "candidate" || user.role === "job_seeker"));
 
-    // Status filter
     const matchesStatus =
       statusFilter === "all" ||
       (statusFilter === "suspended" && user.is_suspended) ||
       (statusFilter === "active" && !user.is_suspended);
 
-    return matchesSearch && matchesRole && matchesStatus;
+    const matchesVerify =
+      verifyFilter === "all" ||
+      (verifyFilter === "pending" && user.verification_status === "Pending Verification") ||
+      (verifyFilter === "under_review" && (user.verification_status === "Under Review" || (user.id_image_url && user.verification_status !== "Verified" && user.verification_status !== "Rejected"))) ||
+      (verifyFilter === "verified" && user.verification_status === "Verified") ||
+      (verifyFilter === "rejected" && user.verification_status === "Rejected");
+
+    return matchesSearch && matchesRole && matchesStatus && matchesVerify;
   });
+
+  // Count pending verifications for badge
+  const pendingVerifyCount = profiles.filter(p =>
+    p.role !== "employer" && p.id_image_url && p.verification_status !== "Verified" && p.verification_status !== "Rejected"
+  ).length;
 
   return (
     <DashboardLayout
@@ -224,7 +264,7 @@ export default function ManageUsers() {
           {/* ADVANCED FILTERS */}
           <div style={{
             display: "grid",
-            gridTemplateColumns: "2fr 1fr 1fr",
+            gridTemplateColumns: "2fr 1fr 1fr 1fr",
             gap: "12px",
             background: "#f9fafb",
             padding: "12px",
@@ -237,46 +277,27 @@ export default function ManageUsers() {
               placeholder="Search by full name, email, or phone number..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                height: "44px",
-                padding: "0 14px",
-                fontSize: "14px",
-                border: "1px solid #d0d5dd",
-                borderRadius: "10px",
-                outline: "none"
-              }}
+              style={{ height: "44px", padding: "0 14px", fontSize: "14px", border: "1px solid #d0d5dd", borderRadius: "10px", outline: "none" }}
             />
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              style={{
-                height: "44px",
-                padding: "0 10px",
-                fontSize: "14px",
-                border: "1px solid #d0d5dd",
-                borderRadius: "10px",
-                outline: "none"
-              }}
-            >
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
+              style={{ height: "44px", padding: "0 10px", fontSize: "14px", border: "1px solid #d0d5dd", borderRadius: "10px", outline: "none" }}>
               <option value="all">All Roles</option>
               <option value="candidate">Job Seekers</option>
               <option value="employer">Employers</option>
             </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{
-                height: "44px",
-                padding: "0 10px",
-                fontSize: "14px",
-                border: "1px solid #d0d5dd",
-                borderRadius: "10px",
-                outline: "none"
-              }}
-            >
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+              style={{ height: "44px", padding: "0 10px", fontSize: "14px", border: "1px solid #d0d5dd", borderRadius: "10px", outline: "none" }}>
               <option value="all">All Statuses</option>
               <option value="active">Active Accounts</option>
               <option value="suspended">Suspended Accounts</option>
+            </select>
+            <select value={verifyFilter} onChange={(e) => setVerifyFilter(e.target.value)}
+              style={{ height: "44px", padding: "0 10px", fontSize: "13px", border: pendingVerifyCount > 0 && verifyFilter !== "under_review" ? "2px solid #f59e0b" : "1px solid #d0d5dd", borderRadius: "10px", outline: "none", fontWeight: "800" }}>
+              <option value="all">All Verifications</option>
+              <option value="under_review">🔔 Needs Review {pendingVerifyCount > 0 ? `(${pendingVerifyCount})` : ""}</option>
+              <option value="pending">Pending (No Upload)</option>
+              <option value="verified">✅ Verified</option>
+              <option value="rejected">❌ Rejected</option>
             </select>
           </div>
 
@@ -325,27 +346,29 @@ export default function ManageUsers() {
                           <p style={{ margin: "2px 0 0", fontSize: "13px", color: "#667085" }}>{user.email || "No email address"}</p>
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: "6px" }}>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         <span style={{
-                          fontSize: "11px",
-                          fontWeight: "900",
-                          padding: "4px 8px",
-                          borderRadius: "6px",
+                          fontSize: "11px", fontWeight: "900", padding: "4px 8px", borderRadius: "6px",
                           background: user.role === "employer" ? "#e0f2fe" : "#f1e5ff",
                           color: user.role === "employer" ? "#0369a1" : "#8b18ff"
                         }}>
                           {user.role === "employer" ? "Employer" : "Job Seeker"}
                         </span>
                         <span style={{
-                          fontSize: "11px",
-                          fontWeight: "900",
-                          padding: "4px 8px",
-                          borderRadius: "6px",
+                          fontSize: "11px", fontWeight: "900", padding: "4px 8px", borderRadius: "6px",
                           background: isUserSuspended ? "#fff1f2" : "#e9fbef",
                           color: isUserSuspended ? "#e11d48" : "#15803d"
                         }}>
                           {isUserSuspended ? "Suspended" : "Active"}
                         </span>
+                        {user.role !== "employer" && (() => {
+                          const vs = user.verification_status;
+                          const hasUploaded = user.id_image_url;
+                          if (vs === "Verified") return <span style={{ fontSize: "11px", fontWeight: "900", padding: "4px 8px", borderRadius: "6px", background: "#dcfce7", color: "#15803d" }}>✅ Verified</span>;
+                          if (vs === "Rejected") return <span style={{ fontSize: "11px", fontWeight: "900", padding: "4px 8px", borderRadius: "6px", background: "#fff1f2", color: "#e11d48" }}>❌ Rejected</span>;
+                          if (hasUploaded) return <span style={{ fontSize: "11px", fontWeight: "900", padding: "4px 8px", borderRadius: "6px", background: "#fef3c7", color: "#92400e" }}>🔔 Needs Review</span>;
+                          return <span style={{ fontSize: "11px", fontWeight: "900", padding: "4px 8px", borderRadius: "6px", background: "#f3f4f6", color: "#6b7280" }}>⏳ Unverified</span>;
+                        })()}
                       </div>
                     </div>
 
@@ -643,7 +666,104 @@ export default function ManageUsers() {
                 </div>
               )}
 
-              {/* Application History */}
+              {/* ── Identity Verification Review ── */}
+              {selectedUser.role !== "employer" && (
+                <div>
+                  <h4 style={{ margin: "0 0 10px", fontSize: "14px", color: "#58158f", borderBottom: "1px solid #eee7f7", paddingBottom: "6px", display: "flex", alignItems: "center", gap: "8px" }}>
+                    🛡️ Identity Verification
+                    <span style={{
+                      fontSize: "11px", fontWeight: "900", padding: "2px 8px", borderRadius: "6px",
+                      background: selectedUser.verification_status === "Verified" ? "#dcfce7" : selectedUser.verification_status === "Rejected" ? "#fff1f2" : selectedUser.id_image_url ? "#fef3c7" : "#f3f4f6",
+                      color: selectedUser.verification_status === "Verified" ? "#15803d" : selectedUser.verification_status === "Rejected" ? "#e11d48" : selectedUser.id_image_url ? "#92400e" : "#6b7280"
+                    }}>
+                      {selectedUser.verification_status === "Verified" ? "✅ Verified" : selectedUser.verification_status === "Rejected" ? "❌ Rejected" : selectedUser.id_image_url ? "🔔 Needs Review" : "⏳ No Submission"}
+                    </span>
+                  </h4>
+
+                  {/* Show ID and Selfie images */}
+                  {selectedUser.id_image_url || selectedUser.selfie_image_url ? (
+                    <div style={{ display: "grid", gap: "12px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                        {/* Valid ID */}
+                        <div style={{ background: "#f9fafb", borderRadius: "10px", padding: "10px", border: "1px solid #e5e7eb" }}>
+                          <p style={{ margin: "0 0 6px", fontSize: "11px", fontWeight: "800", color: "#6b7280" }}>📄 VALID ID</p>
+                          {selectedUser.id_image_url ? (
+                            <a href={selectedUser.id_image_url} target="_blank" rel="noopener noreferrer">
+                              <img src={selectedUser.id_image_url} alt="Valid ID" style={{ width: "100%", borderRadius: "8px", objectFit: "cover", maxHeight: "100px", border: "1px solid #d1d5db" }} />
+                            </a>
+                          ) : (
+                            <div style={{ height: "80px", display: "grid", placeItems: "center", color: "#9ca3af", fontSize: "12px" }}>No ID uploaded</div>
+                          )}
+                        </div>
+                        {/* Selfie */}
+                        <div style={{ background: "#f9fafb", borderRadius: "10px", padding: "10px", border: "1px solid #e5e7eb" }}>
+                          <p style={{ margin: "0 0 6px", fontSize: "11px", fontWeight: "800", color: "#6b7280" }}>🤳 SELFIE</p>
+                          {selectedUser.selfie_image_url ? (
+                            <a href={selectedUser.selfie_image_url} target="_blank" rel="noopener noreferrer">
+                              <img src={selectedUser.selfie_image_url} alt="Selfie" style={{ width: "100%", borderRadius: "8px", objectFit: "cover", maxHeight: "100px", border: "1px solid #d1d5db" }} />
+                            </a>
+                          ) : (
+                            <div style={{ height: "80px", display: "grid", placeItems: "center", color: "#9ca3af", fontSize: "12px" }}>No selfie uploaded</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Approve / Reject Actions */}
+                      {selectedUser.verification_status !== "Verified" && selectedUser.verification_status !== "Rejected" && (
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleVerificationDecision(selectedUser.id, "Verified")}
+                            disabled={verifyingId === selectedUser.id}
+                            style={{
+                              padding: "10px", borderRadius: "10px", border: "none", fontWeight: "900", fontSize: "13px",
+                              background: "linear-gradient(135deg, #10b981, #059669)", color: "#fff", cursor: "pointer",
+                              opacity: verifyingId === selectedUser.id ? 0.7 : 1
+                            }}
+                          >
+                            {verifyingId === selectedUser.id ? "Processing..." : "✅ Approve"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleVerificationDecision(selectedUser.id, "Rejected")}
+                            disabled={verifyingId === selectedUser.id}
+                            style={{
+                              padding: "10px", borderRadius: "10px", border: "none", fontWeight: "900", fontSize: "13px",
+                              background: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#fff", cursor: "pointer",
+                              opacity: verifyingId === selectedUser.id ? 0.7 : 1
+                            }}
+                          >
+                            {verifyingId === selectedUser.id ? "Processing..." : "❌ Reject"}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Already decided */}
+                      {selectedUser.verification_status === "Verified" && (
+                        <div style={{ padding: "10px", background: "#dcfce7", borderRadius: "10px", textAlign: "center", fontSize: "13px", fontWeight: "800", color: "#15803d" }}>
+                          ✅ Identity Approved — Can apply to jobs
+                        </div>
+                      )}
+                      {selectedUser.verification_status === "Rejected" && (
+                        <div style={{ display: "grid", gap: "8px" }}>
+                          <div style={{ padding: "10px", background: "#fff1f2", borderRadius: "10px", textAlign: "center", fontSize: "13px", fontWeight: "800", color: "#e11d48" }}>
+                            ❌ Verification Rejected
+                          </div>
+                          <button type="button" onClick={() => handleVerificationDecision(selectedUser.id, "Verified")}
+                            style={{ padding: "8px", borderRadius: "8px", border: "1px solid #10b981", background: "#f0fdf4", fontWeight: "800", fontSize: "12px", color: "#15803d", cursor: "pointer" }}>
+                            Override: Mark as Verified
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ padding: "14px", background: "#f9fafb", borderRadius: "12px", textAlign: "center", border: "1px dashed #e5e7eb" }}>
+                      <span style={{ fontSize: "13px", color: "#667085" }}>No verification documents submitted yet.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <h4 style={{ margin: "0 0 10px", fontSize: "14px", color: "#58158f", borderBottom: "1px solid #eee7f7", paddingBottom: "6px" }}>Job Applications History</h4>
                 {(() => {

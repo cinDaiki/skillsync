@@ -1,0 +1,23 @@
+/** @type {import('./index.js').SkillEntry[]} */
+export default [
+  { canonical: 'Data Analysis',    category: 'Data', weight: 0.92, aliases: ['Data Analytics', 'Data Analyst', 'Analytical Skills', 'Data Interpretation'] },
+  { canonical: 'Data Science',     category: 'Data', weight: 0.92, aliases: ['Data Scientist', 'Data Science Methods'] },
+  { canonical: 'Data Engineering', category: 'Data', weight: 0.88, aliases: ['Data Engineer', 'Data Pipelines', 'ETL'] },
+  { canonical: 'ETL',              category: 'Data', weight: 0.85, aliases: ['Extract Transform Load', 'Data Integration', 'Data Pipelines'] },
+  { canonical: 'Pandas',           category: 'Data', weight: 0.93, aliases: ['pandas', 'Python Pandas'] },
+  { canonical: 'NumPy',            category: 'Data', weight: 0.90, aliases: ['numpy', 'Python NumPy', 'Numpy'] },
+  { canonical: 'Matplotlib',       category: 'Data', weight: 0.85, aliases: ['matplotlib', 'Python Matplotlib'] },
+  { canonical: 'Seaborn',          category: 'Data', weight: 0.83, aliases: ['seaborn', 'Python Seaborn'] },
+  { canonical: 'Power BI',         category: 'Data', weight: 0.90, aliases: ['PowerBI', 'Microsoft Power BI', 'Power BI Desktop'] },
+  { canonical: 'Tableau',          category: 'Data', weight: 0.90, aliases: ['Tableau Desktop', 'Tableau Server', 'Tableau Public'] },
+  { canonical: 'Apache Spark',     category: 'Data', weight: 0.87, aliases: ['Spark', 'PySpark', 'Spark SQL'] },
+  { canonical: 'Hadoop',           category: 'Data', weight: 0.83, aliases: ['Apache Hadoop', 'HDFS', 'MapReduce'] },
+  { canonical: 'dbt',              category: 'Data', weight: 0.82, aliases: ['DBT', 'Data Build Tool', 'dbt Core'] },
+  { canonical: 'Airflow',          category: 'Data', weight: 0.83, aliases: ['Apache Airflow', 'Workflow Orchestration'] },
+  { canonical: 'Looker',           category: 'Data', weight: 0.80, aliases: ['Looker Studio', 'Google Looker'] },
+  { canonical: 'Google Analytics', category: 'Data', weight: 0.87, aliases: ['GA4', 'Google Analytics 4', 'Universal Analytics'] },
+  { canonical: 'Excel',            category: 'Data', weight: 0.90, aliases: ['Microsoft Excel', 'MS Excel', 'Excel Spreadsheets', 'Advanced Excel'] },
+  { canonical: 'R',                category: 'Data', weight: 0.83, aliases: ['R Programming', 'R Language', 'R Studio', 'RStudio'] },
+  { canonical: 'Statistics',       category: 'Data', weight: 0.85, aliases: ['Statistical Analysis', 'Statistical Modeling', 'Statistical Methods'] },
+  { canonical: 'Data Visualization', category: 'Data', weight: 0.87, aliases: ['Data Viz', 'Data Visualisation', 'BI Reports'] },
+]

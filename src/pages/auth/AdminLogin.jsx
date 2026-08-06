@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { signIn, signOut } from "../../services/authService";
 import { supabase } from "../../services/supabase";
 import { setCurrentUser } from "../../services/localStorageService";
+import { isDevMode } from "../../services/devMode";
 import "./AdminLogin.css";
 
 export default function AdminLogin() {
@@ -18,11 +19,30 @@ export default function AdminLogin() {
     const email = event.target.email.value.trim();
     const password = event.target.password.value;
 
-    const adminEmail = import.meta.env.VITE_ADMIN_EMAIL || "admin@skillsync.com";
-    const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD || "12345678";
-
     try {
       const { data, error: signInError } = await signIn(email, password);
+
+      // ── DEV MODE: never query Supabase — check role from local dev user ───
+      if (isDevMode()) {
+        if (signInError || !data?.user) {
+          setError("Incorrect admin email or password. Please try again.");
+          return;
+        }
+        const devRole = data.user?.role || data.user?.user_metadata?.role;
+        if (devRole === "admin") {
+          setCurrentUser({
+            id:        data.user.id,
+            email:     data.user.email,
+            role:      "admin",
+            full_name: data.user.full_name || data.user?.user_metadata?.full_name || "",
+          });
+          navigate("/admin/dashboard");
+        } else {
+          setError("This dev account is not an admin. Use admin@test.com with password SkillSync#Admin1.");
+        }
+        return;
+      }
+      // ── END DEV MODE ───────────────────────────────────────────────────────
 
       if (!signInError && data?.user) {
         const { data: profile } = await supabase
@@ -44,16 +64,6 @@ export default function AdminLogin() {
 
         await signOut();
         setError("This account is not an admin. Use the regular sign-in page.");
-        return;
-      }
-
-      if (email === adminEmail && password === adminPassword) {
-        setCurrentUser({
-          email,
-          role: "admin",
-          is_local_admin: true,
-        });
-        navigate("/admin/dashboard");
         return;
       }
 

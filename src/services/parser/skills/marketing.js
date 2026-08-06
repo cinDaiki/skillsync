@@ -1,0 +1,20 @@
+/** @type {import('./index.js').SkillEntry[]} */
+export default [
+  { canonical: 'Digital Marketing',  category: 'Marketing', weight: 0.90, aliases: ['Online Marketing', 'Digital Marketing Strategy'] },
+  { canonical: 'SEO',                category: 'Marketing', weight: 0.90, aliases: ['Search Engine Optimization', 'Search Optimization', 'On-page SEO', 'Technical SEO'] },
+  { canonical: 'SEM',                category: 'Marketing', weight: 0.85, aliases: ['Search Engine Marketing', 'Paid Search'] },
+  { canonical: 'Google Ads',         category: 'Marketing', weight: 0.88, aliases: ['Google AdWords', 'Google Advertising', 'PPC', 'Pay-Per-Click'] },
+  { canonical: 'Facebook Ads',       category: 'Marketing', weight: 0.85, aliases: ['Meta Ads', 'Facebook Advertising', 'Social Media Ads'] },
+  { canonical: 'Social Media Marketing', category: 'Marketing', weight: 0.88, aliases: ['SMM', 'Social Media Management', 'Social Media Strategy'] },
+  { canonical: 'Content Marketing',  category: 'Marketing', weight: 0.83, aliases: ['Content Strategy', 'Content Creation', 'Content Management'] },
+  { canonical: 'Email Marketing',    category: 'Marketing', weight: 0.83, aliases: ['Email Campaigns', 'Email Strategy', 'Newsletter Marketing'] },
+  { canonical: 'Copywriting',        category: 'Marketing', weight: 0.83, aliases: ['Copy Writing', 'Ad Copywriting', 'Marketing Copy'] },
+  { canonical: 'Brand Management',   category: 'Marketing', weight: 0.83, aliases: ['Branding', 'Brand Strategy', 'Brand Development'] },
+  { canonical: 'Market Research',    category: 'Marketing', weight: 0.83, aliases: ['Consumer Research', 'Market Analysis', 'Competitive Analysis'] },
+  { canonical: 'HubSpot',            category: 'Marketing', weight: 0.83, aliases: ['HubSpot CRM', 'HubSpot Marketing'] },
+  { canonical: 'Mailchimp',          category: 'Marketing', weight: 0.80, aliases: ['Mail Chimp', 'Mailchimp Marketing'] },
+  { canonical: 'Hootsuite',          category: 'Marketing', weight: 0.80, aliases: ['Hoot Suite', 'Social Media Scheduler'] },
+  { canonical: 'Video Editing',      category: 'Marketing', weight: 0.83, aliases: ['Video Production', 'Video Content', 'Video Creation'] },
+  { canonical: 'Photography',        category: 'Marketing', weight: 0.80, aliases: ['Product Photography', 'Photo Editing'] },
+  { canonical: 'Marketing Analytics', category: 'Marketing', weight: 0.83, aliases: ['Marketing Metrics', 'Campaign Analytics', 'Marketing ROI'] },
+]

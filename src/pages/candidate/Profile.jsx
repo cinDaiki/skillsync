@@ -9,6 +9,10 @@ import {
   saveCandidateProfile,
   setCurrentUser,
 } from "../../services/localStorageService";
+import { uploadVerificationDocument, uploadCertificateFile } from "../../services/api";
+import { runMatchingForCandidate } from "../../services/matchingEngine";
+import ProfilePictureUploader from "../../components/common/ProfilePictureUploader";
+import { isDevMode } from "../../services/devMode";
 
 const defaultProfile = {
   fullName: "",
@@ -26,6 +30,10 @@ const defaultProfile = {
   currentPassword: "",
   newPassword: "",
   confirmPassword: "",
+  verificationStatus: "Pending Verification",
+  idImageUrl: "",
+  selfieImageUrl: "",
+  verificationDate: null,
 };
 
 function parseSkills(raw) {
@@ -87,7 +95,9 @@ export default function Profile() {
     name: "",
     issuer: "",
     date: "",
-    credentialId: ""
+    credentialId: "",
+    file: null,
+    fileUrl: ""
   });
 
   function applyProfileState(data, user) {
@@ -107,7 +117,11 @@ export default function Profile() {
         githubUrl: rawSocial.githubUrl || rawSocial.github || "",
         linkedinUrl: rawSocial.linkedinUrl || rawSocial.linkedin || "",
         twitterUrl: rawSocial.twitterUrl || rawSocial.twitter || ""
-      }
+      },
+      verificationStatus: data.verification_status || "Pending Verification",
+      idImageUrl: data.id_image_url || "",
+      selfieImageUrl: data.selfie_image_url || "",
+      verificationDate: data.verification_date || null
     });
 
     setSkills(parseSkills(data.skills));
@@ -168,7 +182,11 @@ export default function Profile() {
       social_links: socialLinks,
       education: nextEdu,
       work_experience: nextExp,
-      certifications: nextCert
+      certifications: nextCert,
+      verification_status: nextProfile.verificationStatus,
+      id_image_url: nextProfile.idImageUrl,
+      selfie_image_url: nextProfile.selfieImageUrl,
+      verification_date: nextProfile.verificationDate
     };
 
     let result = await supabase.from("profiles").upsert(payload);
@@ -184,6 +202,24 @@ export default function Profile() {
       } = payload;
       result = await supabase.from("profiles").upsert(basicPayload);
     }
+
+    // Phase 2: Save advanced data to candidate_profiles for AI Matching
+    let expYears = 0;
+    if (nextExp && nextExp.length > 0) {
+      // Rough estimation of years
+      expYears = nextExp.length * 2; 
+    }
+    
+    await supabase.from("candidate_profiles").upsert({
+      user_id: id,
+      course: nextEdu[0]?.field || null,
+      degree: nextEdu[0]?.degree || null,
+      education_level: nextEdu[0]?.degree || null,
+      skills: JSON.stringify(nextSkills),
+      certifications: JSON.stringify(nextCert),
+      years_experience: expYears,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id' });
 
     return result;
   }
@@ -261,6 +297,21 @@ export default function Profile() {
     let active = true;
 
     async function init() {
+      // DEV MODE: no Supabase session — read user from localStorage
+      if (isDevMode()) {
+        const stored = getCurrentUser();
+        if (stored?.id && active) {
+          setUserId(stored.id);
+          setProfile(prev => ({
+            ...prev,
+            fullName:          stored.full_name || stored.fullName || prev.fullName,
+            email:             stored.email || prev.email,
+            profilePictureUrl: stored.profile_picture_url || '',
+          }));
+        }
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user && active) {
         await loadProfileForUser(session.user);
@@ -293,14 +344,19 @@ export default function Profile() {
   // Calculate completeness score
   function calculateCompleteness() {
     let score = 10; // Base email
-    if (profile.fullName) score += 15;
+    if (profile.fullName) score += 10;
     if (profile.contactNumber) score += 10;
     if (profile.address) score += 10;
     if (profile.profilePictureUrl || profile.portfolioLinks.linkedinUrl) score += 10;
-    if (skills.length > 0) score += 15;
-    if (workExperience.length > 0) score += 15;
-    if (education.length > 0) score += 15;
-    return score;
+    if (skills.length > 0) score += 10;
+    if (workExperience.length > 0) score += 10;
+    if (education.length > 0) score += 10;
+    if (profile.verificationStatus === "Verified") {
+      score += 20;
+    } else if (profile.idImageUrl && profile.selfieImageUrl) {
+      score += 10; // Pending verification but uploaded
+    }
+    return Math.min(100, score);
   }
 
   const completenessScore = calculateCompleteness();
@@ -319,6 +375,13 @@ export default function Profile() {
         [field]: value
       }
     }));
+  }
+
+  // Profile picture change — keeps state + localStorage in sync
+  function handlePhotoChange(newUrl) {
+    setProfile(prev => ({ ...prev, profilePictureUrl: newUrl }));
+    const stored = getCurrentUser();
+    if (stored) setCurrentUser({ ...stored, profile_picture_url: newUrl });
   }
 
   async function handleAddSkill() {
@@ -448,32 +511,50 @@ export default function Profile() {
   // Certifications Operations
   function openAddCert() {
     setEditingCertIndex(null);
-    setCertForm({ name: "", issuer: "", date: "", credentialId: "" });
+    setCertForm({ name: "", issuer: "", date: "", credentialId: "", file: null, fileUrl: "" });
     setShowCertModal(true);
   }
 
   function openEditCert(index) {
     setEditingCertIndex(index);
-    setCertForm({ ...certifications[index] });
+    setCertForm({ ...certifications[index], file: null });
     setShowCertModal(true);
   }
 
   async function saveCertification(e) {
     e.preventDefault();
-    let nextCert = [...certifications];
-    if (editingCertIndex !== null) {
-      nextCert[editingCertIndex] = certForm;
-    } else {
-      nextCert.push(certForm);
-    }
-    setCertifications(nextCert);
-    setShowCertModal(false);
+    setSaving(true);
+    let finalCertForm = { ...certForm };
 
-    const activeId = userId || getCurrentUser()?.id;
-    if (activeId) {
-      cacheProfileLocally(activeId, profile, skills, education, workExperience, nextCert);
-      await persistProfileToServer(activeId, profile, skills, education, workExperience, nextCert);
-      syncApplicantSnapshot(activeId).catch(() => {});
+    try {
+      const activeId = userId || getCurrentUser()?.id;
+      if (activeId && certForm.file) {
+        const { data: url, error } = await uploadCertificateFile(certForm.file, activeId);
+        if (error) throw error;
+        finalCertForm.fileUrl = url;
+      }
+      
+      // Clean up file object before saving to JSONB
+      delete finalCertForm.file;
+
+      let nextCert = [...certifications];
+      if (editingCertIndex !== null) {
+        nextCert[editingCertIndex] = finalCertForm;
+      } else {
+        nextCert.push(finalCertForm);
+      }
+      setCertifications(nextCert);
+      setShowCertModal(false);
+
+      if (activeId) {
+        cacheProfileLocally(activeId, profile, skills, education, workExperience, nextCert);
+        await persistProfileToServer(activeId, profile, skills, education, workExperience, nextCert);
+        syncApplicantSnapshot(activeId).catch(() => {});
+      }
+    } catch (err) {
+      setMessage({ text: "Failed to upload certificate: " + err.message, type: "error" });
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -557,6 +638,9 @@ export default function Profile() {
       updateStoredUserName(profile.fullName.trim());
       syncApplicantSnapshot(activeUserId).catch(() => {});
 
+      // Trigger AI Matching Engine
+      runMatchingForCandidate(activeUserId).catch(console.error);
+
       setProfile((prev) => ({
         ...prev,
         currentPassword: "",
@@ -571,6 +655,43 @@ export default function Profile() {
         text: err.message || "Something went wrong while saving. Please try again.",
         type: "error",
       });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleVerificationUpload(e, type) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setSaving(true);
+    try {
+      const activeId = userId || getCurrentUser()?.id;
+      if (!activeId) throw new Error("No active user session");
+      
+      const { data: url, error } = await uploadVerificationDocument(file, activeId, type);
+      if (error) throw error;
+      
+      const updateKey = type === "id" ? "idImageUrl" : "selfieImageUrl";
+      // Status becomes "Under Review" so admin can see it needs attention
+      const newStatus = "Under Review";
+      const newDate = new Date().toISOString();
+      
+      setProfile(prev => ({
+        ...prev,
+        [updateKey]: url,
+        verificationStatus: newStatus,
+        verificationDate: newDate
+      }));
+      
+      await supabase.from("profiles").update({
+        [type === "id" ? "id_image_url" : "selfie_image_url"]: url,
+        verification_status: newStatus,
+        verification_date: newDate
+      }).eq("id", activeId);
+      
+      setMessage({ text: `${type === 'id' ? 'Valid ID' : 'Selfie image'} uploaded successfully!`, type: "success" });
+    } catch (err) {
+      setMessage({ text: `Failed to upload: ${err.message}`, type: "error" });
     } finally {
       setSaving(false);
     }
@@ -647,6 +768,12 @@ export default function Profile() {
           >
             Certifications ({certifications.length})
           </button>
+          <button
+            className={`profile-tab-btn ${activeTab === "verification" ? "active" : ""}`}
+            onClick={() => { setActiveTab("verification"); setMessage({ text: "", type: "success" }); }}
+          >
+            Identity Verification
+          </button>
         </div>
 
         {message.text && (
@@ -666,8 +793,16 @@ export default function Profile() {
         {activeTab === "view" && (
           <div className="profile-view">
             <div className="profile-view-header-row">
-              <div className="profile-view-avatar">
-                {profile.fullName ? profile.fullName.charAt(0).toUpperCase() : "C"}
+              <div className="profile-view-avatar-wrapper">
+                <ProfilePictureUploader
+                  currentUrl={profile.profilePictureUrl}
+                  name={profile.fullName || "C"}
+                  userId={userId}
+                  role="candidate"
+                  onPhotoChange={handlePhotoChange}
+                  size={88}
+                  disabled={saving}
+                />
               </div>
               <div className="profile-view-title">
                 <h2>{profile.fullName || "Your Full Name"}</h2>
@@ -1122,7 +1257,12 @@ export default function Profile() {
                         <div>
                           <h4>{cert.name}</h4>
                           <h5>{cert.issuer}</h5>
-                          {cert.credentialId && <small style={{ color: "#8b8f9c" }}>Credential ID: {cert.credentialId}</small>}
+                          {cert.credentialId && <small style={{ color: "#8b8f9c", display: "block" }}>Credential ID: {cert.credentialId}</small>}
+                          {cert.fileUrl && (
+                            <a href={cert.fileUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-block", marginTop: "4px", fontSize: "12px", color: "#58158f", textDecoration: "none", fontWeight: "bold" }}>
+                              📎 View Attached Certificate
+                            </a>
+                          )}
                         </div>
                         <span className="timeline-item-date">Issued {cert.date}</span>
                       </div>
@@ -1139,6 +1279,141 @@ export default function Profile() {
             )}
           </div>
         )}
+
+        {/* ── IDENTITY VERIFICATION TAB ── */}
+        {activeTab === "verification" && (
+          <div className="profile-view">
+            <div className="section-card-header">
+              <h3>🛡️ Identity Verification</h3>
+            </div>
+            <div className="profile-section-card">
+              <p style={{ marginBottom: "20px", color: "#667085" }}>
+                Verify your identity to increase trust with recruiters. Upload a clear photo of a valid Philippine ID and a recent selfie. An admin will review and approve your submission.
+              </p>
+
+              {/* ── Status Banner ── */}
+              {(() => {
+                const vs = profile.verificationStatus;
+                const configs = {
+                  "Verified": {
+                    bg: "#dcfce7", border: "#86efac", color: "#166534",
+                    icon: "✅", label: "Identity Verified",
+                    msg: "Your identity has been approved by an admin. You can now apply to jobs."
+                  },
+                  "Approved": {
+                    bg: "#dcfce7", border: "#86efac", color: "#166534",
+                    icon: "✅", label: "Identity Approved",
+                    msg: "Your identity has been approved. You can now apply to jobs."
+                  },
+                  "Rejected": {
+                    bg: "#fee2e2", border: "#fca5a5", color: "#991b1b",
+                    icon: "❌", label: "Verification Rejected",
+                    msg: "Your documents were rejected. Please re-upload a clearer, valid ID and selfie."
+                  },
+                  "Under Review": {
+                    bg: "#fefce8", border: "#fde68a", color: "#92400e",
+                    icon: "⏳", label: "Under Admin Review",
+                    msg: "Your documents have been submitted and are being reviewed. You will be able to apply to jobs once approved."
+                  },
+                };
+                const cfg = configs[vs] || {
+                  bg: "#f1f5f9", border: "#cbd5e1", color: "#475569",
+                  icon: "🔒", label: vs || "Pending Verification",
+                  msg: "Upload your valid ID and selfie below to start the verification process."
+                };
+                return (
+                  <div style={{ padding: "16px 20px", background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: "12px", marginBottom: "24px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "20px" }}>{cfg.icon}</span>
+                      <strong style={{ color: cfg.color, fontSize: "15px" }}>{cfg.label}</strong>
+                    </div>
+                    <p style={{ margin: 0, fontSize: "13px", color: cfg.color }}>{cfg.msg}</p>
+                  </div>
+                );
+              })()}
+
+              {/* ── Upload Grid ── */}
+              {profile.verificationStatus !== "Verified" && profile.verificationStatus !== "Approved" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "8px" }}>
+                  {/* Valid ID */}
+                  <div style={{
+                    border: profile.idImageUrl ? "2px solid #86efac" : "1px dashed #cbd5e1",
+                    padding: "20px", borderRadius: "12px",
+                    background: profile.idImageUrl ? "#f0fdf4" : "#fff"
+                  }}>
+                    <h4 style={{ margin: "0 0 6px", fontSize: "14px" }}>
+                      📄 Upload Valid ID {profile.idImageUrl && <span style={{ color: "#16a34a", fontSize: "12px" }}>✓ Uploaded</span>}
+                    </h4>
+                    <p style={{ fontSize: "12px", color: "#6b7280", marginBottom: "12px" }}>
+                      National ID, Passport, Driver's License, UMID, PRC ID, PhilHealth
+                    </p>
+                    {profile.idImageUrl && (
+                      <div style={{ marginBottom: "12px", borderRadius: "8px", overflow: "hidden", border: "1px solid #e2e8f0" }}>
+                        <img src={profile.idImageUrl} alt="Valid ID" style={{ width: "100%", maxHeight: "160px", objectFit: "cover" }} />
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => handleVerificationUpload(e, "id")}
+                      disabled={saving}
+                      style={{ fontSize: "13px" }}
+                    />
+                  </div>
+
+                  {/* Selfie */}
+                  <div style={{
+                    border: profile.selfieImageUrl ? "2px solid #86efac" : "1px dashed #cbd5e1",
+                    padding: "20px", borderRadius: "12px",
+                    background: profile.selfieImageUrl ? "#f0fdf4" : "#fff"
+                  }}>
+                    <h4 style={{ margin: "0 0 6px", fontSize: "14px" }}>
+                      🤳 Capture / Upload Selfie {profile.selfieImageUrl && <span style={{ color: "#16a34a", fontSize: "12px" }}>✓ Uploaded</span>}
+                    </h4>
+                    <p style={{ fontSize: "12px", color: "#6b7280", marginBottom: "12px" }}>
+                      Please ensure your face is clearly visible and well-lit.
+                    </p>
+                    {profile.selfieImageUrl && (
+                      <div style={{ marginBottom: "12px", borderRadius: "8px", overflow: "hidden", border: "1px solid #e2e8f0" }}>
+                        <img src={profile.selfieImageUrl} alt="Selfie" style={{ width: "100%", maxHeight: "160px", objectFit: "cover" }} />
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleVerificationUpload(e, "selfie")}
+                      disabled={saving}
+                      style={{ fontSize: "13px" }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Already verified — show submitted images read-only */}
+              {(profile.verificationStatus === "Verified" || profile.verificationStatus === "Approved") && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "8px" }}>
+                  {profile.idImageUrl && (
+                    <div style={{ border: "2px solid #86efac", padding: "16px", borderRadius: "12px", background: "#f0fdf4" }}>
+                      <p style={{ margin: "0 0 8px", fontSize: "12px", fontWeight: "800", color: "#166534" }}>📄 Your Valid ID</p>
+                      <img src={profile.idImageUrl} alt="Valid ID" style={{ width: "100%", borderRadius: "8px", maxHeight: "160px", objectFit: "cover" }} />
+                    </div>
+                  )}
+                  {profile.selfieImageUrl && (
+                    <div style={{ border: "2px solid #86efac", padding: "16px", borderRadius: "12px", background: "#f0fdf4" }}>
+                      <p style={{ margin: "0 0 8px", fontSize: "12px", fontWeight: "800", color: "#166534" }}>🤳 Your Selfie</p>
+                      <img src={profile.selfieImageUrl} alt="Selfie" style={{ width: "100%", borderRadius: "8px", maxHeight: "160px", objectFit: "cover" }} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {saving && (
+                <p style={{ textAlign: "center", color: "#8b18ff", marginTop: "16px", fontSize: "14px" }}>⏳ Uploading document...</p>
+              )}
+            </div>
+          </div>
+        )}
+
       </section>
 
       {/* ── EXPERIENCE MODAL ── */}
@@ -1311,12 +1586,23 @@ export default function Profile() {
                   type="text" 
                   value={certForm.credentialId} 
                   onChange={(e) => setCertForm(prev => ({ ...prev, credentialId: e.target.value }))}
-                  placeholder="e.g. AWS-12345678" 
+                  placeholder="e.g. AWS-12345" 
                 />
+              </label>
+              <label>
+                <span>Upload Certificate (Optional)</span>
+                <input 
+                  type="file" 
+                  accept="image/*,.pdf"
+                  onChange={(e) => setCertForm(prev => ({ ...prev, file: e.target.files[0] }))}
+                />
+                {certForm.fileUrl && !certForm.file && (
+                  <small style={{ color: "#166534", marginTop: "4px", display: "block" }}>✓ File previously uploaded</small>
+                )}
               </label>
               <div className="modal-actions">
                 <button type="button" className="modal-btn secondary" onClick={() => setShowCertModal(false)}>Cancel</button>
-                <button type="submit" className="modal-btn primary">Save Certification</button>
+                <button type="submit" className="modal-btn primary" disabled={saving}>{saving ? "Saving..." : "Save Certification"}</button>
               </div>
             </form>
           </div>

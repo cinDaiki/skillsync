@@ -1,0 +1,23 @@
+/** @type {import('./index.js').SkillEntry[]} */
+export default [
+  { canonical: 'Machine Learning',   category: 'AI/ML', weight: 0.93, aliases: ['ML', 'Machine Learning Algorithms', 'Statistical Learning'] },
+  { canonical: 'Deep Learning',      category: 'AI/ML', weight: 0.92, aliases: ['DL', 'Neural Networks', 'Deep Neural Networks'] },
+  { canonical: 'Natural Language Processing', category: 'AI/ML', weight: 0.90, aliases: ['NLP', 'Text Mining', 'Text Processing'] },
+  { canonical: 'Computer Vision',    category: 'AI/ML', weight: 0.88, aliases: ['CV', 'Image Recognition', 'Object Detection', 'Image Processing'] },
+  { canonical: 'TensorFlow',         category: 'AI/ML', weight: 0.92, aliases: ['TF', 'Tensor Flow', 'TensorFlow 2', 'TF2'] },
+  { canonical: 'PyTorch',            category: 'AI/ML', weight: 0.92, aliases: ['Py Torch', 'PyTorch Lightning'] },
+  { canonical: 'scikit-learn',       category: 'AI/ML', weight: 0.90, aliases: ['sklearn', 'Scikit Learn', 'scikit learn', 'Scikit-Learn'] },
+  { canonical: 'Keras',              category: 'AI/ML', weight: 0.87, aliases: ['Keras API', 'TensorFlow Keras'] },
+  { canonical: 'OpenCV',             category: 'AI/ML', weight: 0.85, aliases: ['Open CV', 'cv2', 'OpenCV Python'] },
+  { canonical: 'Hugging Face',       category: 'AI/ML', weight: 0.88, aliases: ['HuggingFace', 'Transformers', 'HF Transformers'] },
+  { canonical: 'LangChain',          category: 'AI/ML', weight: 0.85, aliases: ['Lang Chain', 'LangChain Framework'] },
+  { canonical: 'OpenAI API',         category: 'AI/ML', weight: 0.87, aliases: ['GPT API', 'ChatGPT API', 'OpenAI GPT'] },
+  { canonical: 'Generative AI',      category: 'AI/ML', weight: 0.87, aliases: ['GenAI', 'AI Generation', 'Large Language Models', 'LLM'] },
+  { canonical: 'Reinforcement Learning', category: 'AI/ML', weight: 0.83, aliases: ['RL', 'Q-Learning', 'Deep RL'] },
+  { canonical: 'Transfer Learning',  category: 'AI/ML', weight: 0.82, aliases: ['Fine-tuning', 'Model Fine-tuning'] },
+  { canonical: 'ONNX',               category: 'AI/ML', weight: 0.80, aliases: ['Open Neural Network Exchange'] },
+  { canonical: 'MLflow',             category: 'AI/ML', weight: 0.80, aliases: ['ML Flow', 'ML Experiment Tracking'] },
+  { canonical: 'Jupyter',            category: 'AI/ML', weight: 0.87, aliases: ['Jupyter Notebook', 'Jupyter Lab', 'IPython Notebook'] },
+  { canonical: 'TensorFlow Lite',    category: 'AI/ML', weight: 0.80, aliases: ['TFLite', 'TF Lite', 'Mobile ML'] },
+  { canonical: 'Artificial Intelligence', category: 'AI/ML', weight: 0.88, aliases: ['AI', 'Artificial Intelligence Systems'] },
+]

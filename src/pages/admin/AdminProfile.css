@@ -1,0 +1,113 @@
+/* AdminProfile page styles */
+
+.admin-profile-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Hero card */
+.admin-profile-hero {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  background: linear-gradient(135deg, #fbf9ff, #f3e8ff);
+  border: 1px solid #e9d5ff;
+  border-radius: 20px;
+  padding: 28px 32px;
+}
+
+.admin-profile-hero-info {
+  flex: 1;
+}
+
+.admin-profile-hero-info h2 {
+  margin: 0 0 4px 0;
+  font-size: 22px;
+  font-weight: 900;
+  color: #1e1b4b;
+}
+
+.admin-profile-hero-info p {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.admin-profile-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  background: #58158f;
+  color: #fff;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+
+/* Info card */
+.admin-profile-card {
+  background: #fff;
+  border: 1px solid #e2cff8;
+  border-radius: 20px;
+  padding: 28px 32px;
+}
+
+.admin-profile-card h3 {
+  margin: 0 0 20px 0;
+  font-size: 16px;
+  font-weight: 900;
+  color: #1e1b4b;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #f3f0fe;
+}
+
+.admin-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.admin-profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-profile-field label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8b5cf6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.admin-profile-field span {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e1b4b;
+}
+
+/* Message banner */
+.admin-profile-msg {
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.admin-profile-msg.success {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.admin-profile-msg.error {
+  background: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+}

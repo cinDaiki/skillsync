@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
-
-const COMPANY_PROFILES_KEY = "skillsync_company_profiles";
+import { supabase } from "../../services/supabase";
+import { uploadEmployerVerification, uploadCompanyBranding } from "../../services/api";
+import ProfilePictureUploader from "../../components/common/ProfilePictureUploader";
+import { setCurrentUser, getCurrentUser } from "../../services/localStorageService";
+import { isDevMode } from "../../services/devMode";
 
 export default function CompanyProfile() {
   const [isEditing, setIsEditing] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState({ text: "", type: "" });
+  const [activeTab, setActiveTab] = useState("details");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState("");
 
   const [company, setCompany] = useState({
     companyName: "",
@@ -16,332 +24,322 @@ export default function CompanyProfile() {
     contactEmail: "",
     contactNumber: "",
     about: "",
+    verification_status: "Pending",
+    id_image_url: "",
+    selfie_image_url: "",
+    business_permit_url: "",
+    sec_registration_url: "",
+    company_logo_url: "",
+    cover_photo_url: ""
+  });
+
+  const [uploadFiles, setUploadFiles] = useState({
+    id_image: null,
+    selfie_image: null,
+    business_permit: null,
+    sec_registration: null,
+    company_logo: null,
+    cover_photo: null
   });
 
   useEffect(() => {
     loadCompanyProfile();
   }, []);
 
-  function getCurrentUser() {
-    return JSON.parse(localStorage.getItem("skillsync_user")) || {};
-  }
+  async function loadCompanyProfile() {
+    setLoading(true);
 
-  function getAllCompanyProfiles() {
-    return JSON.parse(localStorage.getItem(COMPANY_PROFILES_KEY)) || [];
-  }
-
-  function loadCompanyProfile() {
-    const currentUser = getCurrentUser();
-    const savedProfiles = getAllCompanyProfiles();
-
-    const myProfile = savedProfiles.find(
-      (profile) => profile.employerEmail === currentUser.email
-    );
-
-    if (myProfile) {
-      setCompany({
-        companyName: myProfile.companyName || "",
-        industry: myProfile.industry || "",
-        companySize: myProfile.companySize || "",
-        location: myProfile.location || "",
-        website: myProfile.website || "",
-        contactEmail: myProfile.contactEmail || currentUser.email || "",
-        contactNumber: myProfile.contactNumber || "",
-        about: myProfile.about || "",
-      });
-      setIsEditing(false);
+    // DEV MODE: no Supabase session — read user from localStorage
+    if (isDevMode()) {
+      const stored = getCurrentUser();
+      if (stored?.id) {
+        setUserId(stored.id);
+        setProfilePhotoUrl(stored.profile_picture_url || '');
+        setCompany(prev => ({ ...prev, contactEmail: stored.email || '' }));
+        setIsEditing(true);
+      }
+      setLoading(false);
       return;
     }
 
-    setCompany({
-      companyName: "",
-      industry: "",
-      companySize: "",
-      location: "",
-      website: "",
-      contactEmail: currentUser.email || "",
-      contactNumber: "",
-      about: "",
-    });
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    setUserId(user.id);
 
-    setIsEditing(true);
+    // Load personal profile picture from profiles table
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("profile_picture_url")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (prof?.profile_picture_url) setProfilePhotoUrl(prof.profile_picture_url);
+
+    const { data, error } = await supabase
+      .from("employer_profiles")
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (data) {
+      setCompany({
+        companyName: data.company_name || "",
+        industry: data.industry || "",
+        companySize: data.company_size || "",
+        location: data.location || "",
+        website: data.website || "",
+        contactEmail: data.contact_email || user.email || "",
+        contactNumber: data.contact_number || "",
+        about: data.about || "",
+        verification_status: data.verification_status || "Pending",
+        id_image_url: data.id_image_url || "",
+        selfie_image_url: data.selfie_image_url || "",
+        business_permit_url: data.business_permit_url || "",
+        sec_registration_url: data.sec_registration_url || "",
+        company_logo_url: data.company_logo_url || "",
+        cover_photo_url: data.cover_photo_url || ""
+      });
+      setIsEditing(false);
+    } else {
+      setCompany(prev => ({ ...prev, contactEmail: user.email }));
+      setIsEditing(true);
+    }
+    setLoading(false);
   }
 
   function handleChange(e) {
     const { name, value } = e.target;
-
-    setCompany((prevCompany) => ({
-      ...prevCompany,
-      [name]: value,
-    }));
+    setCompany(prev => ({ ...prev, [name]: value }));
   }
 
-  function handleSubmit(e) {
+  function handleFileChange(e) {
+    const { name, files } = e.target;
+    if (files && files[0]) {
+      setUploadFiles(prev => ({ ...prev, [name]: files[0] }));
+    }
+  }
+
+  function handlePhotoChange(newUrl) {
+    setProfilePhotoUrl(newUrl);
+    const stored = getCurrentUser();
+    if (stored) setCurrentUser({ ...stored, profile_picture_url: newUrl });
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault();
+    if (!userId) return;
 
-    const currentUser = getCurrentUser();
-
-    if (!currentUser.email) {
-      setMessage("No employer account is logged in.");
+    if (!company.companyName.trim() || !company.industry.trim() || !company.location.trim()) {
+      setMessage({ text: "Please fill in all required fields (Name, Industry, Location).", type: "error" });
       return;
     }
 
-    if (!company.companyName.trim()) {
-      setMessage("Please enter your company name.");
-      return;
+    setSaving(true);
+    setMessage({ text: "", type: "" });
+
+    try {
+      let finalData = {
+        id: userId,
+        company_name: company.companyName,
+        industry: company.industry,
+        company_size: company.companySize,
+        location: company.location,
+        website: company.website,
+        contact_email: company.contactEmail,
+        contact_number: company.contactNumber,
+        about: company.about,
+        updated_at: new Date().toISOString()
+      };
+
+      // Upload Identity Verification files
+      if (uploadFiles.id_image) {
+        const { data } = await uploadEmployerVerification(uploadFiles.id_image, userId);
+        if (data) finalData.id_image_url = data;
+      }
+      if (uploadFiles.selfie_image) {
+        const { data } = await uploadEmployerVerification(uploadFiles.selfie_image, userId);
+        if (data) finalData.selfie_image_url = data;
+      }
+
+      // Upload Branding/Permit files
+      if (uploadFiles.business_permit) {
+        const { data } = await uploadCompanyBranding(uploadFiles.business_permit, userId);
+        if (data) finalData.business_permit_url = data;
+      }
+      if (uploadFiles.sec_registration) {
+        const { data } = await uploadCompanyBranding(uploadFiles.sec_registration, userId);
+        if (data) finalData.sec_registration_url = data;
+      }
+      if (uploadFiles.company_logo) {
+        const { data } = await uploadCompanyBranding(uploadFiles.company_logo, userId);
+        if (data) finalData.company_logo_url = data;
+      }
+      if (uploadFiles.cover_photo) {
+        const { data } = await uploadCompanyBranding(uploadFiles.cover_photo, userId);
+        if (data) finalData.cover_photo_url = data;
+      }
+
+      // Upsert into Supabase
+      const { error } = await supabase.from("employer_profiles").upsert([finalData]);
+      if (error) throw error;
+
+      setMessage({ text: "Profile updated successfully!", type: "success" });
+      setIsEditing(false);
+      
+      // Clear file inputs
+      setUploadFiles({
+        id_image: null, selfie_image: null, business_permit: null, sec_registration: null, company_logo: null, cover_photo: null
+      });
+      
+      loadCompanyProfile();
+    } catch (error) {
+      setMessage({ text: "Failed to save profile: " + error.message, type: "error" });
+    } finally {
+      setSaving(false);
     }
-
-    if (!company.industry.trim()) {
-      setMessage("Please enter your company industry.");
-      return;
-    }
-
-    if (!company.location.trim()) {
-      setMessage("Please enter your company location.");
-      return;
-    }
-
-    const savedProfiles = getAllCompanyProfiles();
-
-    const profileData = {
-      id: currentUser.email,
-      employerEmail: currentUser.email,
-      employerName:
-        currentUser.name ||
-        currentUser.fullName ||
-        currentUser.email,
-      companyName: company.companyName.trim(),
-      industry: company.industry.trim(),
-      companySize: company.companySize.trim(),
-      location: company.location.trim(),
-      website: company.website.trim(),
-      contactEmail: company.contactEmail.trim() || currentUser.email,
-      contactNumber: company.contactNumber.trim(),
-      about: company.about.trim(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const existingProfile = savedProfiles.find(
-      (profile) => profile.employerEmail === currentUser.email
-    );
-
-    let updatedProfiles;
-
-    if (existingProfile) {
-      updatedProfiles = savedProfiles.map((profile) =>
-        profile.employerEmail === currentUser.email
-          ? {
-              ...profile,
-              ...profileData,
-            }
-          : profile
-      );
-    } else {
-      updatedProfiles = [
-        ...savedProfiles,
-        {
-          ...profileData,
-          createdAt: new Date().toISOString(),
-        },
-      ];
-    }
-
-    localStorage.setItem(
-      COMPANY_PROFILES_KEY,
-      JSON.stringify(updatedProfiles)
-    );
-
-    setCompany(profileData);
-    setIsEditing(false);
-    setMessage("Company profile saved successfully.");
   }
 
-  function handleEdit() {
-    setMessage("");
-    setIsEditing(true);
+  if (loading) {
+    return <DashboardLayout role="employer" title="Company"><p>Loading profile...</p></DashboardLayout>;
   }
 
-  function handleCancel() {
-    setMessage("");
-    loadCompanyProfile();
-  }
-
-  const hasCompanyInfo =
-    company.companyName ||
-    company.industry ||
-    company.companySize ||
-    company.location ||
-    company.website ||
-    company.contactEmail ||
-    company.contactNumber ||
-    company.about;
+  const hasCompanyInfo = company.companyName || company.industry || company.location;
 
   return (
     <DashboardLayout
       role="employer"
-      title="Company"
-      subtitle="Manage your company profile and hiring details."
+      title="Company Profile"
+      subtitle="Manage your identity verification and company branding."
     >
       <section className="dashboard-panel">
         <div className="panel-header company-panel-header">
           <div className="panel-header-content">
-            <h2>Company Information</h2>
+            <h2>{activeTab === 'details' ? "Company Information" : "Verification & Branding"}</h2>
           </div>
-
-          {!isEditing && hasCompanyInfo && (
-            <button
-              type="button"
-              className="panel-action"
-              onClick={handleEdit}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button 
+              className={`panel-action ${activeTab === 'details' ? 'primary' : 'secondary'}`} 
+              onClick={() => setActiveTab('details')}
+              style={{ background: activeTab === 'details' ? '#58158f' : '#e2e8f0', color: activeTab === 'details' ? '#fff' : '#333' }}
             >
-              Edit Company
+              Details
             </button>
-          )}
+            <button 
+              className={`panel-action ${activeTab === 'verification' ? 'primary' : 'secondary'}`} 
+              onClick={() => setActiveTab('verification')}
+              style={{ background: activeTab === 'verification' ? '#58158f' : '#e2e8f0', color: activeTab === 'verification' ? '#fff' : '#333' }}
+            >
+              Verification
+            </button>
+            {!isEditing && hasCompanyInfo && (
+              <button type="button" className="panel-action" onClick={() => setIsEditing(true)}>
+                Edit Profile
+              </button>
+            )}
+          </div>
         </div>
 
-        {message && <div className="profile-message">{message}</div>}
-
-        {!isEditing && !hasCompanyInfo ? (
-          <div className="empty-state">
-            <span>▤</span>
-            <h3>No company information yet</h3>
-            <p>
-              Add your company details so job seekers can better understand your
-              organization.
-            </p>
-
-            <button
-              type="button"
-              className="panel-action"
-              onClick={() => setIsEditing(true)}
-            >
-              Add Company Info
-            </button>
+        {message.text && (
+          <div className={`profile-message ${message.type === 'error' ? 'error-message' : 'success-message'}`} style={{ color: message.type === 'error' ? 'red' : 'green', padding: '10px', marginBottom: '15px', background: message.type === 'error' ? '#fee2e2' : '#dcfce7', borderRadius: '6px' }}>
+            {message.text}
           </div>
-        ) : (
-          <form className="profile-form" onSubmit={handleSubmit}>
-            <div className="profile-form-grid">
-              <label>
-                <span>Company Name</span>
-                <input
-                  type="text"
-                  name="companyName"
-                  placeholder="Enter Company Name"
-                  value={company.companyName}
-                  onChange={handleChange}
-                  disabled={!isEditing}
-                />
-              </label>
-
-              <label>
-                <span>Industry</span>
-                <input
-                  type="text"
-                  name="industry"
-                  placeholder="Enter Company Industry"
-                  value={company.industry}
-                  onChange={handleChange}
-                  disabled={!isEditing}
-                />
-              </label>
-
-              <label>
-                <span>Company Size</span>
-                <input
-                  type="text"
-                  name="companySize"
-                  placeholder="Enter Company Size"
-                  value={company.companySize}
-                  onChange={handleChange}
-                  disabled={!isEditing}
-                />
-              </label>
-
-              <label>
-                <span>Company Location</span>
-                <input
-                  type="text"
-                  name="location"
-                  placeholder="Enter Company Location"
-                  value={company.location}
-                  onChange={handleChange}
-                  disabled={!isEditing}
-                />
-              </label>
-
-              <label>
-                <span>Website</span>
-                <input
-                  type="text"
-                  name="website"
-                  placeholder="https://company.com"
-                  value={company.website}
-                  onChange={handleChange}
-                  disabled={!isEditing}
-                />
-              </label>
-
-              <label>
-                <span>Contact Email</span>
-                <input
-                  type="email"
-                  name="contactEmail"
-                  placeholder="company@email.com"
-                  value={company.contactEmail}
-                  onChange={handleChange}
-                  disabled={!isEditing}
-                />
-              </label>
-
-              <label>
-                <span>Contact Number</span>
-                <input
-                  type="text"
-                  name="contactNumber"
-                  placeholder="Enter Contact Number"
-                  value={company.contactNumber}
-                  onChange={handleChange}
-                  disabled={!isEditing}
-                />
-              </label>
-            </div>
-
-            <label>
-              <span>About the Company</span>
-              <textarea
-                className="dashboard-textarea"
-                name="about"
-                placeholder="Write a short description about your company."
-                value={company.about}
-                onChange={handleChange}
-                disabled={!isEditing}
-              />
-            </label>
-
-            {!isEditing && company.about && (
-              <div className="company-preview-card">
-                <span>Company Overview</span>
-                <p>{company.about}</p>
-              </div>
-            )}
-
-            {isEditing && (
-              <div className="profile-actions">
-                <button type="submit" className="profile-save-btn">
-                  Save Company
-                </button>
-
-                <button
-                  type="button"
-                  className="profile-cancel-btn"
-                  onClick={handleCancel}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </form>
         )}
+
+        <form className="profile-form" onSubmit={handleSubmit}>
+          {activeTab === 'details' ? (
+            <>
+              {/* Personal profile picture */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '16px 0 24px', borderBottom: '2px solid #f3f0fe', marginBottom: '20px' }}>
+                <ProfilePictureUploader
+                  currentUrl={profilePhotoUrl}
+                  name={company.companyName || (getCurrentUser()?.full_name || "")}
+                  userId={userId}
+                  role="employer"
+                  onPhotoChange={handlePhotoChange}
+                  size={80}
+                  disabled={saving}
+                />
+                <div>
+                  <p style={{ margin: '0 0 4px', fontWeight: 700, color: '#1e1b4b', fontSize: '15px' }}>Your Profile Photo</p>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>This is your personal photo, separate from your company logo.</p>
+                </div>
+              </div>
+              <div className="profile-form-grid">
+                <label><span>Company Name *</span>
+                  <input type="text" name="companyName" value={company.companyName} onChange={handleChange} disabled={!isEditing} />
+                </label>
+                <label><span>Industry *</span>
+                  <input type="text" name="industry" value={company.industry} onChange={handleChange} disabled={!isEditing} />
+                </label>
+                <label><span>Company Size</span>
+                  <input type="text" name="companySize" placeholder="e.g. 50-200" value={company.companySize} onChange={handleChange} disabled={!isEditing} />
+                </label>
+                <label><span>Company Location *</span>
+                  <input type="text" name="location" value={company.location} onChange={handleChange} disabled={!isEditing} />
+                </label>
+                <label><span>Website</span>
+                  <input type="text" name="website" value={company.website} onChange={handleChange} disabled={!isEditing} />
+                </label>
+                <label><span>Contact Email</span>
+                  <input type="email" name="contactEmail" value={company.contactEmail} onChange={handleChange} disabled={!isEditing} />
+                </label>
+                <label><span>Contact Number</span>
+                  <input type="text" name="contactNumber" value={company.contactNumber} onChange={handleChange} disabled={!isEditing} />
+                </label>
+              </div>
+              <label style={{ marginTop: '15px' }}><span>About the Company</span>
+                <textarea className="dashboard-textarea" name="about" value={company.about} onChange={handleChange} disabled={!isEditing} rows={4} />
+              </label>
+            </>
+          ) : (
+            <div className="verification-tab">
+              <div style={{ padding: '16px', background: company.verification_status === 'Verified' ? '#dcfce7' : '#fef9c3', borderRadius: '8px', marginBottom: '20px' }}>
+                <h3 style={{ margin: 0, color: company.verification_status === 'Verified' ? '#166534' : '#854d0e' }}>
+                  Verification Status: {company.verification_status}
+                </h3>
+                <p style={{ fontSize: '13px', margin: '4px 0 0 0', color: '#475569' }}>
+                  {company.verification_status === 'Verified' ? 'Your identity and business are verified. You can post jobs.' : 'Please upload your ID and business permits to get verified.'}
+                </p>
+              </div>
+
+              <div className="profile-form-grid">
+                <label><span>Government ID (PDF/Image)</span>
+                  <input type="file" name="id_image" accept="image/*,.pdf" onChange={handleFileChange} disabled={!isEditing} />
+                  {company.id_image_url && <a href={company.id_image_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px' }}>View Uploaded ID</a>}
+                </label>
+                <label><span>Selfie with ID</span>
+                  <input type="file" name="selfie_image" accept="image/*" onChange={handleFileChange} disabled={!isEditing} />
+                  {company.selfie_image_url && <a href={company.selfie_image_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px' }}>View Uploaded Selfie</a>}
+                </label>
+                <label><span>Business Permit</span>
+                  <input type="file" name="business_permit" accept="image/*,.pdf" onChange={handleFileChange} disabled={!isEditing} />
+                  {company.business_permit_url && <a href={company.business_permit_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px' }}>View Business Permit</a>}
+                </label>
+                <label><span>SEC Registration</span>
+                  <input type="file" name="sec_registration" accept="image/*,.pdf" onChange={handleFileChange} disabled={!isEditing} />
+                  {company.sec_registration_url && <a href={company.sec_registration_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px' }}>View SEC Registration</a>}
+                </label>
+                <label><span>Company Logo</span>
+                  <input type="file" name="company_logo" accept="image/*" onChange={handleFileChange} disabled={!isEditing} />
+                  {company.company_logo_url && <a href={company.company_logo_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px' }}>View Logo</a>}
+                </label>
+              </div>
+            </div>
+          )}
+
+          {isEditing && (
+            <div className="profile-actions" style={{ marginTop: '20px' }}>
+              <button type="submit" className="profile-save-btn" disabled={saving}>
+                {saving ? "Saving..." : "Save Changes"}
+              </button>
+              <button type="button" className="profile-cancel-btn" onClick={() => { setIsEditing(false); loadCompanyProfile(); }}>
+                Cancel
+              </button>
+            </div>
+          )}
+        </form>
       </section>
     </DashboardLayout>
   );

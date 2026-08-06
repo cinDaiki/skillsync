@@ -15,6 +15,7 @@ import ResetPassword from "./pages/auth/ResetPassword";
 import CandidateDashboard from "./pages/candidate/CandidateDashboard";
 import Resume from "./pages/candidate/Resume";
 import JobMatches from "./pages/candidate/JobMatches";
+import AIJobMatches from "./pages/candidate/AIJobMatches";
 import Applications from "./pages/candidate/Applications";
 import Profile from "./pages/candidate/Profile";
 
@@ -31,6 +32,7 @@ import ManageEmployers from "./pages/admin/ManageEmployers";
 import Reports from "./pages/admin/Reports";
 import ManageResumes from "./pages/admin/ManageResumes";
 import AdminManageApplications from "./pages/admin/AdminManageApplications";
+import AdminProfile from "./pages/admin/AdminProfile";
 
 import Unauthorized from "./pages/errors/Unauthorized";
 import NotFound from "./pages/errors/NotFound";
@@ -80,6 +82,15 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.CANDIDATE]}>
               <JobMatches />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/candidate/ai-matches"
+          element={
+            <RoleRoute allowedRoles={[ROLES.CANDIDATE]}>
+              <AIJobMatches />
             </RoleRoute>
           }
         />
@@ -208,6 +219,15 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.ADMIN]}>
               <Reports />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/admin/profile"
+          element={
+            <RoleRoute allowedRoles={[ROLES.ADMIN]}>
+              <AdminProfile />
             </RoleRoute>
           }
         />

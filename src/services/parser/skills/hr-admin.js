@@ -1,0 +1,22 @@
+/** @type {import('./index.js').SkillEntry[]} */
+export default [
+  { canonical: 'Recruitment',        category: 'HR', weight: 0.88, aliases: ['Talent Acquisition', 'Hiring', 'End-to-End Recruitment'] },
+  { canonical: 'Onboarding',         category: 'HR', weight: 0.83, aliases: ['Employee Onboarding', 'New Hire Orientation'] },
+  { canonical: 'Performance Management', category: 'HR', weight: 0.83, aliases: ['Performance Review', 'Performance Appraisal', 'KPI Management'] },
+  { canonical: 'Employee Relations',  category: 'HR', weight: 0.83, aliases: ['Labor Relations', 'Employee Engagement', 'ER Management'] },
+  { canonical: 'HRIS',               category: 'HR', weight: 0.83, aliases: ['HR Information System', 'Human Resource Information System'] },
+  { canonical: 'Workday',            category: 'HR', weight: 0.83, aliases: ['Workday HCM', 'Workday HRIS'] },
+  { canonical: 'BambooHR',           category: 'HR', weight: 0.80, aliases: ['Bamboo HR'] },
+  { canonical: 'Payroll Processing', category: 'HR', weight: 0.83, aliases: ['Payroll Administration', 'Payroll Computation'] },
+  { canonical: 'Labor Law',          category: 'HR', weight: 0.83, aliases: ['Labor Relations Law', 'Labor Code', 'Labor Standards'] },
+  { canonical: 'Compensation & Benefits', category: 'HR', weight: 0.83, aliases: ['C&B', 'Compensation Benefits', 'Total Rewards'] },
+  { canonical: 'Training & Development', category: 'HR', weight: 0.83, aliases: ['L&D', 'Learning and Development', 'HR Training'] },
+  { canonical: 'Customer Service',   category: 'HR', weight: 0.88, aliases: ['Customer Support', 'Client Services', 'Customer Relations'] },
+  { canonical: 'CRM',                category: 'HR', weight: 0.83, aliases: ['Customer Relationship Management', 'Salesforce CRM', 'CRM Software'] },
+  { canonical: 'Sales',              category: 'HR', weight: 0.85, aliases: ['Sales Management', 'Sales Strategy', 'Direct Sales', 'B2B Sales', 'B2C Sales'] },
+  { canonical: 'Account Management', category: 'HR', weight: 0.83, aliases: ['Key Account Management', 'Client Account Management'] },
+  { canonical: 'Office Administration', category: 'HR', weight: 0.83, aliases: ['Administrative Support', 'Office Management', 'Executive Assistant'] },
+  { canonical: 'Supply Chain Management', category: 'HR', weight: 0.83, aliases: ['SCM', 'Supply Chain', 'Supply Chain Operations'] },
+  { canonical: 'Inventory Management', category: 'HR', weight: 0.83, aliases: ['Inventory Control', 'Stock Management', 'Warehouse Management'] },
+  { canonical: 'Procurement',        category: 'HR', weight: 0.83, aliases: ['Purchasing', 'Strategic Procurement', 'Vendor Management'] },
+]

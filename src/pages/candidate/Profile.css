@@ -176,6 +176,14 @@ input:checked + .toggle-slider:before {
   margin-bottom: 28px;
 }
 
+/* Wrapper for the ProfilePictureUploader in the view tab header */
+.profile-view-avatar-wrapper {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .profile-view-avatar {
   width: 80px;
   height: 80px;

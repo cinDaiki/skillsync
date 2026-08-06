@@ -114,6 +114,16 @@ export async function triggerSimulationNotification(userId, actionType, meta = {
         message = `An interview has been scheduled for "${meta.jobTitle || "Product Designer"}" on ${meta.date || "tomorrow"} via Google Meet.`;
         type = "interview";
         break;
+      case "application_feedback":
+        title = "New Recruiter Feedback";
+        message = `Recruiter left feedback for your "${meta.jobTitle}" application: "${meta.feedbackText}".`;
+        type = "feedback";
+        break;
+      case "application_status_change":
+        title = "Application Status Updated";
+        message = `Your application for "${meta.jobTitle}" has moved to the "${meta.status}" stage.`;
+        type = "application_update";
+        break;
       default:
         return { data: null };
     }

@@ -20,7 +20,12 @@ export default function BrowseJobs() {
   const [jobs, setJobs] = useState([]);
   const [filteredJobs, setFilteredJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState("");
   const [currentUser, setCurrentUser] = useState(null);
+
+  const signInRedirect = `/sign-in?redirect=${encodeURIComponent(
+    `/browse-jobs${searchParams.toString() ? `?${searchParams.toString()}` : ""}`
+  )}`;
 
   // Sync inputs with URL changes (e.g. from landing page search)
   useEffect(() => {
@@ -29,7 +34,6 @@ export default function BrowseJobs() {
     setType(searchParams.get("type") || "");
   }, [searchParams]);
 
-  // Load and verify active user session
   useEffect(() => {
     async function checkSession() {
       const { data: { session } } = await supabase.auth.getSession();
@@ -37,39 +41,46 @@ export default function BrowseJobs() {
         localStorage.removeItem("skillsync_user");
         localStorage.removeItem("skillsync_candidate_profile");
         setCurrentUser(null);
-      } else {
-        const userJson = localStorage.getItem("skillsync_user");
-        if (userJson) {
-          try {
-            setCurrentUser(JSON.parse(userJson));
-          } catch (e) {
-            console.error("Failed to parse user session", e);
-          }
+        return;
+      }
+
+      const userJson = localStorage.getItem("skillsync_user");
+      if (userJson) {
+        try {
+          setCurrentUser(JSON.parse(userJson));
+        } catch (e) {
+          console.error("Failed to parse user session", e);
         }
       }
     }
     checkSession();
   }, []);
 
-  // Fetch open jobs from Supabase
+  // Open jobs are visible to everyone (guests included)
   useEffect(() => {
     async function fetchJobs() {
       setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from("jobs")
-          .select("*, profiles(full_name, email)")
-          .eq("status", "open")
-          .order("created_at", { ascending: false });
+      setFetchError("");
 
-        if (error) throw error;
+      const { data, error } = await supabase
+        .from("jobs")
+        .select("*")
+        .eq("status", "open")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching jobs:", error.message);
+        setFetchError(
+          "Could not load job listings. Run supabase/public_jobs_access.sql in the Supabase SQL Editor, then refresh."
+        );
+        setJobs([]);
+      } else {
         setJobs(data || []);
-      } catch (err) {
-        console.error("Error fetching jobs:", err.message);
-      } finally {
-        setLoading(false);
       }
+
+      setLoading(false);
     }
+
     fetchJobs();
   }, []);
 
@@ -96,10 +107,15 @@ export default function BrowseJobs() {
       );
     }
 
-    // 3. Employment Type filter
+    // 3. Employment Type filter (normalize "Full-time" vs "full-time" vs "Full Time")
     if (type) {
+      const normalizeType = (value) =>
+        String(value || "")
+          .toLowerCase()
+          .replace(/[\s_-]+/g, "");
+      const queryType = normalizeType(type);
       result = result.filter(
-        (job) => job.employment_type?.toLowerCase() === type.toLowerCase()
+        (job) => normalizeType(job.employment_type) === queryType
       );
     }
 
@@ -197,8 +213,7 @@ export default function BrowseJobs() {
             <span className="browse-badge">Browse Opportunities</span>
             <h1>Browse jobs with a cleaner matching experience.</h1>
             <p>
-              Explore available opportunities, filter by your preferences, and
-              connect with roles that match your skills and career goals.
+              Explore open opportunities without an account. Sign in when you are ready to apply.
             </p>
           </div>
         </div>
@@ -311,6 +326,12 @@ export default function BrowseJobs() {
               </div>
             </div>
 
+            {fetchError && (
+              <div className="browse-fetch-error" role="alert">
+                {fetchError}
+              </div>
+            )}
+
             {loading ? (
               <div className="browse-placeholder-grid">
                 <div className="browse-placeholder-card"></div>
@@ -321,7 +342,13 @@ export default function BrowseJobs() {
               <div className="browse-empty-state">
                 <div className="browse-empty-icon">▣</div>
                 <h4>No job listings found</h4>
-                <p>Try refining your search queries or clearing your filters to see more results.</p>
+                <p>
+                  {jobs.length > 0
+                    ? "Try refining your search queries or clearing your filters to see more results."
+                    : fetchError
+                    ? "Fix the database policy above, then refresh this page."
+                    : "No open job posts are published yet. Check back soon or post a job as an employer."}
+                </p>
                 <button
                   onClick={handleClearFilters}
                   className="browse-outline-btn"
@@ -387,7 +414,9 @@ export default function BrowseJobs() {
 
                     <div style={{ marginTop: "4px" }}>
                       <button
-                        onClick={() => navigate(currentUser ? "/candidate/jobs" : "/sign-in")}
+                        onClick={() =>
+                          navigate(currentUser ? "/candidate/jobs" : signInRedirect)
+                        }
                         className="browse-primary-btn"
                         style={{
                           minWidth: "130px",
@@ -397,7 +426,7 @@ export default function BrowseJobs() {
                           cursor: "pointer",
                         }}
                       >
-                        Apply Now
+                        {currentUser ? "Apply Now" : "Sign in to Apply"}
                       </button>
                     </div>
                   </article>

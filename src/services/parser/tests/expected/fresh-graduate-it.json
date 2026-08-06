@@ -1,0 +1,41 @@
+{
+  "id": "fresh-graduate-it",
+  "savedAt": "2026-08-03T05:42:40.660Z",
+  "overall": {
+    "passed": 13,
+    "total": 15,
+    "pct": 87
+  },
+  "categories": {
+    "contact": {
+      "pct": 100,
+      "passed": 3,
+      "total": 3
+    },
+    "education": {
+      "pct": 60,
+      "passed": 3,
+      "total": 5
+    },
+    "experience": {
+      "pct": 100,
+      "passed": 1,
+      "total": 1
+    },
+    "projects": {
+      "pct": 100,
+      "passed": 3,
+      "total": 3
+    },
+    "certifications": {
+      "pct": 100,
+      "passed": 2,
+      "total": 2
+    },
+    "sections": {
+      "pct": 100,
+      "passed": 1,
+      "total": 1
+    }
+  }
+}
