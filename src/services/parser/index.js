@@ -28,6 +28,7 @@ import { buildGraph }                         from './pipeline/p04-graphBuilder.
 import { extractFields }                      from './pipeline/p06-fieldExtractor.js'
 import { detectEntities }                     from './pipeline/p07-entityDetector.js'
 import { recognizeSkills }                    from './pipeline/p08-skillRecognizer.js'
+import { evaluateATS }                        from './ats/index.js'
 
 // ── Lightweight contact fallback (used if field extractor finds nothing) ──────
 
@@ -64,10 +65,12 @@ function extractContactFallback(rawText) {
  * @param {{
  *   rawText:  string,
  *   fileType: string,
+ *   includeAts?: boolean,
+ *   jobRequirements?: object
  * }} input
  * @returns {Promise<object>} Structured resume output
  */
-export async function runPipeline({ rawText, fileType }) {
+export async function runPipeline({ rawText, fileType, includeAts = false, jobRequirements = null }) {
   const t0 = Date.now()
 
   if (!rawText || rawText.trim().length === 0) {
@@ -119,7 +122,7 @@ export async function runPipeline({ rawText, fileType }) {
     skillRecognition:  ctx.skillRecognition || {},
   }
 
-  return {
+  const result = {
     meta,
     contact,
     summary:        ctx.summary        || null,
@@ -132,4 +135,10 @@ export async function runPipeline({ rawText, fileType }) {
     _rawText:       rawText,
     _fileType:      fileType,
   }
+
+  if (includeAts) {
+    result.ats = evaluateATS(result, { jobRequirements });
+  }
+
+  return result;
 }
