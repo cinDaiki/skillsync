@@ -1,10 +1,11 @@
-import { supabase } from "./supabase";
-import { normalizeSkillName, normalizeDegree } from "./normalization";
+import { supabase } from "./supabase.js";
+import { normalizeSkillName, normalizeDegree } from "./normalization.js";
+import { SEMANTIC_MATCHING_CONFIG } from "./ai/semanticMatchingConfig.js";
 
 /**
  * Normalizes an array or CSV string of skills into an array of lowercase strings
  */
-function parseAndNormalizeSkills(raw) {
+export function parseAndNormalizeSkills(raw) {
   if (!raw) return [];
   let parsed = raw;
   if (typeof raw === "string") {
@@ -15,8 +16,13 @@ function parseAndNormalizeSkills(raw) {
     }
   }
   if (Array.isArray(parsed)) {
-    // Deduplicate array after normalization
-    const normalized = parsed.map(s => normalizeSkillName(s)).filter(Boolean);
+    // Deduplicate array after normalization, handles both strings and rich objects
+    const normalized = parsed.map(s => {
+      if (s && typeof s === "object") {
+        return normalizeSkillName(s.normalized || s.canonicalName || s.name || "");
+      }
+      return normalizeSkillName(s);
+    }).filter(Boolean);
     return Array.from(new Set(normalized));
   }
   return [];
@@ -68,27 +74,69 @@ function parseCertifications(raw) {
  * Core Algorithm: Compare a Candidate Profile against a Job Post
  * Weights: Skills 60% + Education 25% + Experience 15% + Certifications bonus up to +10 pts
  */
-function calculateMatch(candidate, job) {
-  const candidateSkills = parseAndNormalizeSkills(candidate.skills);
+export function calculateMatch(candidate, job) {
+  // Parse raw skills JSON to support both flat strings and rich skill objects
+  let candidateSkillsRaw = [];
+  if (candidate.skills) {
+    try {
+      candidateSkillsRaw = JSON.parse(candidate.skills);
+      if (!Array.isArray(candidateSkillsRaw)) candidateSkillsRaw = [candidate.skills];
+    } catch {
+      candidateSkillsRaw = String(candidate.skills).split(",").map(s => s.trim());
+    }
+  }
+
   const jobSkills = parseAndNormalizeSkills(job.required_skills);
 
   // 1. Skills Match (60 pts)
   const matchedSkills = [];
   const missingSkills = [];
+  let totalSkillScore = 0;
+
+  const policy = SEMANTIC_MATCHING_CONFIG.scoringPolicy || { minimumConfidenceWeight: 0.5, confidenceScaling: true };
+
+  const getCandSkillName = (s) => {
+    if (s && typeof s === "object") {
+      return normalizeSkillName(s.normalized || s.canonicalName || s.name || "");
+    }
+    return normalizeSkillName(s);
+  };
 
   if (jobSkills.length === 0) {
     // No skills required — auto-pass
   } else {
     jobSkills.forEach(req => {
-      const isMatch = candidateSkills.some(cand => cand.includes(req) || req.includes(cand));
-      if (isMatch) matchedSkills.push(req);
-      else missingSkills.push(req);
+      const reqNorm = normalizeSkillName(req);
+      const match = candidateSkillsRaw.find(c => {
+        const candName = getCandSkillName(c);
+        return candName.includes(reqNorm) || reqNorm.includes(candName);
+      });
+
+      if (match) {
+        matchedSkills.push(req);
+        if (typeof match === "object") {
+          const confidence = match.confidenceScore !== undefined 
+            ? match.confidenceScore / 100 
+            : (match.confidence !== undefined ? match.confidence : 1.0);
+          
+          if (policy.confidenceScaling) {
+            const weight = policy.minimumConfidenceWeight + (1 - policy.minimumConfidenceWeight) * confidence;
+            totalSkillScore += Math.max(policy.minimumConfidenceWeight, Math.min(1.0, weight));
+          } else {
+            totalSkillScore += policy.minimumConfidenceWeight;
+          }
+        } else {
+          totalSkillScore += 1.0;
+        }
+      } else {
+        missingSkills.push(req);
+      }
     });
   }
 
   let skillsPct = 100;
   if (jobSkills.length > 0) {
-    skillsPct = (matchedSkills.length / jobSkills.length) * 100;
+    skillsPct = (totalSkillScore / jobSkills.length) * 100;
   }
   const skillsScore = skillsPct * 0.60;
 

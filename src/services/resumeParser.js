@@ -204,6 +204,7 @@ export async function parseResumeFile(file) {
     pipelineResult = await runPipeline({
       rawText:  text,
       fileType: isPdf ? "pdf" : isDocx ? "docx" : "txt",
+      includeAts: true,
     });
   } catch (pipelineErr) {
     // Pipeline failure must NEVER break the existing UI — fall through to legacy

@@ -139,9 +139,9 @@ export default function Resume() {
       file_name: file.name,
       file_size: file.size,
       extracted_skills: analysis.skills.join(","),
-      resume_score: analysis.score,
+      resume_score: analysis.parsed?.ats?.score || analysis.score,
       completeness: analysis.completeness,
-      parsed_details: analysis.details
+      parsed_details: analysis.parsed || analysis.details
     };
 
     const { error: dbError } = await supabase
@@ -177,7 +177,7 @@ export default function Resume() {
       course: analysis.details.course || null,
       degree: analysis.details.degree || null,
       education_level: analysis.details.degree || null,
-      skills: JSON.stringify(analysis.skills),
+      skills: JSON.stringify(analysis.parsed?.skills || analysis.skills),
       certifications: JSON.stringify([]),
       years_experience: analysis.details.yearsOfExperience || 0,
       updated_at: new Date().toISOString()

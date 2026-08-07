@@ -3,39 +3,106 @@
  *
  * Main orchestration layer for AI-powered semantic job matching.
  *
- * Hybrid scoring formula:
- *   Final Score = (Semantic Cosine Score × 0.70) + (Rule-Based Score × 0.30)
- *
- * This approach beats pure semantic: semantic catches meaning even when exact
- * keywords differ; rule-based catches exact skill names the model might miss.
+ * Hybrid scoring formula (dynamically loaded from config):
+ *   Final Score = (Semantic Cosine Score × SemanticWeight) + 
+ *                 (Rule-Based Skill Score × SkillsWeight) + 
+ *                 (ATS Score × AtsWeight)
  */
 
-import { supabase }                  from '../supabase'
-import { findMatchingJobsForCandidate } from './vectorSearchService'
-import { generateMatchRecommendation }  from './recommendationService'
-import { normalizeSkillName }           from '../normalization'
+import { supabase }                  from '../supabase.js'
+import { findMatchingJobsForCandidate } from './vectorSearchService.js'
+import { generateMatchRecommendation }  from './recommendationService.js'
+import { normalizeSkillName }           from '../normalization.js'
+import { SEMANTIC_MATCHING_CONFIG }    from './semanticMatchingConfig.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function parseSkills(raw) {
+/**
+ * Parses candidate skills from database JSON. Supports both legacy flat strings
+ * and new rich skill objects for backward compatibility.
+ */
+export function parseSkills(raw) {
   if (!raw) return []
-  if (Array.isArray(raw)) return raw.map(s => normalizeSkillName(s)).filter(Boolean)
-  try {
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed)) return parsed.map(s => normalizeSkillName(s)).filter(Boolean)
-  } catch { /* ignore */ }
-  return raw.split(',').map(s => normalizeSkillName(s)).filter(Boolean)
+  let parsed = raw
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      parsed = raw.split(',').map(s => s.trim())
+    }
+  }
+  if (Array.isArray(parsed)) {
+    return parsed.map(s => {
+      if (s && typeof s === 'object') {
+        // Support rich skill shape: { canonicalName/normalized }
+        return normalizeSkillName(s.normalized || s.canonicalName || s.name || '')
+      }
+      return normalizeSkillName(s)
+    }).filter(Boolean)
+  }
+  return []
 }
 
-function getRuleBasedSkillScore(candidateSkills, jobSkills) {
+/**
+ * Computes a rule-based skill alignment score. Matches are weighted based on
+ * the candidate's skill detection confidence and config policies.
+ * 
+ * @param {Array<string|object>} candidateSkillsRaw - Raw candidate skills (flat or rich)
+ * @param {string[]} jobSkills - Required job skills
+ * @param {object} config - Config containing scoring policy
+ * @returns {object} { pct, matched, missing }
+ */
+export function getRuleBasedSkillScore(candidateSkillsRaw, jobSkills, config = SEMANTIC_MATCHING_CONFIG) {
   if (!jobSkills.length) return { pct: 100, matched: [], missing: [] }
+  
   const matched = []
   const missing = []
+  let totalScore = 0
+
+  const policy = config.scoringPolicy || { minimumConfidenceWeight: 0.5, confidenceScaling: true };
+
+  // Helper to get normalized search name for candidate skill
+  const getCandSkillName = (s) => {
+    if (s && typeof s === 'object') {
+      return normalizeSkillName(s.normalized || s.canonicalName || s.name || '')
+    }
+    return normalizeSkillName(s)
+  }
+
   jobSkills.forEach(req => {
-    const hit = candidateSkills.some(c => c.includes(req) || req.includes(c))
-    hit ? matched.push(req) : missing.push(req)
+    // Find matching candidate skill in candidateSkillsRaw
+    const match = (candidateSkillsRaw || []).find(c => {
+      const candName = getCandSkillName(c)
+      const reqName = normalizeSkillName(req)
+      return candName.includes(reqName) || reqName.includes(candName)
+    })
+
+    if (match) {
+      matched.push(req)
+
+      // Calculate weight based on config policy
+      if (typeof match === 'object') {
+        const confidence = match.confidenceScore !== undefined 
+          ? match.confidenceScore / 100 
+          : (match.confidence !== undefined ? match.confidence : 1.0);
+        
+        if (policy.confidenceScaling) {
+          // Scale linearly from minimumConfidenceWeight to 1.0
+          const weight = policy.minimumConfidenceWeight + (1 - policy.minimumConfidenceWeight) * confidence;
+          totalScore += Math.max(policy.minimumConfidenceWeight, Math.min(1.0, weight));
+        } else {
+          totalScore += policy.minimumConfidenceWeight;
+        }
+      } else {
+        totalScore += 1.0; // flat string has no confidence metadata, assume 1.0
+      }
+    } else {
+      missing.push(req)
+    }
   })
-  return { pct: (matched.length / jobSkills.length) * 100, matched, missing }
+
+  const pct = (totalScore / jobSkills.length) * 100
+  return { pct: Math.round(pct), matched, missing }
 }
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
@@ -62,10 +129,15 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
     const similarityMap = {}
     vectorResults.forEach(r => { similarityMap[r.job_id] = r.similarity })
 
-    // ── 2. Fetch job details + candidate profile ──────────────────────────────
-    const [{ data: jobs }, { data: candidateProfile }] = await Promise.all([
+    // ── 2. Fetch job details, candidate profile, and latest resume (for ATS score) ────────
+    const [
+      { data: jobs },
+      { data: candidateProfile },
+      { data: resumeRow }
+    ] = await Promise.all([
       supabase.from('jobs').select('*').in('id', jobIds).eq('status', 'open'),
       supabase.from('candidate_profiles').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('resumes').select('resume_score').eq('applicant_id', userId).maybeSingle()
     ])
 
     if (!jobs?.length) {
@@ -73,20 +145,40 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
       return
     }
 
-    const candidateSkills = parseSkills(candidateProfile?.skills)
+    // Safely parse candidate skills (handles objects or string list)
+    let candidateSkillsRaw = []
+    if (candidateProfile?.skills) {
+      try {
+        candidateSkillsRaw = JSON.parse(candidateProfile.skills)
+        if (!Array.isArray(candidateSkillsRaw)) candidateSkillsRaw = [candidateProfile.skills]
+      } catch {
+        candidateSkillsRaw = (candidateProfile.skills || '').split(',').map(s => s.trim())
+      }
+    }
 
-    // ── 3. Build hybrid scores ────────────────────────────────────────────────
+    // Retrieve ATS score from latest resume
+    const atsScore = resumeRow?.resume_score ?? 80; // Fallback to 80 if resume record has no score
+
+    // Load matching weights from dynamic config
+    const config = SEMANTIC_MATCHING_CONFIG;
+    const w = config.weights;
+
+    // ── 3. Build hybrid scores using config weights ──────────────────────────
     const upserts = jobs.map(job => {
       const semanticScore  = similarityMap[job.id] ?? 0           // 0–1
       const jobSkills      = parseSkills(job.required_skills)
-      const { pct: skillPct, matched, missing } = getRuleBasedSkillScore(candidateSkills, jobSkills)
+      
+      const { pct: skillPct, matched, missing } = getRuleBasedSkillScore(
+        candidateSkillsRaw, 
+        jobSkills, 
+        config
+      )
 
-      // Rule-based sub-score (skills only, 0–100)
-      const ruleScore = skillPct
-
-      // Hybrid: semantic 70% + rule-based 30%
+      // Calculate final ranking match_score based on config weights
       const hybridScore = Math.round(
-        (semanticScore * 100 * 0.70) + (ruleScore * 0.30)
+        (semanticScore * 100 * w.semantic) + 
+        (skillPct * w.skills) + 
+        (atsScore * w.ats)
       )
 
       const recommendation = generateMatchRecommendation(

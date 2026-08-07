@@ -19,7 +19,7 @@
  * Output: float32[384], L2-normalised
  */
 
-import { supabase } from '../supabase'
+import { supabase } from '../supabase.js'
 
 // ── CDN URL ────────────────────────────────────────────────────────────────
 // Pinned to the same version installed in package.json (2.17.2).
@@ -89,7 +89,20 @@ export function buildResumeTextForEmbedding(analysis, rawText = '') {
   const parts = []
   if (analysis?.details?.degree)  parts.push(`Degree: ${analysis.details.degree}`)
   if (analysis?.details?.course)  parts.push(`Course: ${analysis.details.course}`)
-  if (analysis?.skills?.length)   parts.push(`Skills: ${analysis.skills.join(', ')}`)
+  
+  // Connect richer skill data (canonicalName, category, occurrences) if available
+  const parsedSkills = analysis?.parsed?.skills || [];
+  if (parsedSkills.length > 0) {
+    const richSkills = parsedSkills.map(s => {
+      const categoryStr = s.category ? `${s.category} skill` : 'skill';
+      const occurrenceStr = s.occurrences ? `, ${s.occurrences} occurrence(s)` : '';
+      return `${s.canonicalName} (${categoryStr}${occurrenceStr})`;
+    });
+    parts.push(`Skills: ${richSkills.join(', ')}`);
+  } else if (analysis?.skills?.length) {
+    parts.push(`Skills: ${analysis.skills.join(', ')}`);
+  }
+
   if (analysis?.details?.yearsOfExperience > 0)
     parts.push(`Experience: ${analysis.details.yearsOfExperience} years`)
   if (analysis?.details?.hasExperienceSection)     parts.push('Has work experience')
