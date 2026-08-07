@@ -330,3 +330,355 @@
   border: none;
   border-radius: 12px;
 }
+
+/* Phase 6 Tabbed Layout */
+.resume-tabs-list {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid #eee7f7;
+  padding-bottom: 8px;
+}
+
+.resume-tab-btn {
+  padding: 10px 18px;
+  background: none;
+  border: none;
+  border-radius: 10px 10px 0 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #667085;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.2s ease;
+}
+
+.resume-tab-btn:hover {
+  background: #f7f4fc;
+  color: #58158f;
+}
+
+.resume-tab-btn.active {
+  background: #f5ecff;
+  color: #58158f;
+  border-bottom: 2px solid #58158f;
+}
+
+/* Tab Split layout for skills view */
+.skills-tab-split-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 1024px) {
+  .skills-tab-split-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Grouped category skill badges */
+.skills-dictionary-panel {
+  background: #ffffff;
+  border: 1px solid #e7e2f2;
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.04);
+}
+
+.skills-category-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.skills-category-card {
+  border-bottom: 1px solid #f3effa;
+  padding-bottom: 16px;
+}
+
+.skills-category-card:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.skills-category-card h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 900;
+  color: #58158f;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.skills-badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rich-skill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 4px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.skill-badge-name {
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.skill-badge-details {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.skill-badge-occurrences {
+  background: #e2e8f0;
+  color: #475569;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.skill-badge-confidence {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+/* ATS report panel */
+.ats-report-panel {
+  background: #ffffff;
+  border: 1px solid #e7e2f2;
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.04);
+}
+
+.ats-score-showcase {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  border-bottom: 1px solid #eee7f7;
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 640px) {
+  .ats-score-showcase {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+  }
+}
+
+.ats-gauge-container {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.ats-score-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.ats-score-num {
+  font-size: 32px;
+  font-weight: 950;
+  color: #58158f;
+}
+
+.ats-score-lbl {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #667085;
+}
+
+.ats-grade-display {
+  flex: 1;
+}
+
+.ats-grade-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #58158f, #9b24ff);
+  color: #ffffff;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+
+.ats-rating-tag {
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.ats-rating-tag.excellent { color: #16a34a; }
+.ats-rating-tag.good { color: #8b5cf6; }
+.ats-rating-tag.fair { color: #eab308; }
+.ats-rating-tag.poor { color: #dc2626; }
+
+.ats-grade-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.ats-feedback-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ats-feedback-card {
+  padding: 16px 20px;
+  border-radius: 16px;
+  border: 1px solid;
+}
+
+.ats-feedback-card h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.ats-feedback-card ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ats-feedback-card li {
+  margin-bottom: 4px;
+}
+
+.ats-feedback-card li:last-child {
+  margin-bottom: 0;
+}
+
+.ats-feedback-card.critical {
+  background: #fff5f5;
+  border-color: #feb2b2;
+  color: #9b2c2c;
+}
+.ats-feedback-card.critical h4 { color: #c53030; }
+
+.ats-feedback-card recommended {
+  background: #fffaf0;
+  border-color: #fbd38d;
+  color: #9c4221;
+}
+.ats-feedback-card.recommended {
+  background: #fffaf0;
+  border-color: #fbd38d;
+  color: #9c4221;
+}
+.ats-feedback-card.recommended h4 { color: #dd6b20; }
+
+.ats-feedback-card.strengths {
+  background: #f0fff4;
+  border-color: #9ae6b4;
+  color: #22543d;
+}
+.ats-feedback-card.strengths h4 { color: #2f855a; }
+
+/* Metadata Tab */
+.resume-metadata-panel {
+  background: #ffffff;
+  border: 1px solid #e7e2f2;
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.04);
+}
+
+.meta-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .meta-info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.meta-info-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #fbfbfe;
+  border: 1px solid #f1f0f7;
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.meta-info-icon {
+  font-size: 20px;
+}
+
+.meta-info-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.meta-info-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #8b5cf6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.meta-info-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e1b4b;
+  margin-top: 2px;
+}
+
+.meta-val-missing {
+  color: #94a3b8;
+  font-style: italic;
+  font-weight: 500;
+}
+
+.meta-val-verified {
+  color: #16a34a;
+}
+
+.meta-val-warning {
+  color: #f59e0b;
+}
+
+/* Spinner and Loaders */
+.tab-loading-spinner, .panel-loading-spinner {
+  padding: 32px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #58158f;
+  font-style: italic;
+}
+

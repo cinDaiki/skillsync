@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { uploadResume, saveResumeRecord, getResume } from "../../services/api";
 import { syncApplicantSnapshot } from "../../services/applicationService";
@@ -9,7 +9,20 @@ import { runMatchingForCandidate }                 from "../../services/matching
 import { generateAndStoreResumeEmbedding,
          buildResumeTextForEmbedding }             from "../../services/ai/embeddingService";
 import { runSemanticMatchingForCandidate }         from "../../services/ai/semanticMatchingService";
+import ErrorBoundary                               from "../../components/guards/ErrorBoundary.jsx";
 import "./Resume.css";
+
+// Lazy-loaded sub-components for Phase 6 modular UI
+const ResumeTabs = lazy(() => import("../../components/resume/ResumeTabs.jsx"));
+const AtsReport = lazy(() => import("../../components/resume/AtsReport.jsx"));
+const SkillDictionary = lazy(() => import("../../components/resume/SkillDictionary.jsx"));
+const ResumeMetadata = lazy(() => import("../../components/resume/ResumeMetadata.jsx"));
+
+const TABS_CONFIG = [
+  { id: 'ats', label: 'ATS Scan Report', icon: '🤖' },
+  { id: 'skills', label: 'AI Skill Dictionary', icon: '🧠' },
+  { id: 'meta', label: 'Parsed Metadata', icon: '📝' }
+];
 
 export default function Resume() {
   const fileInputRef = useRef(null);
@@ -17,6 +30,9 @@ export default function Resume() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
+
+  // Tab State
+  const [activeTab, setActiveTab] = useState('ats');
 
   // Skills editor state
   const [extractedSkills, setExtractedSkills] = useState([]);
@@ -418,182 +434,77 @@ export default function Resume() {
               </div>
             </div>
 
-            {/* Split Screen Metrics & Skills Editor */}
-            <div className="resume-grid">
-              {/* Left Panel: Quality Scoring and completeness */}
-              <div className="resume-metrics-card">
-                <h3>Resume Parsing Metrics</h3>
-                
-                <div className="resume-score-gauge">
-                  <svg width="100" height="100" viewBox="0 0 80 80">
-                    <defs>
-                      <linearGradient id="score-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#58158f" />
-                        <stop offset="100%" stopColor="#f13093" />
-                      </linearGradient>
-                    </defs>
-                    <circle className="resume-score-circle-bg" cx="40" cy="40" r="32" />
-                    <circle 
-                      className="resume-score-circle-bar" 
-                      cx="40" 
-                      cy="40" 
-                      r="32" 
-                      strokeDasharray="200"
-                      strokeDashoffset={strokeDashoffset}
-                    />
-                  </svg>
-                  <div className="resume-score-number">
-                    <span className="resume-score-val">{resumeFile.resume_score || 0}</span>
-                    <span className="resume-score-label">Score</span>
-                  </div>
-                </div>
+            {/* Tabbed Analysis System */}
+            <div className="resume-tabs-container" style={{ marginTop: "24px" }}>
+              <Suspense fallback={<div className="tab-loading-spinner">Loading tabs...</div>}>
+                <ResumeTabs 
+                  activeTab={activeTab} 
+                  tabs={TABS_CONFIG} 
+                  onChange={setActiveTab} 
+                />
+              </Suspense>
 
-                <div className={`resume-score-rating ${scoreInfo?.class}`}>
-                  {scoreInfo?.label}
-                </div>
-
-                <p style={{ fontSize: "13px", color: "#667085", margin: "4px 0 16px 0" }}>
-                  This score rates formatting structures, clear section headers, contact points, and keyword density.
-                </p>
-
-                {/* Completeness gauge */}
-                <div className="completeness-metric">
-                  <div className="completeness-metric-label">
-                    <span>Profile Integration Completeness</span>
-                    <span>{resumeFile.completeness || 0}%</span>
-                  </div>
-                  <div className="completeness-metric-bar-bg">
-                    <div 
-                      className="completeness-metric-bar-fill" 
-                      style={{ width: `${resumeFile.completeness || 0}%` }}
-                    ></div>
-                  </div>
-                </div>
-
-                {/* AI Extracted Key Info */}
-                {resumeFile.parsed_details && (
-                  <div style={{
-                    marginTop: "20px",
-                    padding: "18px 20px",
-                    background: "linear-gradient(135deg, #fbf9ff, #f3e8ff)",
-                    borderRadius: "14px",
-                    border: "1px solid #e9d5ff"
-                  }}>
-                    <h4 style={{ margin: "0 0 14px 0", color: "#58158f", fontSize: "13px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                      🤖 AI Extracted Key Info
-                    </h4>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                        <span style={{ fontSize: "16px", lineHeight: 1 }}>🎓</span>
-                        <div>
-                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: "0.05em" }}>Degree</div>
-                          <div style={{ fontSize: "13px", color: "#1e1b4b", fontWeight: 600, marginTop: "2px" }}>
-                            {resumeFile.parsed_details.degree
-                              ? resumeFile.parsed_details.degree.length > 60
-                                ? resumeFile.parsed_details.degree.slice(0, 60) + "…"
-                                : resumeFile.parsed_details.degree
-                              : <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not detected</span>}
+              <div className="resume-tab-panel-container" style={{ marginTop: "16px" }}>
+                <ErrorBoundary>
+                  <Suspense fallback={<div className="panel-loading-spinner">Loading analysis view...</div>}>
+                    {activeTab === 'ats' && (
+                      <AtsReport atsData={resumeFile.parsed_details?.ats || null} />
+                    )}
+                    {activeTab === 'skills' && (
+                      <div className="skills-tab-split-grid">
+                        <SkillDictionary skills={resumeFile.parsed_details?.skills || []} />
+                        
+                        {/* Interactive Skills tag editor next to dictionary */}
+                        <div className="extracted-skills-card">
+                          <div className="extracted-skills-header">
+                            <h3>Tag Customizer</h3>
+                            <span className="skills-count-badge">{extractedSkills.length} Total</span>
                           </div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                        <span style={{ fontSize: "16px", lineHeight: 1 }}>📚</span>
-                        <div>
-                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: "0.05em" }}>Course / Major</div>
-                          <div style={{ fontSize: "13px", color: "#1e1b4b", fontWeight: 600, marginTop: "2px" }}>
-                            {resumeFile.parsed_details.course
-                              ? resumeFile.parsed_details.course
-                              : <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not detected</span>}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                        <span style={{ fontSize: "16px", lineHeight: 1 }}>💼</span>
-                        <div>
-                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: "0.05em" }}>Experience</div>
-                          <div style={{ fontSize: "13px", color: "#1e1b4b", fontWeight: 600, marginTop: "2px" }}>
-                            {resumeFile.parsed_details.yearsOfExperience > 0
-                              ? `${resumeFile.parsed_details.yearsOfExperience}+ years`
-                              : resumeFile.parsed_details.hasExperienceSection
-                                ? <span style={{ color: "#16a34a" }}>Experience section found ✓</span>
-                                : <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not explicitly stated</span>}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                        <span style={{ fontSize: "16px", lineHeight: 1 }}>📧</span>
-                        <div>
-                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: "0.05em" }}>Contact Info</div>
-                          <div style={{ fontSize: "13px", color: "#1e1b4b", fontWeight: 600, marginTop: "2px" }}>
-                            {resumeFile.parsed_details.email || resumeFile.parsed_details.phone
-                              ? <span style={{ color: "#16a34a" }}>
-                                  {[resumeFile.parsed_details.email, resumeFile.parsed_details.phone].filter(Boolean).join(" · ")}
+                          <p style={{ fontSize: "12px", color: "#667085", marginBottom: "12px" }}>
+                            Review tags parsed from your file. You can add new ones or prune legacy tags.
+                          </p>
+                          <form className="skills-editor-input-row" onSubmit={handleAddSkillTag}>
+                            <input
+                              type="text"
+                              value={newSkillInput}
+                              onChange={(e) => setNewSkillInput(e.target.value)}
+                              placeholder="Add a new skill (e.g. React)"
+                              className="skills-editor-input"
+                              disabled={savingSkills}
+                            />
+                            <button type="submit" className="skills-editor-add-btn" disabled={savingSkills}>
+                              Add
+                            </button>
+                          </form>
+                          {extractedSkills.length > 0 ? (
+                            <div className="profile-skills-display">
+                              {extractedSkills.map((skill) => (
+                                <span key={skill} className="profile-skill-tag">
+                                  {skill}
+                                  <button 
+                                    type="button" 
+                                    className="profile-skill-remove" 
+                                    onClick={() => handleRemoveSkillTag(skill)}
+                                    disabled={savingSkills}
+                                  >
+                                    ×
+                                  </button>
                                 </span>
-                              : resumeFile.parsed_details.hasContact
-                                ? <span style={{ color: "#16a34a" }}>Contact info found ✓</span>
-                                : <span style={{ color: "#f59e0b" }}>Not found — add to your resume</span>}
-                          </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p style={{ color: "#8b8f9c", fontStyle: "italic", textAlign: "center", padding: "12px" }}>
+                              No skills. Add tags above!
+                            </p>
+                          )}
                         </div>
                       </div>
-
-                    </div>
-                  </div>
-                )}
-
-              </div>
-
-              {/* Right Panel: Skills List Editor */}
-              <div className="extracted-skills-card">
-                <div className="extracted-skills-header">
-                  <h3>Auto-Detected Skill Tags</h3>
-                  <span className="skills-count-badge">{extractedSkills.length} Detected</span>
-                </div>
-
-                <p style={{ fontSize: "13px", color: "#667085", marginBottom: "16px" }}>
-                  Below are the skills parsed from your file. You can add or remove tags to improve matches.
-                </p>
-
-                {/* Add Custom Skill Tag */}
-                <form className="skills-editor-input-row" onSubmit={handleAddSkillTag}>
-                  <input
-                    type="text"
-                    value={newSkillInput}
-                    onChange={(e) => setNewSkillInput(e.target.value)}
-                    placeholder="Type skill name (e.g. React, Docker)"
-                    className="skills-editor-input"
-                    disabled={savingSkills}
-                  />
-                  <button type="submit" className="skills-editor-add-btn" disabled={savingSkills}>
-                    Add Tag
-                  </button>
-                </form>
-
-                {/* Display Tags */}
-                {extractedSkills.length > 0 ? (
-                  <div className="profile-skills-display">
-                    {extractedSkills.map((skill) => (
-                      <span key={skill} className="profile-skill-tag">
-                        {skill}
-                        <button 
-                          type="button" 
-                          className="profile-skill-remove" 
-                          onClick={() => handleRemoveSkillTag(skill)}
-                          disabled={savingSkills}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p style={{ color: "#8b8f9c", fontStyle: "italic", textAlign: "center", padding: "16px 0" }}>
-                    No skills extracted. Try adding tag keywords above!
-                  </p>
-                )}
+                    )}
+                    {activeTab === 'meta' && (
+                      <ResumeMetadata details={resumeFile.parsed_details} />
+                    )}
+                  </Suspense>
+                </ErrorBoundary>
               </div>
             </div>
 
