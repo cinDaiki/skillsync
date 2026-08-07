@@ -1,10 +1,10 @@
 {
   "id": "two-column-nurse",
-  "savedAt": "2026-08-03T05:42:40.712Z",
+  "savedAt": "2026-08-06T06:36:14.049Z",
   "overall": {
-    "passed": 5,
-    "total": 9,
-    "pct": 56
+    "passed": 6,
+    "total": 10,
+    "pct": 60
   },
   "categories": {
     "contact": {
@@ -29,8 +29,8 @@
     },
     "certifications": {
       "pct": 100,
-      "passed": 2,
-      "total": 2
+      "passed": 3,
+      "total": 3
     },
     "sections": {
       "pct": 100,

@@ -1,10 +1,10 @@
 {
   "id": "gov-civil-service",
-  "savedAt": "2026-08-03T05:42:40.723Z",
+  "savedAt": "2026-08-06T06:36:14.130Z",
   "overall": {
-    "passed": 10,
-    "total": 13,
-    "pct": 77
+    "passed": 14,
+    "total": 15,
+    "pct": 93
   },
   "categories": {
     "contact": {
@@ -13,13 +13,13 @@
       "total": 3
     },
     "education": {
-      "pct": 67,
-      "passed": 2,
+      "pct": 100,
+      "passed": 3,
       "total": 3
     },
     "experience": {
-      "pct": 60,
-      "passed": 3,
+      "pct": 80,
+      "passed": 4,
       "total": 5
     },
     "projects": {
@@ -29,8 +29,8 @@
     },
     "certifications": {
       "pct": 100,
-      "passed": 2,
-      "total": 2
+      "passed": 4,
+      "total": 4
     },
     "sections": {
       "pct": 100,

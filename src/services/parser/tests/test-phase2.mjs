@@ -201,7 +201,7 @@ Volunteer, Code for the Philippines (2022)
       ],
       experience:     [],
       projects:       [{ name: { exists: true } }, { name: { exists: true } }],
-      certifications: [{ name: { exists: true } }],
+      certifications: [{ name: { exists: true } }, { name: { exists: true } }, { name: { exists: true } }],
       sections:       ['CONTACT', 'EDUCATION', 'SKILLS', 'PROJECTS', 'CERTIFICATIONS'],
     },
   },
@@ -277,7 +277,7 @@ Certified Kubernetes Administrator (CKA), 2021
         { title: { contains: 'Senior' },    isCurrent: false },
         { title: { contains: 'Software' },  isCurrent: false },
       ],
-      certifications: [{ name: { exists: true } }, { name: { exists: true } }],
+      certifications: [{ name: { exists: true } }, { name: { exists: true } }, { name: { exists: true } }],
       sections:       ['CONTACT', 'EXPERIENCE', 'EDUCATION', 'SKILLS', 'CERTIFICATIONS'],
     },
   },
@@ -329,7 +329,7 @@ ACLS - Philippine Heart Association, 2022
       experience: [
         { title: { contains: 'Nurse' }, isCurrent: true },
       ],
-      certifications: [{ name: { exists: true } }],
+      certifications: [{ name: { exists: true } }, { name: { exists: true } }],
     },
   },
 
@@ -389,7 +389,7 @@ Records Management Seminar, 2021
         { title: { contains: 'Specialist' }, isCurrent: true },
         { title: { contains: 'Administrative' }, isCurrent: false },
       ],
-      certifications: [{ name: { exists: true } }],
+      certifications: [{ name: { exists: true } }, { name: { exists: true } }, { name: { exists: true } }],
     },
   },
 
