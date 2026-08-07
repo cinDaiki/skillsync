@@ -20,13 +20,13 @@
  *   ctx.sectionOrder — string[] ordered list of detected section types
  */
 
-import sectionAliases from '../config/sectionAliases.json'
+import { SECTION_ALIASES } from '../config/configLoader.js'
 
 // ── Build alias lookup at module load (once) ────────────────────────────────
 // Maps every alias (lowercase) → canonical section type string
 const ALIAS_MAP = new Map()
 
-Object.entries(sectionAliases).forEach(([sectionType, langs]) => {
+Object.entries(SECTION_ALIASES).forEach(([sectionType, langs]) => {
   const allAliases = [...(langs.en || []), ...(langs.fil || [])]
   allAliases.forEach(alias => {
     ALIAS_MAP.set(alias.toLowerCase().trim(), sectionType)

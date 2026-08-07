@@ -3,12 +3,12 @@
  * Extracts structured fields from the document graph.
  *
  * Produces:
- *   ctx.contact        — validated contact fields
- *   ctx.education      — array of education entries
- *   ctx.experience     — array of experience entries (chronologically sorted)
- *   ctx.projects       — array of project entries
- *   ctx.certifications — array of certification entries
- *   ctx.summary        — profile summary text
+ *   ctx.contact        ï¿½ validated contact fields
+ *   ctx.education      ï¿½ array of education entries
+ *   ctx.experience     ï¿½ array of experience entries (chronologically sorted)
+ *   ctx.projects       ï¿½ array of project entries
+ *   ctx.certifications ï¿½ array of certification entries
+ *   ctx.summary        ï¿½ profile summary text
  */
 
 import {
@@ -20,11 +20,11 @@ import {
   validateEmail, validatePhone, validateLinkedIn,
   validateGitHub, validatePortfolio,
 } from '../utils/contactValidator.js'
-import degreeMap from '../config/degreeMap.json'
+import { DEGREE_MAP } from '../config/configLoader.js'
 
 // ?? Degree normalization ??????????????????????????????????????????????????????
 const DEGREE_MAP_LOWER = new Map(
-  Object.entries(degreeMap).map(([k, v]) => [k.toLowerCase().trim(), v])
+  Object.entries(DEGREE_MAP).map(([k, v]) => [k.toLowerCase().trim(), v])
 )
 
 function normalizeDegree(raw) {
@@ -164,7 +164,7 @@ function extractEducationEntry(entry) {
       l.trim().length > 5 &&
       /[A-Z]/.test(l[0]) &&
       !/^\d/.test(l.trim()) &&
-      !/^[-•]/.test(l.trim()) &&
+      !/^[-ï¿½]/.test(l.trim()) &&
       !YEAR.test(l)
   }) || null
 
@@ -330,7 +330,7 @@ function extractCertificationEntry(entry) {
   YEAR.lastIndex  = 0
 
   // Issuer: "by X", "from X", "issued by X"
-  const issuerMatch = text.match(/(?:by|from|issued by|–|:)\s+([A-Z][a-zA-Z\s&.,']{2,40})/i)
+  const issuerMatch = text.match(/(?:by|from|issued by|ï¿½|:)\s+([A-Z][a-zA-Z\s&.,']{2,40})/i)
 
   return {
     name:   nameLine    ? field(nameLine, nameLine, 0.83, 'heuristic', 'First line in certification entry')               : missing('No name found'),
@@ -351,7 +351,7 @@ export function extractFields(ctx) {
 
   if (!graph) return { ...ctx, contact: {}, education: [], experience: [], projects: [], certifications: [], summary: null }
 
-  // Contact — from header + CONTACT section
+  // Contact ï¿½ from header + CONTACT section
   const contactLines = [
     ...(graph.header?.lines || []),
     ...(sections?.get('CONTACT')?.lines || []),

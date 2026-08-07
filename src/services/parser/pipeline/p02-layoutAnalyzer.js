@@ -62,21 +62,28 @@ export function analyzeLayout(ctx) {
   for (let i = 0; i < Math.min(lines.length, 20); i++) {
     const l = lines[i].trim()
 
+    // A line that is ALL_CAPS and short is almost certainly a section header,
+    // even if it appears in the first 3 lines. Stop the header here.
+    // (Handles: short resume where name + email + SKILLS are the first 3 lines)
+    if (l === l.toUpperCase() && /^[A-Z]{2,}[\s&/]*[A-Z]*$/.test(l) && l.length <= 35 && i > 0) {
+      break
+    }
+
     // Contact-like content — keep expanding header
     if (/@/.test(l) || /\+?\d[\d\s\-().]{6,}/.test(l) ||
-        /linkedin\.com|github\.com/i.test(l) || i < 3) {
+        /linkedin\.com|github\.com/i.test(l) || i < 2) {
       headerEndIdx = i + 1
       continue
     }
 
-    // Section header or bullet point means body has started
-    if (/^[-•*]/.test(l) || l === l.toUpperCase() && l.length > 5) {
+    // Bullet point means body has started
+    if (/^[-•*]/.test(l)) {
       break
     }
   }
 
-  // Ensure at least 3 lines in header (name + contact)
-  headerEndIdx = Math.max(headerEndIdx, Math.min(3, lines.length))
+  // Ensure at least 2 lines in header (name + one contact line)
+  headerEndIdx = Math.max(headerEndIdx, Math.min(2, lines.length))
 
   // ── Two-column line splitting ────────────────────────────────────────────
   // Some two-column PDF extractions put left+right column on the same line
@@ -84,9 +91,11 @@ export function analyzeLayout(ctx) {
   // detector and field extractor can process each column independently.
   const splitLines = []
   for (const line of lines) {
-    // Check for a significant whitespace gap (3+ spaces) suggesting two-column merge
-    const gapMatch = line.match(/^(.{3,40})\s{3,}(.{3,}.*)$/)
-    if (gapMatch && layoutType === 'TWO_COLUMN') {
+    // A significant whitespace gap (4+ spaces) between non-trivial content
+    // indicates two-column merging regardless of the detected layoutType.
+    // Split unconditionally — single-column resumes never have 4-space gaps mid-line.
+    const gapMatch = line.match(/^(.{3,40})\s{4,}(.{3,}.*)$/)
+    if (gapMatch) {
       splitLines.push(gapMatch[1].trimEnd())
       splitLines.push(gapMatch[2].trimStart())
     } else {
@@ -94,7 +103,7 @@ export function analyzeLayout(ctx) {
     }
   }
 
-  const headerEndIdxFinal = Math.max(headerEndIdx, Math.min(3, splitLines.length))
+  const headerEndIdxFinal = Math.max(headerEndIdx, Math.min(2, splitLines.length))
   const headerLinesFinal  = splitLines.slice(0, headerEndIdxFinal)
   const bodyLinesFinal    = splitLines.slice(headerEndIdxFinal)
 

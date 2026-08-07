@@ -19,7 +19,7 @@
  *   ctx.contact.name — name field added to existing contact object
  */
 
-import sectionAliases from '../config/sectionAliases.json'
+import { SECTION_ALIASES } from '../config/configLoader.js'
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 function toTitleCase(str) {
@@ -28,7 +28,7 @@ function toTitleCase(str) {
 
 // ── Build exclusion set from all known section aliases ────────────────────────
 const SECTION_WORDS = new Set()
-Object.values(sectionAliases).forEach(langs => {
+Object.values(SECTION_ALIASES).forEach(langs => {
   ;[...(langs.en || []), ...(langs.fil || [])].forEach(alias => {
     SECTION_WORDS.add(alias.toLowerCase().trim())
     // Also add individual words from multi-word aliases

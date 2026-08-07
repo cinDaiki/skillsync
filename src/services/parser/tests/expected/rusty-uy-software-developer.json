@@ -1,10 +1,10 @@
 {
   "id": "rusty-uy-software-developer",
-  "savedAt": "2026-08-03T05:42:40.629Z",
+  "savedAt": "2026-08-06T06:36:13.930Z",
   "overall": {
     "passed": 14,
-    "total": 24,
-    "pct": 58
+    "total": 23,
+    "pct": 61
   },
   "categories": {
     "contact": {
@@ -18,9 +18,9 @@
       "total": 5
     },
     "experience": {
-      "pct": 67,
-      "passed": 4,
-      "total": 6
+      "pct": 40,
+      "passed": 2,
+      "total": 5
     },
     "projects": {
       "pct": 0,
@@ -28,8 +28,8 @@
       "total": 3
     },
     "certifications": {
-      "pct": 33,
-      "passed": 1,
+      "pct": 100,
+      "passed": 3,
       "total": 3
     },
     "sections": {

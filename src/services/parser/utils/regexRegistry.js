@@ -27,11 +27,11 @@ export const PORTFOLIO = /https?:\/\/(?!.*(?:linkedin|github))[\w\-./~?=&%#:@!,;
 
 // ── Education ─────────────────────────────────────────────────────────────
 
-/** GPA: "GPA: 3.75", "3.75/4.0", "GWA: 1.5" */
-export const GPA = /\b(?:GPA|GWA|Grade Point Average)[\s:]*([0-9]\.[0-9]{1,2})(?:\s*\/\s*[0-9]\.[0-9]{1,2})?\b/i
+/** GPA: "GPA: 3.75", "GPA 3.75/4.0", "GWA: 1.5", "Grade: 3.75", inline in any line */
+export const GPA = /\b(?:GPA|GWA|Grade Point Average|General Average|General Weighted Average)[\s:=]*([0-9](?:[.,][0-9]{1,3}))(?:\s*\/\s*[0-9](?:[.,][0-9]{1,2}))?\b/i
 
-/** Honors */
-export const HONORS = /\b(Summa Cum Laude|Magna Cum Laude|Cum Laude|With Distinction|With Honors|Dean'?s? List)\b/i
+/** Honors — matches bare "Cum Laude" and "Latin Honors: Magna Cum Laude" prefix format */
+export const HONORS = /(?:Latin\s+Honors?\s*:\s*|Academic\s+Honors?\s*:\s*)?\b(Summa Cum Laude|Magna Cum Laude|Cum Laude|With Highest Distinction|With Distinction|With High Honors|With Honors|Dean'?s?\s*List)\b/i
 
 /** Graduation year — 4-digit year near education keywords */
 export const GRAD_YEAR = /\b(20[0-2]\d|19[89]\d)\b/g
