@@ -5,7 +5,7 @@
  * Converts JS float arrays to pgvector string format and calls the DB functions.
  */
 
-import { supabase } from '../supabase'
+import { supabase } from '../supabase.js'
 
 /**
  * Convert a JS float array to the pgvector literal format: "[0.1,0.2,...]"
