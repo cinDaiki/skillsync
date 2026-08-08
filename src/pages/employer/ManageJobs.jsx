@@ -5,6 +5,7 @@ import { useToast } from "../../contexts/ToastContext";
 import { useModal } from "../../contexts/ModalContext";
 import { supabase } from "../../services/supabase";
 import { runMatchingForJob } from "../../services/matchingEngine";
+import { parseJobRequirements, encodeApplicationRequirements, PRESET_REQUIREMENTS } from "../../utils/jobRequirementsHelper";
 import "./ManageJobs.css";
 
 export default function ManageJobs() {
@@ -25,6 +26,7 @@ export default function ManageJobs() {
     title: "", employment_type: "Full-time",
     location: "", required_skills: "", description: "",
     salary_range: "", deadline: "",
+    appReqs: []
   });
 
   useEffect(() => { loadJobs(); }, []);
@@ -56,6 +58,7 @@ export default function ManageJobs() {
 
   function handleEditJob(job) {
     setEditingJobId(job.id);
+    const parsed = parseJobRequirements(job);
     setEditForm({
       title: job.title || "",
       department: job.department || "",
@@ -63,17 +66,26 @@ export default function ManageJobs() {
       work_setup: job.work_setup || "On-site",
       location: job.location || "",
       required_skills: job.required_skills || "",
-      required_certifications: job.required_certifications || "",
+      required_certifications: parsed.cleanCertifications || "",
       required_education: job.required_education || "Bachelor's Degree",
       experience_required: job.experience_required || "1-3 years",
       number_of_openings: job.number_of_openings || 1,
       description: job.description || "",
       salary_range: job.salary_range || "",
       deadline: job.deadline ? job.deadline.substring(0,10) : "",
+      appReqs: parsed.applicationRequirements || []
     });
   }
 
-
+  function handleToggleEditReq(name) {
+    setEditForm(prev => {
+      const current = prev.appReqs || [];
+      const updated = current.includes(name)
+        ? current.filter(r => r !== name)
+        : [...current, name];
+      return { ...prev, appReqs: updated };
+    });
+  }
 
   async function handleSaveEdit(jobId) {
     if (!editForm.title.trim()) {
@@ -82,6 +94,8 @@ export default function ManageJobs() {
     }
 
     setSaving(true);
+    const encodedCerts = encodeApplicationRequirements(editForm.required_certifications, editForm.appReqs || []);
+
     const payload = {
       title: editForm.title.trim(),
       department: editForm.department?.trim() || null,
@@ -89,7 +103,7 @@ export default function ManageJobs() {
       work_setup: editForm.work_setup,
       location: editForm.location.trim(),
       required_skills: editForm.required_skills.trim(),
-      required_certifications: editForm.required_certifications?.trim() || null,
+      required_certifications: encodedCerts,
       required_education: editForm.required_education,
       experience_required: editForm.experience_required,
       number_of_openings: parseInt(editForm.number_of_openings, 10) || 1,
@@ -262,7 +276,7 @@ export default function ManageJobs() {
                         <input name="required_skills" value={editForm.required_skills} onChange={e => setEditForm(p => ({...p, required_skills: e.target.value}))} />
                       </label>
                       <label className="job-edit-label">
-                        Required Certifications (comma-separated)
+                        Required Certifications (Qualifications)
                         <input name="required_certifications" value={editForm.required_certifications || ""} onChange={e => setEditForm(p => ({...p, required_certifications: e.target.value}))} />
                       </label>
                       <label className="job-edit-label">
@@ -274,7 +288,28 @@ export default function ManageJobs() {
                         <input type="date" name="deadline" value={editForm.deadline} onChange={e => setEditForm(p => ({...p, deadline: e.target.value}))} />
                       </label>
                     </div>
-                    <label className="job-edit-label">
+
+                    {/* Edit Application Document Requirements */}
+                    <div style={{ marginTop: "14px", background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                      <span style={{ fontSize: "12px", fontWeight: "700", color: "#1e1b4b", display: "block", marginBottom: "6px" }}>📋 Application Document Requirements</span>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "6px" }}>
+                        {PRESET_REQUIREMENTS.map(preset => {
+                          const isSelected = (editForm.appReqs || []).includes(preset.name);
+                          return (
+                            <label key={preset.id} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", cursor: "pointer" }}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleEditReq(preset.name)}
+                              />
+                              <span>{preset.icon} {preset.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <label className="job-edit-label" style={{ marginTop: "12px" }}>
                       Job Description
                       <textarea value={editForm.description}
                         onChange={e => setEditForm(p => ({...p, description: e.target.value}))} />
@@ -329,6 +364,21 @@ export default function ManageJobs() {
                         ))
                       )}
                     </div>
+
+                    {/* Document Requirements Badges */}
+                    {(() => {
+                      const { applicationRequirements } = parseJobRequirements(job);
+                      return applicationRequirements.length > 0 ? (
+                        <div style={{ marginTop: "8px", display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "700", color: "#475569" }}>📋 Required Documents:</span>
+                          {applicationRequirements.map(req => (
+                            <span key={req} style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: "600" }}>
+                              ✓ {req}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()}
 
                     <p className="job-description-preview">{job.description || "No description provided."}</p>
 

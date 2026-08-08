@@ -8,6 +8,7 @@ import { useModal } from "../../contexts/ModalContext";
 import { supabase } from "../../services/supabase";
 import { cosineSimilarity, fetchResumeEmbeddings, fetchJobEmbedding } from "../../services/ai/vectorSearchService";
 import { generateCandidateRecommendation, getMatchTier } from "../../services/ai/recommendationService";
+import { calculateJobFit } from "../../services/ai/jobFitEngine";
 import "./Applicants.css";
 
 function formatUploadDate(dateString) {
@@ -91,15 +92,11 @@ export default function Applicants() {
     setLoading(false);
 
     // ── Load semantic scores (non-blocking) ─────────────────────────────
-    // For each unique job in applicant list, fetch the job embedding.
-    // Then fetch all resume embeddings for those applicants.
-    // Calculate cosine similarity and store per-applicant.
     loadSemanticScores(list).catch(console.warn);
   }
 
   // ── Semantic scoring ─────────────────────────────────────────────────────
   async function loadSemanticScores(list) {
-    // Group applicants by job_id
     const jobGroups = {};
     list.forEach(app => {
       const jobId = app.job_id || app.jobs?.id;
@@ -111,15 +108,12 @@ export default function Applicants() {
     const scores = {};
 
     for (const [jobId, apps] of Object.entries(jobGroups)) {
-      // Fetch job embedding
       const jobEmbedding = await fetchJobEmbedding(jobId);
-      if (!jobEmbedding) continue;  // Job has no embedding yet — skip
+      if (!jobEmbedding) continue;
 
-      // Fetch resume embeddings for all applicants in this group
       const applicantIds = apps.map(a => a.applicant_id).filter(Boolean);
       const resumeEmbeddings = await fetchResumeEmbeddings(applicantIds);
 
-      // Calculate cosine similarity for each applicant
       apps.forEach(app => {
         const resumeEmb = resumeEmbeddings[app.applicant_id];
         if (resumeEmb) {
@@ -131,7 +125,6 @@ export default function Applicants() {
     setSemanticScores(scores);
   }
 
-  // Parse skill strings or arrays helper
   function getSkillsList(raw) {
     if (!raw) return [];
     if (Array.isArray(raw)) return raw;
@@ -141,28 +134,26 @@ export default function Applicants() {
     return [];
   }
 
-  // Algorithm to calculate skill alignment
+  // Algorithm to calculate skill alignment using unified Job Fit engine
   function calculateAlignment(app) {
-    const jobSkills = getSkillsList(app.jobs?.required_skills);
-    const candidateSkills = getSkillsList(app.profiles?.skills);
+    const jobObj = app.jobs || {};
+    const candObj = {
+      skills: app.profiles?.skills,
+      course: app.candidate_profiles?.course,
+      degree: app.candidate_profiles?.degree,
+      years_experience: app.candidate_profiles?.years_experience,
+      certifications: app.candidate_profiles?.certifications
+    };
+    const semScore = semanticScores[app.id] ? semanticScores[app.id] / 100 : 0.70;
+    const fitResult = calculateJobFit(candObj, jobObj, semScore);
 
-    if (jobSkills.length === 0) {
-      return { score: 100, matched: [], missing: [] };
-    }
-
-    const matched = [];
-    const missing = [];
-
-    jobSkills.forEach(skill => {
-      if (candidateSkills.includes(skill)) {
-        matched.push(skill);
-      } else {
-        missing.push(skill);
-      }
-    });
-
-    const score = Math.round((matched.length / jobSkills.length) * 100);
-    return { score, matched, missing };
+    return {
+      score: fitResult.jobFitScore,
+      tier: fitResult.tier,
+      matched: fitResult.matchedSkills,
+      missing: fitResult.missingSkills,
+      breakdown: fitResult.breakdown
+    };
   }
 
   function getMatchTierLocal(score) {

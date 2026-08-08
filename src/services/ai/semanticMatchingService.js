@@ -10,10 +10,12 @@
  */
 
 import { supabase }                  from '../supabase.js'
-import { findMatchingJobsForCandidate } from './vectorSearchService.js'
+import { findMatchingJobsForCandidate, cosineSimilarity } from './vectorSearchService.js'
 import { generateMatchRecommendation }  from './recommendationService.js'
 import { normalizeSkillName }           from '../normalization.js'
 import { SEMANTIC_MATCHING_CONFIG }    from './semanticMatchingConfig.js'
+import { calculateJobFit }             from './jobFitEngine.js'
+import { ensureOpenJobEmbeddings }     from './embeddingService.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -119,6 +121,9 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
   console.log('[SemanticMatching] Starting for candidate:', userId)
 
   try {
+    // 0. Ensure open jobs have embeddings generated (auto-backfill if needed)
+    await ensureOpenJobEmbeddings().catch(console.warn);
+
     // ── 1. Vector search: find top 20 semantically similar jobs ──────────────
     const tFindStart = performance.now();
     const vectorResults = await findMatchingJobsForCandidate(resumeEmbedding, 20)
@@ -143,13 +148,11 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
     }
 
     const tFetchStart = performance.now();
-    const [
-      { data: candidateProfile },
-      { data: resumeRow }
-    ] = await Promise.all([
-      supabase.from('candidate_profiles').select('*').eq('user_id', userId).maybeSingle(),
-      supabase.from('resumes').select('resume_score').eq('applicant_id', userId).maybeSingle()
-    ])
+    const { data: candidateProfile } = await supabase
+      .from('candidate_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle()
     const dFetch = performance.now() - tFetchStart;
 
     if (!jobs || !jobs.length) {
@@ -159,57 +162,51 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
 
     // Safely parse candidate skills (handles objects or string list)
     const tCalcStart = performance.now();
-    let candidateSkillsRaw = []
-    if (candidateProfile?.skills) {
-      try {
-        candidateSkillsRaw = JSON.parse(candidateProfile.skills)
-        if (!Array.isArray(candidateSkillsRaw)) candidateSkillsRaw = [candidateProfile.skills]
-      } catch {
-        candidateSkillsRaw = (candidateProfile.skills || '').split(',').map(s => s.trim())
-      }
-    }
+    const candidateObj = candidateProfile || {};
 
-    // Retrieve ATS score from latest resume
-    const atsScore = resumeRow?.resume_score ?? 80; // Fallback to 80 if resume record has no score
-
-    // Load matching weights from dynamic config
-    const config = SEMANTIC_MATCHING_CONFIG;
-    const w = config.weights;
-
-    // ── 3. Build hybrid scores using config weights ──────────────────────────
+    // ── 3. Build unified Job Fit scores for each open job ────────────────────
     const upserts = jobs.map(job => {
-      const semanticScore  = similarityMap[job.id] ?? 0           // 0–1
-      const jobSkills      = parseSkills(job.required_skills)
-      
-      const { pct: skillPct, matched, missing } = getRuleBasedSkillScore(
-        candidateSkillsRaw, 
-        jobSkills, 
-        config
-      )
+      let semanticSim = similarityMap[job.id];
 
-      // Calculate final ranking match_score based on config weights
-      const hybridScore = Math.round(
-        (semanticScore * 100 * w.semantic) + 
-        (skillPct * w.skills) + 
-        (atsScore * w.ats)
-      )
+      // Calculate real cosine similarity if not returned by RPC
+      if (semanticSim === undefined || semanticSim === null) {
+        if (job.job_embedding && Array.isArray(resumeEmbedding)) {
+          const jobVec = Array.isArray(job.job_embedding)
+            ? job.job_embedding
+            : (typeof job.job_embedding === 'string' ? JSON.parse(job.job_embedding) : null);
+          
+          if (jobVec && jobVec.length === resumeEmbedding.length) {
+            semanticSim = cosineSimilarity(resumeEmbedding, jobVec);
+          } else {
+            semanticSim = 0; // Real 0 when embedding unavailable - no fabrication!
+          }
+        } else {
+          semanticSim = 0; // Real 0 when embedding unavailable - no fabrication!
+        }
+      }
 
-      const recommendation = generateMatchRecommendation(
-        hybridScore, matched, missing, job.title
-      )
+      const fitResult = calculateJobFit(candidateObj, job, semanticSim);
+
+      const recommendationStr = fitResult.strengths.length > 0
+        ? `${fitResult.tier}: ${fitResult.strengths.join('; ')}`
+        : `${fitResult.tier}: Alignment evaluated against role qualifications.`;
 
       return {
-        user_id:        userId,
-        job_id:         job.id,
-        match_score:    hybridScore,
-        semantic_score: Math.round(semanticScore * 100),
-        skills_score:   Math.round(skillPct),
-        match_status:   'Recommended',
-        matching_skills: matched,
-        missing_skills:  missing,
-        strengths:       matched,
-        recommendations: recommendation,
-        match_reason:    recommendation,
+        user_id:         userId,
+        job_id:          job.id,
+        match_score:     fitResult.jobFitScore,
+        semantic_score:  fitResult.breakdown.semanticRelevance,
+        skills_score:    fitResult.breakdown.requiredSkillsScore,
+        education_score: fitResult.breakdown.educationCompatibility,
+        experience_score: fitResult.breakdown.experienceCompatibility,
+        match_status:    fitResult.tier,
+        matching_skills: fitResult.matchedSkills,
+        missing_skills:  fitResult.missingSkills,
+        strengths:       fitResult.strengths,
+        recommendations: recommendationStr,
+        match_reason:     recommendationStr,
+        micro_credentials: fitResult.recommendedMicrocredentials,
+        matched_certs:   fitResult.matchedCertifications,
         match_type:      'semantic',
         updated_at:      new Date().toISOString(),
       }
@@ -280,12 +277,17 @@ export async function fetchSemanticMatchesForCandidate(userId) {
       ...m.jobs,
       rank:            idx + 1,
       matchScore:      m.match_score      ?? 0,
+      matchStatus:     m.match_status     ?? 'Recommended',
       semanticScore:   m.semantic_score   ?? 0,
       skillsScore:     m.skills_score     ?? 0,
+      educationScore:  m.education_score  ?? 100,
+      experienceScore: m.experience_score ?? 100,
       matchedSkills:   Array.isArray(m.matching_skills) ? m.matching_skills : (m.matching_skills ? JSON.parse(m.matching_skills) : []),
       missingSkills:   Array.isArray(m.missing_skills)  ? m.missing_skills  : (m.missing_skills  ? JSON.parse(m.missing_skills)  : []),
       strengths:       Array.isArray(m.strengths)        ? m.strengths       : (m.strengths        ? JSON.parse(m.strengths)        : []),
       recommendations: m.recommendations ?? '',
       matchReason:     m.match_reason     ?? '',
+      microCredentials: Array.isArray(m.micro_credentials) ? m.micro_credentials : (m.micro_credentials ? (typeof m.micro_credentials === 'string' ? JSON.parse(m.micro_credentials) : []) : []),
+      matchedCerts:     Array.isArray(m.matched_certs)     ? m.matched_certs     : (m.matched_certs     ? (typeof m.matched_certs     === 'string' ? JSON.parse(m.matched_certs)     : []) : []),
     }))
 }

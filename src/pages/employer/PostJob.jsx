@@ -7,6 +7,7 @@ import { generateSuggestedSkills }                   from "../../services/resume
 import { runMatchingForJob }                          from "../../services/matchingEngine";
 import { generateAndStoreJobEmbedding,
          buildJobTextForEmbedding }                   from "../../services/ai/embeddingService";
+import { PRESET_REQUIREMENTS, encodeApplicationRequirements } from "../../utils/jobRequirementsHelper";
 
 export default function PostJob() {
   const navigate = useNavigate();
@@ -26,12 +27,39 @@ export default function PostJob() {
     deadline: "",
     description: "",
   });
+
+  // Application Document Requirements State
+  const [appReqs, setAppReqs] = useState(
+    PRESET_REQUIREMENTS.filter(p => p.defaultSelected).map(p => p.name)
+  );
+  const [customReqInput, setCustomReqInput] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
 
   function handleChange(e) {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  }
+
+  function handleToggleReq(name) {
+    setAppReqs(prev =>
+      prev.includes(name) ? prev.filter(r => r !== name) : [...prev, name]
+    );
+  }
+
+  function handleAddCustomReq(e) {
+    e.preventDefault();
+    const val = customReqInput.trim();
+    if (!val) return;
+    if (!appReqs.includes(val)) {
+      setAppReqs(prev => [...prev, val]);
+    }
+    setCustomReqInput("");
+  }
+
+  function handleRemoveReq(name) {
+    setAppReqs(prev => prev.filter(r => r !== name));
   }
 
   async function handleSuggestSkills(e) {
@@ -77,6 +105,9 @@ export default function PostJob() {
       return;
     }
 
+    // Encode application document requirements into payload
+    const encodedCerts = encodeApplicationRequirements(formData.required_certifications, appReqs);
+
     const payload = {
       title: formData.title.trim(),
       department: formData.department.trim(),
@@ -85,7 +116,7 @@ export default function PostJob() {
       location: formData.location.trim(),
       salary_range: formData.salary_range.trim(),
       required_skills: formData.required_skills.trim(),
-      required_certifications: formData.required_certifications.trim(),
+      required_certifications: encodedCerts,
       required_education: formData.required_education,
       experience_required: formData.experience_required,
       number_of_openings: parseInt(formData.number_of_openings, 10) || 1,
@@ -110,8 +141,6 @@ export default function PostJob() {
       runMatchingForJob(newJob.id).catch(console.error);
 
       // ── Semantic AI Job Embedding (non-blocking) ─────────────────────
-      // Generates a 384-dim embedding from the job description + requirements
-      // and stores it in jobs.job_embedding for future candidate vector search.
       ;(async () => {
         try {
           const jobText = buildJobTextForEmbedding(newJob)
@@ -121,7 +150,6 @@ export default function PostJob() {
           console.warn('[PostJob] Job embedding failed (non-critical):', aiErr.message)
         }
       })()
-      // ── End AI Pipeline ──────────────────────────────────────────
     }
 
     toast.success("Job posted successfully!");
@@ -206,7 +234,7 @@ export default function PostJob() {
           </div>
 
           <label style={{ marginTop: "15px" }}>
-            <span>Required Certifications</span>
+            <span>Required Certifications (Qualifications)</span>
             <input type="text" name="required_certifications" placeholder="e.g. AWS Certified Developer, CPA (comma-separated)" value={formData.required_certifications} onChange={handleChange} />
           </label>
 
@@ -219,6 +247,60 @@ export default function PostJob() {
             </div>
             <input type="text" name="required_skills" placeholder="e.g. React, Node.js (comma-separated)" value={formData.required_skills} onChange={handleChange} />
           </label>
+
+          {/* ── APPLICATION DOCUMENT REQUIREMENTS ── */}
+          <div style={{ marginTop: "24px", background: "#f8fafc", padding: "16px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+            <h3 style={{ margin: "0 0 6px 0", fontSize: "15px", color: "#1e1b4b", fontWeight: "800" }}>📋 Required Application Documents</h3>
+            <p style={{ margin: "0 0 12px 0", fontSize: "12px", color: "#64748b" }}>
+              Select the documents applicants must prepare to apply for this job.
+            </p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "10px", marginBottom: "14px" }}>
+              {PRESET_REQUIREMENTS.map(preset => {
+                const isSelected = appReqs.includes(preset.name);
+                return (
+                  <label key={preset.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer", background: isSelected ? "#f3e8ff" : "#fff", padding: "8px 12px", borderRadius: "6px", border: isSelected ? "1px solid #c084fc" : "1px solid #cbd5e1" }}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handleToggleReq(preset.name)}
+                    />
+                    <span>{preset.icon} {preset.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {/* Custom Requirement Builder */}
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="+ Add custom requirement (e.g. Barangay Clearance)"
+                value={customReqInput}
+                onChange={(e) => setCustomReqInput(e.target.value)}
+                style={{ flex: 1, padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomReq}
+                style={{ background: "#58158f", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "6px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
+              >
+                Add
+              </button>
+            </div>
+
+            {/* Active Selected Documents Tags */}
+            {appReqs.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "12px" }}>
+                {appReqs.map(req => (
+                  <span key={req} style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#3b82f6", color: "#fff", padding: "4px 10px", borderRadius: "14px", fontSize: "12px", fontWeight: "600" }}>
+                    ✓ {req}
+                    <button type="button" onClick={() => handleRemoveReq(req)} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: "14px", padding: 0, marginLeft: "4px" }}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
           <label style={{ marginTop: "15px" }}>
             <span>Job Description *</span>

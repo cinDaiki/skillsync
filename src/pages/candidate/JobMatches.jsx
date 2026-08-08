@@ -5,6 +5,7 @@ import { supabase } from "../../services/supabase";
 import { applyForJobWithSnapshot } from "../../services/applicationService";
 import { triggerSimulationNotification } from "../../services/notificationService";
 import { useToast } from "../../contexts/ToastContext";
+import { parseJobRequirements } from "../../utils/jobRequirementsHelper";
 import "./JobMatches.css";
 
 function formatPostedDate(dateStr) {
@@ -45,6 +46,7 @@ export default function JobMatches() {
   // Detail Modal
   const [selectedJob, setSelectedJob] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [confirmApplyJob, setConfirmApplyJob] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -109,19 +111,18 @@ export default function JobMatches() {
   // Toggle Bookmark
   function toggleBookmark(jobId) {
     if (!userId) return;
-    let nextBookmarks;
-    if (bookmarks.includes(jobId)) {
-      nextBookmarks = bookmarks.filter(id => id !== jobId);
-    } else {
-      nextBookmarks = [...bookmarks, jobId];
-    }
-    setBookmarks(nextBookmarks);
-    localStorage.setItem(`skillsync_bookmarks_${userId}`, JSON.stringify(nextBookmarks));
+    const newBookmarks = bookmarks.includes(jobId)
+      ? bookmarks.filter((id) => id !== jobId)
+      : [...bookmarks, jobId];
+
+    setBookmarks(newBookmarks);
+    localStorage.setItem(`skillsync_bookmarks_${userId}`, JSON.stringify(newBookmarks));
+    toast.info(bookmarks.includes(jobId) ? "Removed from bookmarks." : "Job bookmarked!");
   }
 
   const isApplyBlocked = !hasResume || (verificationStatus !== "Verified" && verificationStatus !== "Approved");
 
-  async function handleApply(job) {
+  function handlePromptApply(job) {
     if (!userId) {
       toast.error("Please sign in before applying.");
       return;
@@ -146,10 +147,18 @@ export default function JobMatches() {
       return;
     }
 
+    setConfirmApplyJob(job);
+  }
+
+  async function handleConfirmApply() {
+    if (!confirmApplyJob) return;
+    const job = confirmApplyJob;
+
     const { data, error } = await applyForJobWithSnapshot(job.id, userId);
 
     if (error) {
       toast.error("Failed to apply: " + error.message);
+      setConfirmApplyJob(null);
       return;
     }
 
@@ -157,6 +166,7 @@ export default function JobMatches() {
     toast.success(`Successfully applied for "${job.title}"!`);
 
     await triggerSimulationNotification(userId, "job_applied", { jobTitle: job.title });
+    setConfirmApplyJob(null);
     setShowDetailModal(false);
   }
 
@@ -164,6 +174,9 @@ export default function JobMatches() {
     setSelectedJob(job);
     setShowDetailModal(true);
   }
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 6;
 
   // Chronological sort: newest first (created_at DESC)
   const sortedJobs = [...jobs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
@@ -189,6 +202,9 @@ export default function JobMatches() {
 
     return matchesSearch && matchesType && matchesSetup && matchesBookmark;
   });
+
+  const totalPages = Math.ceil(filteredJobs.length / PAGE_SIZE) || 1;
+  const paginatedJobs = filteredJobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <DashboardLayout
@@ -294,13 +310,14 @@ export default function JobMatches() {
             <p>There are currently no active job openings matching your search criteria. Please check back later.</p>
           </div>
         ) : (
-          <div className="job-match-list">
-            {filteredJobs.map((job, listIdx) => {
-              const rank = listIdx + 1;
+          <div>
+            <div className="job-match-list">
+            {paginatedJobs.map((job) => {
               const applied = hasApplied(job.id);
               const applyDisabled = applied || isApplyBlocked;
               const applyLabel = applied ? "Applied ✓" : isApplyBlocked ? "🔒 Apply Now" : "Apply Now";
               const applyTitle = applied ? "You have already applied" : !hasResume ? "Upload a resume to apply" : verificationStatus !== "Verified" && verificationStatus !== "Approved" ? "Complete identity verification to apply" : "";
+              const { applicationRequirements } = parseJobRequirements(job);
 
               return (
                 <article className="job-match-card" key={job.id}>
@@ -334,6 +351,22 @@ export default function JobMatches() {
                     )}
                   </div>
 
+                  {/* Employer Application Requirements */}
+                  {applicationRequirements.length > 0 && (
+                    <div style={{ marginTop: "8px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: "700", color: "#1e1b4b", display: "block", marginBottom: "4px" }}>
+                        📋 Document Requirements:
+                      </span>
+                      <div className="job-skills-list">
+                        {applicationRequirements.map((req, rIdx) => (
+                          <span key={rIdx} className="job-skill-badge" style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe" }}>
+                            ✓ {req}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="job-card-footer">
                     <div className="job-card-meta">
                       <span>📍 {job.location || "Location not specified"}</span>
@@ -356,7 +389,7 @@ export default function JobMatches() {
                       <button
                         type="button"
                         className="job-apply-primary"
-                        onClick={() => handleApply(job)}
+                        onClick={() => handlePromptApply(job)}
                         disabled={applyDisabled}
                         title={applyTitle}
                         style={isApplyBlocked && !applied ? { opacity: 0.6, cursor: "not-allowed" } : {}}
@@ -367,96 +400,173 @@ export default function JobMatches() {
               );
             })}
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="job-matches-pagination" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "12px", marginTop: "24px" }}>
+              <button
+                type="button"
+                className="filter-select"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                style={{ padding: "6px 14px", fontSize: "13px", cursor: currentPage === 1 ? "not-allowed" : "pointer" }}
+              >
+                ← Previous
+              </button>
+              <span style={{ fontSize: "13px", fontWeight: "600", color: "#475569" }}>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="filter-select"
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                style={{ padding: "6px 14px", fontSize: "13px", cursor: currentPage === totalPages ? "not-allowed" : "pointer" }}
+              >
+                Next →
+              </button>
+            </div>
+          )}
+          </div>
         )}
         </>
         )}
       </section>
 
       {/* ── JOB DETAILS POPUP MODAL ── */}
-      {showDetailModal && selectedJob && (
-        <div className="modal-overlay" onClick={() => setShowDetailModal(false)}>
-          <div className="modal-card" style={{ maxWidth: "700px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <h3 style={{ fontSize: "20px", margin: 0 }}>{selectedJob.title}</h3>
-                <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#58158f", fontWeight: "700" }}>
-                  {[selectedJob.company_name || "Employer", formatPostedDate(selectedJob.created_at)].filter(Boolean).join(" · ")}
-                </p>
-              </div>
-              <button className="modal-close-btn" onClick={() => setShowDetailModal(false)}>×</button>
-            </div>
+      {showDetailModal && selectedJob && (() => {
+        const { cleanCertifications, applicationRequirements } = parseJobRequirements(selectedJob);
 
-            <div style={{ padding: "20px 0", display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div className="job-detail-main">
-                <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Job Description</h4>
-                <p style={{ margin: 0, fontSize: "13px", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
-                  {selectedJob.description || "No description provided by recruiter."}
-                </p>
-              </div>
-
-              {selectedJob.required_skills && (
+        return (
+          <div className="modal-overlay" onClick={() => setShowDetailModal(false)}>
+            <div className="modal-card" style={{ maxWidth: "720px" }} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
                 <div>
-                  <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Required Skills</h4>
-                  <div className="job-skills-list">
-                    {selectedJob.required_skills.split(",").map((s) => (
-                      <span key={s} className="job-skill-badge">
-                        {s.trim()}
+                  <h3 style={{ fontSize: "20px", margin: 0 }}>{selectedJob.title}</h3>
+                  <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#58158f", fontWeight: "700" }}>
+                    {[selectedJob.company_name || "Employer", formatPostedDate(selectedJob.created_at)].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+                <button className="modal-close-btn" onClick={() => setShowDetailModal(false)}>×</button>
+              </div>
+
+              <div style={{ padding: "20px 0", display: "flex", flexDirection: "column", gap: "16px" }}>
+                
+                {/* Meta details grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "10px", background: "#f8fafc", padding: "12px 16px", borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                  <div>📍 <strong>Location:</strong> {selectedJob.location || "Not specified"}</div>
+                  <div>💼 <strong>Type:</strong> {selectedJob.employment_type || "Full-time"}</div>
+                  <div>🏢 <strong>Setup:</strong> {selectedJob.work_setup || "On-site"}</div>
+                  {selectedJob.salary_range && <div>💰 <strong>Salary:</strong> {selectedJob.salary_range}</div>}
+                </div>
+
+                <div className="job-detail-main">
+                  <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Job Description</h4>
+                  <p style={{ margin: 0, fontSize: "13px", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
+                    {selectedJob.description || "No description provided by recruiter."}
+                  </p>
+                </div>
+
+                {/* ── JOB QUALIFICATIONS ── */}
+                <div style={{ background: "#faf5ff", padding: "14px", borderRadius: "10px", border: "1px solid #f3e8ff" }}>
+                  <h4 style={{ color: "#58158f", margin: "0 0 8px 0", fontSize: "14px", fontWeight: "800" }}>🎓 Job Qualifications</h4>
+                  {selectedJob.required_education && (
+                    <p style={{ fontSize: "13px", margin: "0 0 4px 0" }}><strong>Education:</strong> {selectedJob.required_education}</p>
+                  )}
+                  {selectedJob.experience_required && (
+                    <p style={{ fontSize: "13px", margin: "0 0 4px 0" }}><strong>Experience:</strong> {selectedJob.experience_required}</p>
+                  )}
+                  {selectedJob.required_skills && (
+                    <div style={{ marginTop: "6px" }}>
+                      <strong style={{ fontSize: "13px" }}>Required Skills:</strong>
+                      <div className="job-skills-list" style={{ marginTop: "4px" }}>
+                        {selectedJob.required_skills.split(",").map((s) => (
+                          <span key={s} className="job-skill-badge">{s.trim()}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {cleanCertifications && (
+                    <p style={{ fontSize: "13px", margin: "6px 0 0 0", color: "#6b21a8" }}><strong>Certifications:</strong> {cleanCertifications}</p>
+                  )}
+                </div>
+
+                {/* ── APPLICATION DOCUMENT REQUIREMENTS ── */}
+                <div style={{ background: "#f0f9ff", padding: "14px", borderRadius: "10px", border: "1px solid #bae6fd" }}>
+                  <h4 style={{ color: "#0369a1", margin: "0 0 8px 0", fontSize: "14px", fontWeight: "800" }}>📋 Required Application Documents</h4>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {applicationRequirements.map((req, rIdx) => (
+                      <span key={rIdx} style={{ background: "#ffffff", color: "#0369a1", border: "1px solid #7dd3fc", padding: "4px 10px", borderRadius: "14px", fontSize: "12px", fontWeight: "700" }}>
+                        ✓ {req}
                       </span>
                     ))}
                   </div>
                 </div>
-              )}
 
-              {selectedJob.required_education && (
-                <div>
-                  <h4 style={{ color: "#58158f", margin: "0 0 4px 0", fontSize: "14px", fontWeight: "800" }}>Required Education</h4>
-                  <p style={{ margin: 0, fontSize: "13px", color: "#334155" }}>{selectedJob.required_education}</p>
-                </div>
-              )}
+              </div>
 
-              {selectedJob.experience_required && (
-                <div>
-                  <h4 style={{ color: "#58158f", margin: "0 0 4px 0", fontSize: "14px", fontWeight: "800" }}>Required Experience</h4>
-                  <p style={{ margin: 0, fontSize: "13px", color: "#334155" }}>{selectedJob.experience_required}</p>
-                </div>
-              )}
-
-              <div className="job-detail-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "#f8fafc", padding: "14px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
-                <div>
-                  <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Location</strong>
-                  <p style={{ margin: "2px 0 0 0", fontSize: "13px", fontWeight: "700", color: "#1e293b" }}>{selectedJob.location || "Not specified"}</p>
-                </div>
-                <div>
-                  <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Employment Type</strong>
-                  <p style={{ margin: "2px 0 0 0", fontSize: "13px", fontWeight: "700", color: "#1e293b" }}>{selectedJob.employment_type || "Full-time"}</p>
-                </div>
-                <div>
-                  <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Work Setup</strong>
-                  <p style={{ margin: "2px 0 0 0", fontSize: "13px", fontWeight: "700", color: "#1e293b" }}>{selectedJob.work_setup || "On-site"}</p>
-                </div>
-                <div>
-                  <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Salary Range</strong>
-                  <p style={{ margin: "2px 0 0 0", fontSize: "13px", fontWeight: "700", color: "#166534" }}>{selectedJob.salary_range || "Confidential"}</p>
-                </div>
+              <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "12px", borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
+                <button
+                  type="button"
+                  className="view-details-btn"
+                  onClick={() => setShowDetailModal(false)}
+                >Close</button>
+                <button
+                  type="button"
+                  className="job-apply-primary"
+                  onClick={() => handlePromptApply(selectedJob)}
+                  disabled={hasApplied(selectedJob.id) || isApplyBlocked}
+                >{hasApplied(selectedJob.id) ? "Applied ✓" : "Apply Now"}</button>
               </div>
             </div>
+          </div>
+        );
+      })()}
 
-            <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "12px", borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
-              <button
-                type="button"
-                className="view-details-btn"
-                onClick={() => setShowDetailModal(false)}
-              >Close</button>
-              <button
-                type="button"
-                className="job-apply-primary"
-                onClick={() => handleApply(selectedJob)}
-                disabled={hasApplied(selectedJob.id) || isApplyBlocked}
-              >{hasApplied(selectedJob.id) ? "Applied ✓" : "Apply for this Job"}</button>
+      {/* ── PRE-APPLICATION REQUIREMENTS CONFIRMATION MODAL ── */}
+      {confirmApplyJob && (() => {
+        const { applicationRequirements } = parseJobRequirements(confirmApplyJob);
+
+        return (
+          <div className="modal-overlay" onClick={() => setConfirmApplyJob(null)}>
+            <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
+              <div className="modal-header">
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "18px", color: "#1e1b4b" }}>📋 Application Documents Check</h3>
+                  <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#64748b" }}>
+                    Applying for <strong>{confirmApplyJob.title}</strong> at {confirmApplyJob.company_name || 'Employer'}
+                  </p>
+                </div>
+                <button className="modal-close-btn" onClick={() => setConfirmApplyJob(null)}>×</button>
+              </div>
+
+              <div style={{ padding: "20px 0" }}>
+                <p style={{ fontSize: "13px", color: "#334155", lineHeight: "1.5", margin: "0 0 12px 0" }}>
+                  The employer requires applicants to prepare the following documents:
+                </p>
+
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "12px 16px", borderRadius: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {applicationRequirements.map((req, rIdx) => (
+                    <div key={rIdx} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", fontWeight: "600", color: "#1e293b" }}>
+                      <span style={{ color: "#16a34a" }}>✓</span>
+                      <span>{req}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "12px", borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
+                <button type="button" className="view-details-btn" onClick={() => setConfirmApplyJob(null)}>
+                  Cancel
+                </button>
+                <button type="button" className="job-apply-primary" onClick={handleConfirmApply}>
+                  Confirm & Apply
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </DashboardLayout>
   );
 }

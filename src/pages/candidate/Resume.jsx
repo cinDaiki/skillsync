@@ -503,89 +503,19 @@ export default function Resume() {
               </div>
             </div>
 
-            {/* Tabbed Analysis System */}
-            <div className="resume-tabs-container" style={{ marginTop: "24px" }}>
-              <Suspense fallback={<div className="tab-loading-spinner">Loading tabs...</div>}>
-                <ResumeTabs 
-                  activeTab={activeTab} 
-                  tabs={TABS_CONFIG} 
-                  onChange={setActiveTab} 
+            {/* Post-Upload Primary View: Recommended Jobs */}
+            <div className="resume-recommendations-wrapper" style={{ marginTop: "24px" }}>
+              <ErrorBoundary>
+                <RecommendedJobs
+                  jobs={recommendedJobs}
+                  loading={loadingJobs}
+                  matching={matchingJobs}
+                  hasResume={!!resumeFile}
+                  applications={applications}
+                  onApply={handleApplyJob}
+                  applyingJobId={applyingJobId}
                 />
-              </Suspense>
-
-              <div className="resume-tab-panel-container" style={{ marginTop: "16px" }}>
-                <ErrorBoundary>
-                  <Suspense fallback={<div className="panel-loading-spinner">Loading analysis view...</div>}>
-                    {activeTab === 'jobs' && (
-                      <RecommendedJobs
-                        jobs={recommendedJobs}
-                        loading={loadingJobs}
-                        matching={matchingJobs}
-                        hasResume={!!resumeFile}
-                        applications={applications}
-                        onApply={handleApplyJob}
-                        applyingJobId={applyingJobId}
-                      />
-                    )}
-                    {activeTab === 'ats' && (
-                      <AtsReport atsData={resumeFile.parsed_details?.ats || null} />
-                    )}
-                    {activeTab === 'skills' && (
-                      <div className="skills-tab-split-grid">
-                        <SkillDictionary skills={resumeFile.parsed_details?.skills || []} />
-                        
-                        {/* Interactive Skills tag editor next to dictionary */}
-                        <div className="extracted-skills-card">
-                          <div className="extracted-skills-header">
-                            <h3>Tag Customizer</h3>
-                            <span className="skills-count-badge">{extractedSkills.length} Total</span>
-                          </div>
-                          <p style={{ fontSize: "12px", color: "#667085", marginBottom: "12px" }}>
-                            Review tags parsed from your file. You can add new ones or prune legacy tags.
-                          </p>
-                          <form className="skills-editor-input-row" onSubmit={handleAddSkillTag}>
-                            <input
-                              type="text"
-                              value={newSkillInput}
-                              onChange={(e) => setNewSkillInput(e.target.value)}
-                              placeholder="Add a new skill (e.g. React)"
-                              className="skills-editor-input"
-                              disabled={savingSkills}
-                            />
-                            <button type="submit" className="skills-editor-add-btn" disabled={savingSkills}>
-                              Add
-                            </button>
-                          </form>
-                          {extractedSkills.length > 0 ? (
-                            <div className="profile-skills-display">
-                              {extractedSkills.map((skill) => (
-                                <span key={skill} className="profile-skill-tag">
-                                  {skill}
-                                  <button 
-                                    type="button" 
-                                    className="profile-skill-remove" 
-                                    onClick={() => handleRemoveSkillTag(skill)}
-                                    disabled={savingSkills}
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <p style={{ color: "#8b8f9c", fontStyle: "italic", textAlign: "center", padding: "12px" }}>
-                              No skills. Add tags above!
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    {activeTab === 'meta' && (
-                      <ResumeMetadata details={resumeFile.parsed_details} />
-                    )}
-                  </Suspense>
-                </ErrorBoundary>
-              </div>
+              </ErrorBoundary>
             </div>
 
             {/* Resume Upload History Timeline */}

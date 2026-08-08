@@ -210,3 +210,28 @@ export async function generateAndStoreJobEmbedding(jobId, text) {
     return { embedding: null, error: err }
   }
 }
+
+/**
+ * Auto-backfill: Check open jobs missing embeddings and generate them on demand.
+ */
+export async function ensureOpenJobEmbeddings() {
+  try {
+    const { data: jobsToEmbed, error } = await supabase
+      .from('jobs')
+      .select('*')
+      .eq('status', 'open')
+      .is('job_embedding', null);
+
+    if (error || !jobsToEmbed || jobsToEmbed.length === 0) {
+      return;
+    }
+
+    console.log(`[EmbeddingService] Backfilling embeddings for ${jobsToEmbed.length} open job(s)...`);
+    for (const job of jobsToEmbed) {
+      const text = buildJobTextForEmbedding(job);
+      await generateAndStoreJobEmbedding(job.id, text);
+    }
+  } catch (err) {
+    console.warn('[EmbeddingService] ensureOpenJobEmbeddings warning:', err.message);
+  }
+}
