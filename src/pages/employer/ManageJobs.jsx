@@ -97,9 +97,8 @@ export default function ManageJobs() {
     const encodedCerts = encodeApplicationRequirements(editForm.required_certifications, editForm.appReqs || []);
 
     const targetJob = jobs.find(j => j.id === jobId);
-    // If updating an existing open job, revert to pending_review for admin moderation
-    const nextStatus = targetJob?.status === "open" ? "pending_review" : targetJob?.status || "pending_review";
 
+    // Resubmission rule: saving edits on a rejected, open, or pending job submits it for admin moderation (status: pending_review)
     const payload = {
       title: editForm.title.trim(),
       department: editForm.department?.trim() || null,
@@ -112,7 +111,10 @@ export default function ManageJobs() {
       experience_required: editForm.experience_required,
       number_of_openings: parseInt(editForm.number_of_openings, 10) || 1,
       description: editForm.description.trim(),
-      status: nextStatus,
+      status: "pending_review",
+      rejection_reason: null,
+      resubmitted_at: new Date().toISOString(),
+      moderation_count: (targetJob?.moderation_count || 0) + 1,
     };
     if (editForm.salary_range?.trim()) payload.salary_range = editForm.salary_range.trim();
     if (editForm.deadline) payload.deadline = editForm.deadline;
@@ -133,11 +135,11 @@ export default function ManageJobs() {
     setEditingJobId(null);
     await loadJobs();
     runMatchingForJob(jobId).catch(console.error);
-    
-    if (targetJob?.status === "open") {
-      toast.info("Job modifications submitted for administrator review (Status: Pending Review).");
+
+    if (targetJob?.status === "rejected") {
+      toast.success("Job revised and resubmitted for administrator review (Status: Pending Review).");
     } else {
-      toast.success("Job post saved successfully.");
+      toast.info("Job post saved and submitted for administrator review.");
     }
   }
 
@@ -236,6 +238,8 @@ export default function ManageJobs() {
           <select className="manage-jobs-filter" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
             <option value="All">All Status</option>
             <option value="Open">Open</option>
+            <option value="pending_review">Pending Review</option>
+            <option value="rejected">Rejected</option>
             <option value="Closed">Closed</option>
           </select>
           <select className="manage-jobs-filter" value={filterType} onChange={e => setFilterType(e.target.value)}>
@@ -446,7 +450,9 @@ export default function ManageJobs() {
                     <p className="job-description-preview">{job.description || "No description provided."}</p>
 
                     <div className="job-actions">
-                      <button type="button" className="job-edit-btn" onClick={() => handleEditJob(job)}>Edit</button>
+                      <button type="button" className="job-edit-btn" onClick={() => handleEditJob(job)}>
+                        {job.status === "rejected" ? "✏️ Edit & Resubmit" : "Edit"}
+                      </button>
                       <button type="button" className="job-status-btn" onClick={() => handleToggleStatus(job.id, job.status)}>
                         {job.status === "closed" ? "Reopen" : "Close"}
                       </button>

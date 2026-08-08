@@ -27,9 +27,11 @@ import CompanyProfile from "./pages/employer/CompanyProfile";
 
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import ManageUsers from "./pages/admin/ManageUsers";
+import ManageJobseekers from "./pages/admin/ManageJobseekers";
 import AdminManageJobs from "./pages/admin/AdminManageJobs";
 import ManageEmployers from "./pages/admin/ManageEmployers";
 import Reports from "./pages/admin/Reports";
+import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
 import ManageResumes from "./pages/admin/ManageResumes";
 import AdminManageApplications from "./pages/admin/AdminManageApplications";
 import AdminProfile from "./pages/admin/AdminProfile";
@@ -188,6 +190,15 @@ function App() {
         />
 
         <Route
+          path="/admin/jobseekers"
+          element={
+            <RoleRoute allowedRoles={[ROLES.ADMIN]}>
+              <ManageJobseekers />
+            </RoleRoute>
+          }
+        />
+
+        <Route
           path="/admin/jobs"
           element={
             <RoleRoute allowedRoles={[ROLES.ADMIN]}>
@@ -228,6 +239,15 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.ADMIN]}>
               <Reports />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/admin/audit-logs"
+          element={
+            <RoleRoute allowedRoles={[ROLES.ADMIN]}>
+              <AdminAuditLogs />
             </RoleRoute>
           }
         />

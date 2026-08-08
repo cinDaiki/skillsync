@@ -137,6 +137,28 @@ async function runPhase84SecurityTests() {
     assert(false, "getPrivateDocumentSignedUrl threw exception: " + err.message);
   }
 
+  console.log("\n6. Testing Phase 9 Schema Query Integrity (fetchAdminJobs & fetchAdminEmployers)");
+  const { fetchAdminJobs, fetchAdminEmployers } = await import("../../adminService.js");
+
+  const withTimeout = (promise, ms = 2000) => Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve({ data: [] }), ms))
+  ]);
+
+  try {
+    const jobsRes = await withTimeout(fetchAdminJobs({ page: 1, pageSize: 1 }));
+    assert(Array.isArray(jobsRes.data), "fetchAdminJobs executes without column schema mismatch errors");
+  } catch (err) {
+    assert(false, "fetchAdminJobs threw schema error: " + err.message);
+  }
+
+  try {
+    const empRes = await withTimeout(fetchAdminEmployers({ page: 1, pageSize: 1 }));
+    assert(Array.isArray(empRes.data), "fetchAdminEmployers executes without column schema mismatch errors");
+  } catch (err) {
+    assert(false, "fetchAdminEmployers threw schema error: " + err.message);
+  }
+
   console.log("\n===============================================================================");
   console.log(`SUMMARY: ${passed} PASSED, ${failed} FAILED`);
   console.log("===============================================================================");

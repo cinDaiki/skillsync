@@ -1,34 +1,55 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { useToast } from "../../contexts/ToastContext";
 import { supabase } from "../../services/supabase";
-import { fetchAdminProfiles, filterEmployers, displayUserName, updateEmployerVerification } from "../../services/adminService";
+import {
+  fetchAdminEmployers,
+  fetchEmployerJobs,
+  displayUserName,
+  updateEmployerVerification,
+} from "../../services/adminService";
 
 export default function ManageEmployers() {
   const toast = useToast();
   const [employers, setEmployers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
-  // Moderation Modal State
-  const [actionModal, setActionModal] = useState(null); // { employer, targetStatus: 'Approved'|'Rejected'|'Suspended' }
+  // Modals state
+  const [actionModal, setActionModal] = useState(null); // { employer, targetStatus }
+  const [viewDetailsModal, setViewDetailsModal] = useState(null); // employer object
+  const [companyJobsModal, setCompanyJobsModal] = useState(null); // { employer, jobs: [], loading: boolean }
   const [reasonInput, setReasonInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  const loadEmployers = useCallback(async () => {
+    setLoading(true);
+    setLoadError("");
+    const res = await fetchAdminEmployers({
+      search,
+      status: statusFilter,
+      page,
+      pageSize,
+    });
+
+    if (res.error) {
+      setLoadError("Could not load employers. Please check database permissions or SQL Editor migrations.");
+    }
+    setEmployers(res.data || []);
+    setTotalCount(res.totalCount || 0);
+    setTotalPages(res.totalPages || 1);
+    setLoading(false);
+  }, [search, statusFilter, page, pageSize]);
+
   useEffect(() => {
     loadEmployers();
-  }, []);
-
-  async function loadEmployers() {
-    setLoadError("");
-    const { data: profiles, error } = await fetchAdminProfiles();
-    if (error && (!profiles || profiles.length === 0)) {
-      setLoadError(
-        "Could not load employers. Run supabase/admin_access.sql in your Supabase SQL Editor, then refresh."
-      );
-    }
-    setEmployers(filterEmployers(profiles));
-  }
+  }, [loadEmployers]);
 
   async function handleAdminViewDoc(filePathOrUrl) {
     if (!filePathOrUrl) return;
@@ -63,14 +84,20 @@ export default function ManageEmployers() {
 
     toast.success(`Employer status updated to "${newStatus}".`);
     setActionModal(null);
-    await loadEmployers();
+    loadEmployers();
+  }
+
+  async function handleOpenCompanyJobs(employer) {
+    setCompanyJobsModal({ employer, jobs: [], loading: true });
+    const { data: jobs } = await fetchEmployerJobs(employer.id);
+    setCompanyJobsModal({ employer, jobs, loading: false });
   }
 
   async function handleRemoveEmployer(userId) {
     if (!window.confirm("Are you sure you want to remove this employer account?")) return;
     await supabase.from("profiles").delete().eq("id", userId);
     await supabase.auth.admin.deleteUser(userId).catch(() => {});
-    setEmployers((prev) => prev.filter((e) => e.id !== userId));
+    loadEmployers();
   }
 
   function formatDate(dateString) {
@@ -78,129 +105,227 @@ export default function ManageEmployers() {
     return new Date(dateString).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
   }
 
-  const filteredEmployers = employers.filter(emp => {
-    const status = emp.verification_status || "Pending";
-    if (statusFilter === "All") return true;
-    if (statusFilter === "Approved") return status === "Approved" || status === "Verified";
-    return status === statusFilter;
-  });
-
   return (
-    <DashboardLayout role="admin" title="Employers"
-      subtitle="Manage employer accounts, company verification, and platform access.">
-      <section className="dashboard-panel">
-        <div className="panel-header employers-panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-          <div className="panel-header-content">
-            <h2>Employer Accounts ({filteredEmployers.length})</h2>
+    <DashboardLayout
+      role="admin"
+      title="Employer Management"
+      subtitle="Manage employer accounts, verification documents, company details, and job posting activity."
+    >
+      <div className="admin-page-container" style={{ padding: "24px" }}>
+        {/* Header Summary & Actions */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
+          <div>
+            <h1 style={{ fontSize: "24px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+              🏢 Employer Management
+            </h1>
+            <p style={{ color: "#64748b", fontSize: "14px", marginTop: "4px" }}>
+              Verify identity documents, manage status approvals, and audit company job listings.
+            </p>
           </div>
 
-          {/* Status Filter Tabs */}
+          <div style={{ background: "#f1f5f9", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", color: "#334155" }}>
+            Total Employers: <span style={{ color: "#2563eb" }}>{totalCount}</span>
+          </div>
+        </div>
+
+        {loadError && (
+          <div style={{ padding: "12px 16px", background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "8px", color: "#991b1b", fontSize: "13px", marginBottom: "16px" }}>
+            {loadError}
+          </div>
+        )}
+
+        {/* Filter Controls Bar */}
+        <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="🔍 Search company name, contact, or email..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            style={{
+              flex: "1",
+              minWidth: "240px",
+              padding: "10px 14px",
+              borderRadius: "8px",
+              border: "1px solid #cbd5e1",
+              fontSize: "14px",
+              outline: "none",
+            }}
+          />
+
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            {["All", "Pending", "Approved", "Rejected", "Suspended"].map(st => (
+            {["All", "Pending", "Approved", "Rejected", "Suspended"].map((st) => (
               <button
                 key={st}
                 type="button"
-                onClick={() => setStatusFilter(st)}
+                onClick={() => {
+                  setStatusFilter(st);
+                  setPage(1);
+                }}
                 style={{
-                  padding: "6px 14px",
-                  borderRadius: "20px",
-                  fontSize: "12px",
+                  padding: "8px 14px",
+                  borderRadius: "8px",
+                  fontSize: "13px",
                   fontWeight: "700",
-                  border: statusFilter === st ? "1px solid #58158f" : "1px solid #cbd5e1",
-                  background: statusFilter === st ? "#58158f" : "#fff",
+                  border: statusFilter === st ? "none" : "1px solid #cbd5e1",
+                  background: statusFilter === st ? "#2563eb" : "#fff",
                   color: statusFilter === st ? "#fff" : "#475569",
-                  cursor: "pointer"
+                  cursor: "pointer",
                 }}
               >
                 {st}
               </button>
             ))}
           </div>
+
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+            style={{
+              padding: "10px 14px",
+              borderRadius: "8px",
+              border: "1px solid #cbd5e1",
+              fontSize: "14px",
+              background: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            <option value={10}>10 per page</option>
+            <option value={20}>20 per page</option>
+            <option value={50}>50 per page</option>
+          </select>
         </div>
 
-        {loadError && <div className="profile-message">{loadError}</div>}
-
-        {filteredEmployers.length === 0 && !loadError ? (
-          <div className="empty-state">
-            <span>▤</span><h3>No employers found</h3>
-            <p>No registered employer accounts match your selected filter.</p>
+        {/* Employers List */}
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "40px", color: "#64748b", background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+            Loading employer profiles...
+          </div>
+        ) : employers.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px", color: "#64748b", background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+            No employer accounts found matching search or filter criteria.
           </div>
         ) : (
-          <div className="admin-employers-list">
-            {filteredEmployers.map((employer) => {
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            {employers.map((employer) => {
               const status = employer.verification_status || "Pending";
               const isApproved = status === "Approved" || status === "Verified";
+              const docCount = [employer.id_image_url, employer.selfie_image_url, employer.business_permit_url, employer.sec_registration_url].filter(Boolean).length;
+              const stats = employer.job_stats || { total: 0, open: 0, pending: 0, rejected: 0, closed: 0 };
 
               return (
-                <article className="admin-employer-card" key={employer.id} style={{ borderLeft: isApproved ? "4px solid #16a34a" : status === "Rejected" ? "4px solid #dc2626" : status === "Suspended" ? "4px solid #450a0a" : "4px solid #f59e0b" }}>
-                  <div className="admin-employer-main">
-                    <div className="admin-employer-avatar" style={{ background: isApproved ? "#dcfce7" : "#fef9c3", color: isApproved ? "#15803d" : "#854d0e" }}>
-                      {(employer.full_name || employer.email || "E").charAt(0).toUpperCase()}
-                    </div>
+                <div
+                  key={employer.id}
+                  style={{
+                    background: "#fff",
+                    borderRadius: "12px",
+                    border: "1px solid #e2e8f0",
+                    padding: "20px",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
                     <div>
-                      <h3 style={{ margin: "0 0 2px 0" }}>{displayUserName(employer)}</h3>
-                      <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>{employer.email || "No email"}</p>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+                          {employer.company_name}
+                        </h3>
+                        <span
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "12px",
+                            fontSize: "12px",
+                            fontWeight: "700",
+                            background: isApproved ? "#dcfce7" : status === "Rejected" ? "#fee2e2" : status === "Suspended" ? "#fef2f2" : "#fef3c7",
+                            color: isApproved ? "#15803d" : status === "Rejected" ? "#dc2626" : status === "Suspended" ? "#991b1b" : "#b45309",
+                          }}
+                        >
+                          {isApproved ? "✓ Approved" : status === "Rejected" ? "❌ Rejected" : status === "Suspended" ? "🚫 Suspended" : "⏳ Pending Verification"}
+                        </span>
+                      </div>
+
+                      <div style={{ color: "#64748b", fontSize: "13px", marginTop: "4px" }}>
+                        Employer Contact: <strong>{displayUserName(employer)}</strong> ({employer.email})
+                      </div>
+                    </div>
+
+                    {/* Job Posting Statistics Badge */}
+                    <div style={{ background: "#f8fafc", padding: "8px 14px", borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px", color: "#334155" }}>
+                      <span style={{ fontWeight: "800", color: "#0f172a", display: "block", marginBottom: "2px" }}>
+                        💼 Job Statistics: {stats.total} Total Posted
+                      </span>
+                      <span style={{ color: "#16a34a", fontWeight: "700" }}>{stats.open} Active</span> •{" "}
+                      <span style={{ color: "#d97706", fontWeight: "700" }}>{stats.pending} Pending</span> •{" "}
+                      <span style={{ color: "#dc2626", fontWeight: "700" }}>{stats.rejected} Rejected</span>
                     </div>
                   </div>
 
-                  <div className="admin-employer-details-grid" style={{ marginTop: "12px" }}>
-                    <div>
-                      <span>Verification Status</span>
-                      <strong style={{ color: isApproved ? "#15803d" : status === "Rejected" ? "#dc2626" : status === "Suspended" ? "#991b1b" : "#b45309" }}>
-                        {isApproved ? "✓ Approved / Verified" : status === "Rejected" ? "❌ Rejected" : status === "Suspended" ? "🚫 Suspended" : "⏳ Pending Review"}
-                      </strong>
-                    </div>
-                    <div><span>Registered</span><strong>{formatDate(employer.created_at)}</strong></div>
-                    <div><span>Contact</span><strong>{employer.contact_number || "Not provided"}</strong></div>
-                    <div><span>Location</span><strong>{employer.location || "Not specified"}</strong></div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginTop: "14px", fontSize: "13px", color: "#475569" }}>
+                    <div>Industry: <strong>{employer.industry}</strong></div>
+                    <div>Location: <strong>{employer.location}</strong></div>
+                    <div>Phone: <strong>{employer.contact_number || "Not provided"}</strong></div>
+                    <div>Registered: <strong>{formatDate(employer.created_at)}</strong></div>
                   </div>
-
-                  {/* Verification Reason Note if present */}
-                  {employer.verification_reason && (
-                    <div style={{ marginTop: "10px", padding: "8px 12px", background: "#f8fafc", borderRadius: "6px", fontSize: "12px", color: "#475569", border: "1px solid #e2e8f0" }}>
-                      <strong>Reason Note:</strong> {employer.verification_reason}
-                    </div>
-                  )}
 
                   {/* Verification Documents Review Section */}
-                  {(employer.id_image_url || employer.selfie_image_url || employer.business_permit_url || employer.sec_registration_url) && (
-                    <div style={{ marginTop: "12px", padding: "10px 14px", background: "#f5ecff", borderRadius: "8px", border: "1px solid #e9d5ff" }}>
-                      <span style={{ fontSize: "12px", fontWeight: "800", color: "#58158f", display: "block", marginBottom: "6px" }}>
-                        🛡️ Employer Verification Documents
+                  {docCount > 0 && (
+                    <div style={{ marginTop: "14px", padding: "12px 14px", background: "#f5ecff", borderRadius: "8px", border: "1px solid #e9d5ff" }}>
+                      <span style={{ fontSize: "12px", fontWeight: "800", color: "#58158f", display: "block", marginBottom: "8px" }}>
+                        🛡️ Employer Verification Documents ({docCount}/4 uploaded)
                       </span>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         {employer.id_image_url && (
-                          <button type="button" onClick={() => handleAdminViewDoc(employer.id_image_url)} style={{ background: "#fff", color: "#58158f", border: "1px solid #d8b4fe", padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
-                            🔒 View Government ID
+                          <button type="button" onClick={() => handleAdminViewDoc(employer.id_image_url)} style={{ background: "#fff", color: "#58158f", border: "1px solid #d8b4fe", padding: "5px 12px", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
+                            🔒 Government ID
                           </button>
                         )}
                         {employer.selfie_image_url && (
-                          <button type="button" onClick={() => handleAdminViewDoc(employer.selfie_image_url)} style={{ background: "#fff", color: "#58158f", border: "1px solid #d8b4fe", padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
-                            🔒 View Selfie with ID
+                          <button type="button" onClick={() => handleAdminViewDoc(employer.selfie_image_url)} style={{ background: "#fff", color: "#58158f", border: "1px solid #d8b4fe", padding: "5px 12px", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
+                            🔒 Selfie with ID
                           </button>
                         )}
                         {employer.business_permit_url && (
-                          <button type="button" onClick={() => handleAdminViewDoc(employer.business_permit_url)} style={{ background: "#fff", color: "#58158f", border: "1px solid #d8b4fe", padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
-                            🔒 View Business Permit
+                          <button type="button" onClick={() => handleAdminViewDoc(employer.business_permit_url)} style={{ background: "#fff", color: "#58158f", border: "1px solid #d8b4fe", padding: "5px 12px", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
+                            🔒 Business Permit
                           </button>
                         )}
                         {employer.sec_registration_url && (
-                          <button type="button" onClick={() => handleAdminViewDoc(employer.sec_registration_url)} style={{ background: "#fff", color: "#58158f", border: "1px solid #d8b4fe", padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
-                            🔒 View SEC Registration
+                          <button type="button" onClick={() => handleAdminViewDoc(employer.sec_registration_url)} style={{ background: "#fff", color: "#58158f", border: "1px solid #d8b4fe", padding: "5px 12px", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
+                            🔒 SEC Registration
                           </button>
                         )}
                       </div>
                     </div>
                   )}
 
-                  {/* Moderation Actions */}
-                  <div className="admin-employer-actions" style={{ display: "flex", gap: "8px", marginTop: "14px", flexWrap: "wrap" }}>
+                  {/* Actions Toolbar */}
+                  <div style={{ display: "flex", gap: "8px", marginTop: "16px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => setViewDetailsModal(employer)}
+                      style={{ background: "#f1f5f9", color: "#1e293b", border: "1px solid #cbd5e1", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
+                    >
+                      👁 View Company Details
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCompanyJobs(employer)}
+                      style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
+                    >
+                      💼 View Company Jobs ({stats.total})
+                    </button>
+
                     {!isApproved && (
                       <button
                         type="button"
-                        className="job-edit-btn"
-                        style={{ background: "#16a34a", color: "#fff", border: "none" }}
                         onClick={() => handlePromptAction(employer, "Approved")}
+                        style={{ background: "#16a34a", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
                       >
                         ✓ Approve Employer
                       </button>
@@ -209,9 +334,8 @@ export default function ManageEmployers() {
                     {status !== "Rejected" && (
                       <button
                         type="button"
-                        className="job-status-btn"
-                        style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fca5a5" }}
                         onClick={() => handlePromptAction(employer, "Rejected")}
+                        style={{ background: "#dc2626", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
                       >
                         ❌ Reject
                       </button>
@@ -220,81 +344,204 @@ export default function ManageEmployers() {
                     {status !== "Suspended" && (
                       <button
                         type="button"
-                        className="job-status-btn"
-                        style={{ background: "#450a0a", color: "#ffffff", border: "none" }}
                         onClick={() => handlePromptAction(employer, "Suspended")}
+                        style={{ background: "#475569", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
                       >
-                        🚫 Suspend Employer
+                        🚫 Suspend
                       </button>
                     )}
-
-                    <button type="button" className="job-delete-btn" onClick={() => handleRemoveEmployer(employer.id)}>
-                      Remove
-                    </button>
                   </div>
-                </article>
+                </div>
               );
             })}
-          </div>
-        )}
 
-        {/* Action Reason Modal */}
-        {actionModal && (
-          <div className="modal-overlay" onClick={() => setActionModal(null)}>
-            <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "480px" }}>
-              <div className="modal-header">
-                <div>
-                  <h3 style={{ margin: 0, fontSize: "18px", color: actionModal.targetStatus === "Suspended" ? "#450a0a" : "#dc2626" }}>
-                    {actionModal.targetStatus === "Rejected" ? "❌ Reject Employer Account" : "🚫 Suspend Employer Account"}
-                  </h3>
-                  <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#64748b" }}>
-                    Employer: <strong>{displayUserName(actionModal.employer)}</strong> ({actionModal.employer.email})
-                  </p>
-                </div>
-                <button className="modal-close-btn" onClick={() => setActionModal(null)}>×</button>
+            {/* Pagination Controls */}
+            <div style={{ padding: "14px 16px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", color: "#64748b" }}>
+              <div>
+                Showing {employers.length > 0 ? (page - 1) * pageSize + 1 : 0} to {Math.min(page * pageSize, totalCount)} of {totalCount} employers
               </div>
 
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!reasonInput.trim()) {
-                    toast.error("Please enter a reason for this action.");
-                    return;
-                  }
-                  executeStatusUpdate(actionModal.employer.id, actionModal.targetStatus, reasonInput.trim());
-                }}
-                style={{ padding: "20px 0" }}
-              >
-                <label style={{ display: "block", marginBottom: "14px", fontSize: "13px", fontWeight: "700", color: "#1e293b" }}>
-                  Reason for {actionModal.targetStatus.toLowerCase()} *
-                  <textarea
-                    rows={4}
-                    placeholder="Enter the official reason for this moderation decision..."
-                    value={reasonInput}
-                    onChange={(e) => setReasonInput(e.target.value)}
-                    required
-                    style={{ display: "block", width: "100%", marginTop: "6px", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
-                  />
-                </label>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: page <= 1 ? "#f1f5f9" : "#fff",
+                    cursor: page <= 1 ? "not-allowed" : "pointer",
+                    fontSize: "13px",
+                  }}
+                >
+                  ◀ Previous
+                </button>
 
-                <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "12px", borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
-                  <button type="button" className="view-details-btn" onClick={() => setActionModal(null)}>
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="job-apply-primary"
-                    disabled={submitting}
-                    style={{ background: actionModal.targetStatus === "Suspended" ? "#450a0a" : "#dc2626" }}
-                  >
-                    {submitting ? "Processing..." : `Confirm ${actionModal.targetStatus}`}
-                  </button>
-                </div>
-              </form>
+                <span style={{ padding: "6px 12px", fontWeight: "700", color: "#0f172a" }}>
+                  Page {page} of {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={page >= totalPages || loading}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: page >= totalPages ? "#f1f5f9" : "#fff",
+                    cursor: page >= totalPages ? "not-allowed" : "pointer",
+                    fontSize: "13px",
+                  }}
+                >
+                  Next ▶
+                </button>
+              </div>
             </div>
           </div>
         )}
-      </section>
+      </div>
+
+      {/* Moderation Status Note Modal */}
+      {actionModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15, 23, 42, 0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
+          <div style={{ background: "#fff", borderRadius: "16px", padding: "24px", maxWidth: "500px", width: "90%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
+            <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+              {actionModal.targetStatus === "Rejected" ? "Reject Employer Account" : "Suspend Employer Account"}
+            </h3>
+            <p style={{ color: "#64748b", fontSize: "14px", marginTop: "6px" }}>
+              Provide a reason note for updating status of <strong>{actionModal.employer.company_name}</strong>:
+            </p>
+
+            <textarea
+              rows={3}
+              value={reasonInput}
+              onChange={(e) => setReasonInput(e.target.value)}
+              placeholder="Enter reason for rejection or suspension..."
+              style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #cbd5e1", marginTop: "12px", fontSize: "14px", outline: "none" }}
+            />
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "16px" }}>
+              <button
+                type="button"
+                onClick={() => setActionModal(null)}
+                style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => executeStatusUpdate(actionModal.employer.id, actionModal.targetStatus, reasonInput)}
+                style={{ background: "#dc2626", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
+              >
+                Confirm {actionModal.targetStatus}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Company Details Overview Modal */}
+      {viewDetailsModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15, 23, 42, 0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000, padding: "20px" }}>
+          <div style={{ background: "#fff", borderRadius: "16px", maxWidth: "600px", width: "100%", maxHeight: "90vh", overflowY: "auto", padding: "24px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+              <div>
+                <h2 style={{ fontSize: "20px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+                  {viewDetailsModal.company_name}
+                </h2>
+                <span style={{ fontSize: "13px", color: "#64748b" }}>Registered {formatDate(viewDetailsModal.created_at)}</span>
+              </div>
+              <button type="button" onClick={() => setViewDetailsModal(null)} style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: "#64748b" }}>
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px", padding: "12px", background: "#f8fafc", borderRadius: "8px", fontSize: "13px" }}>
+              <div>Industry: <strong>{viewDetailsModal.industry}</strong></div>
+              <div>Company Size: <strong>{viewDetailsModal.company_size}</strong></div>
+              <div>Location: <strong>{viewDetailsModal.location}</strong></div>
+              <div>Website: <strong>{viewDetailsModal.website || "Not provided"}</strong></div>
+              <div>Contact Name: <strong>{displayUserName(viewDetailsModal)}</strong></div>
+              <div>Contact Email: <strong>{viewDetailsModal.contact_email || viewDetailsModal.email}</strong></div>
+            </div>
+
+            {viewDetailsModal.about && (
+              <div style={{ marginBottom: "16px" }}>
+                <span style={{ fontSize: "12px", fontWeight: "800", textTransform: "uppercase", color: "#64748b", display: "block", marginBottom: "4px" }}>About Company</span>
+                <p style={{ fontSize: "13px", color: "#334155", background: "#fff", padding: "10px", border: "1px solid #e2e8f0", borderRadius: "6px", margin: 0 }}>
+                  {viewDetailsModal.about}
+                </p>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
+              <button type="button" onClick={() => setViewDetailsModal(null)} style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>
+                Close Overview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Company Jobs Listing Modal */}
+      {companyJobsModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15, 23, 42, 0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000, padding: "20px" }}>
+          <div style={{ background: "#fff", borderRadius: "16px", maxWidth: "750px", width: "100%", maxHeight: "90vh", overflowY: "auto", padding: "24px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+              <div>
+                <h2 style={{ fontSize: "20px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+                  Jobs Posted by {companyJobsModal.employer.company_name}
+                </h2>
+                <span style={{ fontSize: "13px", color: "#64748b" }}>Total Listings: {companyJobsModal.jobs.length}</span>
+              </div>
+              <button type="button" onClick={() => setCompanyJobsModal(null)} style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: "#64748b" }}>
+                ✕
+              </button>
+            </div>
+
+            {companyJobsModal.loading ? (
+              <div style={{ padding: "32px", textAlign: "center", color: "#64748b" }}>Loading company jobs...</div>
+            ) : companyJobsModal.jobs.length === 0 ? (
+              <div style={{ padding: "32px", textAlign: "center", color: "#64748b" }}>No jobs posted by this employer yet.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {companyJobsModal.jobs.map((job) => (
+                  <div key={job.id} style={{ padding: "12px 16px", border: "1px solid #e2e8f0", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <strong style={{ color: "#0f172a", fontSize: "15px", display: "block" }}>{job.title}</strong>
+                      <span style={{ fontSize: "12px", color: "#64748b" }}>
+                        {job.employment_type} • {job.location || "Not specified"} • Posted {formatDate(job.created_at)}
+                      </span>
+                    </div>
+
+                    <span
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: "12px",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        background: job.status === "open" ? "#dcfce7" : job.status === "rejected" ? "#fee2e2" : job.status === "pending_review" ? "#fef3c7" : "#f1f5f9",
+                        color: job.status === "open" ? "#15803d" : job.status === "rejected" ? "#dc2626" : job.status === "pending_review" ? "#b45309" : "#475569",
+                      }}
+                    >
+                      {job.status === "open" ? "Active" : job.status === "rejected" ? "Rejected" : job.status === "pending_review" ? "Pending Review" : "Closed"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid #e2e8f0", paddingTop: "16px", marginTop: "20px" }}>
+              <button type="button" onClick={() => setCompanyJobsModal(null)} style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>
+                Close Jobs List
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
