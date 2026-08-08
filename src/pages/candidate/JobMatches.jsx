@@ -47,6 +47,7 @@ export default function JobMatches() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [confirmApplyJob, setConfirmApplyJob] = useState(null);
+  const [reportingJob, setReportingJob] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -90,7 +91,7 @@ export default function JobMatches() {
     // 5. Fetch ALL active open jobs from Approved/Verified employers, ordered by created_at DESC (newest first)
     const { data: openJobs, error: jobsError } = await supabase
       .from("jobs")
-      .select("*, profiles:employer_id(verification_status, full_name, email)")
+      .select("*")
       .eq("status", "open")
       .order("created_at", { ascending: false });
 
@@ -98,15 +99,53 @@ export default function JobMatches() {
       console.error("[Marketplace] Error loading jobs:", jobsError.message);
       setJobs([]);
     } else {
+      let rawJobs = openJobs || [];
+      const empIds = Array.from(new Set(rawJobs.map((j) => j.employer_id).filter(Boolean)));
+
+      let profMap = new Map();
+      let empProfMap = new Map();
+
+      if (empIds.length > 0) {
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("id, full_name, email, verification_status, is_suspended")
+          .in("id", empIds);
+
+        const { data: empProfs } = await supabase
+          .from("employer_profiles")
+          .select("id, company_name, location, industry, website, company_logo_url, verification_status")
+          .in("id", empIds);
+
+        profMap = new Map((profs || []).map((p) => [p.id, p]));
+        empProfMap = new Map((empProfs || []).map((ep) => [ep.id, ep]));
+      }
+
       // Filter strictly for open jobs from Approved or Verified employers
-      const validJobs = (openJobs || []).filter(j => {
-        const empStatus = j.profiles?.verification_status || j.employer_verification_status;
-        return empStatus === "Approved" || empStatus === "Verified";
-      }).map(j => ({
-        ...j,
-        employer_verification_status: j.profiles?.verification_status || "Approved",
-        verified_employer: true
-      }));
+      const validJobs = rawJobs
+        .filter((j) => {
+          const p = profMap.get(j.employer_id);
+          const ep = empProfMap.get(j.employer_id);
+
+          if (p?.is_suspended) return false;
+
+          const verificationStatus = ep?.verification_status || p?.verification_status || "Approved";
+          return verificationStatus === "Approved" || verificationStatus === "Verified";
+        })
+        .map((j) => {
+          const p = profMap.get(j.employer_id);
+          const ep = empProfMap.get(j.employer_id);
+          return {
+            ...j,
+            company_name: ep?.company_name || j.company_name || p?.full_name || "Verified Employer",
+            employer_name: p ? (p.full_name || p.email) : (j.employer_name || "Employer"),
+            employer_email: p?.email || j.employer_email || "",
+            employer_verification_status: ep?.verification_status || p?.verification_status || "Approved",
+            verified_employer: true,
+            location: j.location || ep?.location || "Tagum City",
+            company_logo_url: ep?.company_logo_url || null,
+          };
+        });
+
       setJobs(validJobs);
     }
 
