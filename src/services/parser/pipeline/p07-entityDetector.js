@@ -83,16 +83,22 @@ function looksLikeName(line) {
   if (new Set(words.map(w => w[0].toUpperCase())).size === 1 && words.length === 1)
     return { isName: false, confidence: 0 }
 
-  // Each word should start with a capital letter
-  const allTitleCase = words.every(w => w && /^[A-ZÁÉÍÓÚÑÜ]/.test(w))
-  if (!allTitleCase) return { isName: false, confidence: 0.55 }
+  // Must be alphabetic
+  const validNameChars = words.every(w => w && /^[A-Za-zÁÉÍÓÚÑÜáéíóúñü.-]+$/.test(w))
+  if (!validNameChars) return { isName: false, confidence: 0 }
+
+  // First word must start with a capital letter
+  if (!/^[A-ZÁÉÍÓÚÑÜ]/.test(words[0])) return { isName: false, confidence: 0 }
 
   // Check if any word is a job title keyword
   const hasJobTitle = words.some(w => JOB_TITLE_WORDS.has(w.toLowerCase()))
   if (hasJobTitle) return { isName: false, confidence: 0 }
 
+  const allTitleCase = words.every(w => w && /^[A-ZÁÉÍÓÚÑÜ]/.test(w))
+  const confidence = allTitleCase ? 0.88 : 0.82
+
   // All checks passed
-  return { isName: true, confidence: 0.88 }
+  return { isName: true, confidence }
 }
 
 /**
