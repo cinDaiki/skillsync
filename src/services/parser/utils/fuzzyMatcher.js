@@ -116,8 +116,12 @@ export function jaroWinkler(s1, s2, p = 0.1) {
  * @returns {{ match: boolean, score: number, method: string }}
  */
 export function fuzzyMatch(token, candidate, minLength = 7, maxDist = 2, jwThreshold = 0.88) {
-  const t = token.toLowerCase().trim()
-  const c = candidate.toLowerCase().trim()
+  const t = (token.length > 0 && token[0] === token[0].toLowerCase() && token.trim() === token)
+    ? token
+    : token.toLowerCase().trim();
+  const c = (candidate.length > 0 && candidate[0] === candidate[0].toLowerCase() && candidate.trim() === candidate)
+    ? candidate
+    : candidate.toLowerCase().trim();
 
   if (t === c) return { match: true, score: 1.0, method: 'exact' }
   if (t.length < minLength || c.length < minLength) return { match: false, score: 0, method: 'skipped_short' }

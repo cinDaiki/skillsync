@@ -138,7 +138,9 @@ export default function Resume() {
       return;
     }
 
+    const tUploadStart = performance.now();
     const { data: fileUrl, error: uploadError } = await uploadResume(file, user.id);
+    const dUpload = performance.now() - tUploadStart;
 
     if (uploadError) {
       setMessage("Failed to upload resume. Please try again.");
@@ -146,6 +148,7 @@ export default function Resume() {
       return;
     }
 
+    const tDbOpsStart = performance.now();
     // Delete existing resume record before inserting new one
     await supabase.from("resumes").delete().eq("applicant_id", user.id);
 
@@ -205,8 +208,10 @@ export default function Resume() {
       score: analysis.score,
       skillsCount: analysis.skills.length
     });
+    const dDbOps = performance.now() - tDbOpsStart;
 
     // Reload from DB
+    const tReloadStart = performance.now();
     const { data: saved } = await getResume(user.id);
     if (saved) {
       setResumeFile(saved);
@@ -215,11 +220,22 @@ export default function Resume() {
         : [];
       setExtractedSkills(skillsList);
     }
+    const dReload = performance.now() - tReloadStart;
 
     syncApplicantSnapshot(user.id).catch(() => {});
 
+    console.log(`[Perf-UploadFlow] Upload Flow database and matching stages:
+      - Storage uploadResume(): ${dUpload.toFixed(2)}ms
+      - Supabase database upserts: ${dDbOps.toFixed(2)}ms
+      - DB Reload getResume(): ${dReload.toFixed(2)}ms`);
+
     // Run rule-based matching engine (existing)
-    runMatchingForCandidate(user.id).catch(console.error);
+    const tRuleMatch = performance.now();
+    runMatchingForCandidate(user.id)
+      .then(() => {
+        console.log(`[Perf-UploadFlow] Rule-based matching complete in ${(performance.now() - tRuleMatch).toFixed(2)}ms`);
+      })
+      .catch(console.error);
 
     // ── Semantic AI Embedding Pipeline (non-blocking) ────────────────────
     // Runs in background — generates a 384-dim embedding from resume text,

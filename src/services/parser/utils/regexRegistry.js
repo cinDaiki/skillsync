@@ -11,7 +11,7 @@
 export const EMAIL = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g
 
 /** Philippine mobile (+63 9xx or 09xx), US, and generic international */
-export const PHONE = /(?:\+63[\s\-.]?|0)(?:9\d{2})[\s\-.]?\d{3}[\s\-.]?\d{4}|(?:\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}|\+\d{1,3}[\s\-.]?\d{6,14}/g
+export const PHONE = /(?:\+63[\s\-.]?|0)(?:9\d{2})[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}|(?:\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}|\+\d{1,3}[\s\-.]?\d{6,14}/gi
 
 /** LinkedIn profile URLs */
 export const LINKEDIN = /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9\-_%]+\/?/gi

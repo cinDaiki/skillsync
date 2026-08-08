@@ -115,11 +115,15 @@ export function getRuleBasedSkillScore(candidateSkillsRaw, jobSkills, config = S
  * @param {number[]} resumeEmbedding - 384-dim float array (just generated)
  */
 export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
+  const tStart = performance.now();
   console.log('[SemanticMatching] Starting for candidate:', userId)
 
   try {
     // ── 1. Vector search: find top 20 semantically similar jobs ──────────────
+    const tFindStart = performance.now();
     const vectorResults = await findMatchingJobsForCandidate(resumeEmbedding, 20)
+    const dFind = performance.now() - tFindStart;
+
     if (!vectorResults.length) {
       console.log('[SemanticMatching] No vector results — likely no job embeddings yet.')
       return
@@ -130,6 +134,7 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
     vectorResults.forEach(r => { similarityMap[r.job_id] = r.similarity })
 
     // ── 2. Fetch job details, candidate profile, and latest resume (for ATS score) ────────
+    const tFetchStart = performance.now();
     const [
       { data: jobs },
       { data: candidateProfile },
@@ -139,6 +144,7 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
       supabase.from('candidate_profiles').select('*').eq('user_id', userId).maybeSingle(),
       supabase.from('resumes').select('resume_score').eq('applicant_id', userId).maybeSingle()
     ])
+    const dFetch = performance.now() - tFetchStart;
 
     if (!jobs?.length) {
       console.log('[SemanticMatching] Job details not found.')
@@ -146,6 +152,7 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
     }
 
     // Safely parse candidate skills (handles objects or string list)
+    const tCalcStart = performance.now();
     let candidateSkillsRaw = []
     if (candidateProfile?.skills) {
       try {
@@ -201,11 +208,22 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
         updated_at:      new Date().toISOString(),
       }
     })
+    const dCalc = performance.now() - tCalcStart;
 
     // ── 4. Upsert results ─────────────────────────────────────────────────────
+    const tUpsertStart = performance.now();
     const { error } = await supabase
       .from('job_matches')
       .upsert(upserts, { onConflict: 'user_id,job_id' })
+    const dUpsert = performance.now() - tUpsertStart;
+
+    const dTotal = performance.now() - tStart;
+    console.log(`[Perf-SemanticMatching] runSemanticMatchingForCandidate Complete:
+      - Vector Search Database Fetch: ${dFind.toFixed(2)}ms
+      - Details (Jobs, Profile, Resume) fetch: ${dFetch.toFixed(2)}ms
+      - Match Score Calculations: ${dCalc.toFixed(2)}ms
+      - Supabase Upserts: ${dUpsert.toFixed(2)}ms
+      - runSemanticMatchingForCandidate() Total: ${dTotal.toFixed(2)}ms`);
 
     if (error) {
       console.error('[SemanticMatching] Upsert error:', error.message)

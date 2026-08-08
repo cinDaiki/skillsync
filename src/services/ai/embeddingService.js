@@ -35,14 +35,29 @@ export function onEmbeddingProgress(fn)  { progressListeners.add(fn) }
 export function offEmbeddingProgress(fn) { progressListeners.delete(fn) }
 
 async function getExtractor() {
-  if (_extractor) return _extractor
+  if (_extractor) {
+    console.log('[Perf-Embedding] getExtractor: MODEL SINGLETON HIT. Skipping initialization.');
+    return _extractor;
+  }
 
-  // Load from CDN — bypasses Vite dev server, webpack globals stay intact
-  // eslint-disable-next-line no-undef
-  const { pipeline, env } = await import(/* @vite-ignore */ TRANSFORMERS_CDN)
+  console.log('[Perf-Embedding] getExtractor: MODEL SINGLETON MISS. Initializing embedding extractor...');
+  const tLoadStart = performance.now();
+
+  const isNode = typeof process !== 'undefined' && process.release && process.release.name === 'node';
+  let pipeline, env;
+
+  if (isNode) {
+    const mod = await import('@xenova/transformers');
+    pipeline = mod.pipeline;
+    env = mod.env;
+  } else {
+    const mod = await import(/* @vite-ignore */ TRANSFORMERS_CDN);
+    pipeline = mod.pipeline;
+    env = mod.env;
+  }
 
   env.allowLocalModels = false
-  env.useBrowserCache  = true   // caches model in browser IndexedDB
+  env.useBrowserCache  = !isNode   // only use browser Cache API when running in browser context
 
   _extractor = await pipeline(
     'feature-extraction',
@@ -53,7 +68,8 @@ async function getExtractor() {
     }
   )
 
-  console.log('[EmbeddingService] Model loaded ✓')
+  const dLoad = performance.now() - tLoadStart;
+  console.log(`[Perf-Embedding] getExtractor: MODEL WEIGHTS LOADED SUCCESSFULLY in ${dLoad.toFixed(2)}ms ✓`);
   return _extractor
 }
 
@@ -69,13 +85,24 @@ async function getExtractor() {
 export async function generateEmbedding(text) {
   if (!text?.trim()) throw new Error('Cannot embed empty text')
 
+  const tStart = performance.now();
   const extractor = await getExtractor()
+  const dRetrieve = performance.now() - tStart;
+
+  const tInference = performance.now();
   const truncated = text.trim().slice(0, 2048)   // ≈ 512 tokens
 
   const output = await extractor(truncated, {
     pooling:   'mean',
     normalize: true,
   })
+  const dInference = performance.now() - tInference;
+  const dTotal = performance.now() - tStart;
+
+  console.log(`[Perf-Embedding] generateEmbedding Details:
+    - getExtractor() call took: ${dRetrieve.toFixed(2)}ms (singleton loading)
+    - ONNX Inference took: ${dInference.toFixed(2)}ms (CPU computation)
+    - generateEmbedding() total: ${dTotal.toFixed(2)}ms`);
 
   return Array.from(output.data)
 }
