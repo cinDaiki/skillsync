@@ -4,9 +4,24 @@ import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
 import { applyForJobWithSnapshot } from "../../services/applicationService";
 import { triggerSimulationNotification } from "../../services/notificationService";
-import { runMatchingForCandidate } from "../../services/matchingEngine";
 import { useToast } from "../../contexts/ToastContext";
 import "./JobMatches.css";
+
+function formatPostedDate(dateStr) {
+  if (!dateStr) return "Recently posted";
+  try {
+    const d = new Date(dateStr);
+    return `Posted ${d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    })}`;
+  } catch {
+    return "Recently posted";
+  }
+}
 
 export default function JobMatches() {
   const toast = useToast();
@@ -14,7 +29,6 @@ export default function JobMatches() {
   const [applications, setApplications] = useState([]);
   const [bookmarks, setBookmarks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [matching, setMatching] = useState(false);
 
   // Candidate status
   const [hasResume, setHasResume] = useState(false);
@@ -23,7 +37,7 @@ export default function JobMatches() {
   // Filtering & Search
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("All");
-  const [selectedMatch, setSelectedMatch] = useState("All");
+  const [selectedSetup, setSelectedSetup] = useState("All");
   const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
 
   const [userId, setUserId] = useState(null);
@@ -36,78 +50,54 @@ export default function JobMatches() {
     loadData();
   }, []);
 
-  async function fetchMatches(uid) {
-    const { data: matches } = await supabase
-      .from("job_matches")
-      .select(`*, jobs!inner(*)`)
-      .eq("user_id", uid)
-      .order("match_score", { ascending: false });
-
-    const formatted = (matches || [])
-      .filter(m => m.jobs && m.jobs.status === "open")
-      .map((m, idx) => ({
-        ...m.jobs,
-        rank: idx + 1,
-        matchScore: m.match_score || 0,
-        skillsScore: m.skills_score || 0,
-        educationScore: m.education_score || 0,
-        experienceScore: m.experience_score || 0,
-        matchedSkills: m.matching_skills || [],
-        missingSkills: m.missing_skills || [],
-        matchedCerts: m.matched_certs || [],
-        matchReason: m.match_reason || "",
-        recommendedCourses: m.recommended_courses || [],
-        microCredentials: m.micro_credentials || []
-      }));
-    return formatted;
-  }
-
   async function loadData() {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    setUserId(user.id);
+    
+    if (user) {
+      setUserId(user.id);
 
-    // 1. Check resume existence
-    const { data: resumeRow } = await supabase
-      .from("resumes")
-      .select("id")
-      .eq("applicant_id", user.id)
-      .maybeSingle();
-    setHasResume(!!resumeRow);
+      // 1. Check resume existence
+      const { data: resumeRow } = await supabase
+        .from("resumes")
+        .select("id")
+        .eq("applicant_id", user.id)
+        .maybeSingle();
+      setHasResume(!!resumeRow);
 
-    // 2. Check identity verification status
-    const { data: profileRow } = await supabase
-      .from("profiles")
-      .select("verification_status")
-      .eq("id", user.id)
-      .maybeSingle();
-    const vStatus = profileRow?.verification_status || "Pending Verification";
-    setVerificationStatus(vStatus);
+      // 2. Check identity verification status
+      const { data: profileRow } = await supabase
+        .from("profiles")
+        .select("verification_status")
+        .eq("id", user.id)
+        .maybeSingle();
+      setVerificationStatus(profileRow?.verification_status || "Pending Verification");
 
-    // 3. Fetch existing job matches
-    let formattedJobs = await fetchMatches(user.id);
+      // 3. Fetch applications
+      const { data: appsData } = await supabase
+        .from("applications")
+        .select("*")
+        .eq("applicant_id", user.id);
+      setApplications(appsData || []);
 
-    // 4. If no matches yet but candidate_profile exists, run engine now
-    if (formattedJobs.length === 0 && resumeRow) {
-      setMatching(true);
-      await runMatchingForCandidate(user.id);
-      formattedJobs = await fetchMatches(user.id);
-      setMatching(false);
+      // 4. Bookmarks
+      const savedBookmarks = localStorage.getItem(`skillsync_bookmarks_${user.id}`);
+      if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
     }
 
-    setJobs(formattedJobs);
-
-    // 5. Fetch Applications
-    const { data: appsData } = await supabase
-      .from("applications")
+    // 5. Fetch ALL active open jobs, ordered by created_at DESC (newest first)
+    const { data: openJobs, error: jobsError } = await supabase
+      .from("jobs")
       .select("*")
-      .eq("applicant_id", user.id);
-    setApplications(appsData || []);
+      .eq("status", "open")
+      .order("created_at", { ascending: false });
 
-    // 6. Bookmarks
-    const savedBookmarks = localStorage.getItem(`skillsync_bookmarks_${user.id}`);
-    if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
+    if (jobsError) {
+      console.error("[Marketplace] Error loading jobs:", jobsError.message);
+      setJobs([]);
+    } else {
+      setJobs(openJobs || []);
+    }
 
     setLoading(false);
   }
@@ -129,8 +119,6 @@ export default function JobMatches() {
     localStorage.setItem(`skillsync_bookmarks_${userId}`, JSON.stringify(nextBookmarks));
   }
 
-  // Client-side Math Removed: AI matching engine handles this server-side
-
   const isApplyBlocked = !hasResume || (verificationStatus !== "Verified" && verificationStatus !== "Approved");
 
   async function handleApply(job) {
@@ -139,13 +127,11 @@ export default function JobMatches() {
       return;
     }
 
-    // Block if no resume
     if (!hasResume) {
       toast.error("You must upload a resume before applying to jobs.");
       return;
     }
 
-    // Block if identity not verified
     if (verificationStatus !== "Verified" && verificationStatus !== "Approved") {
       if (verificationStatus === "Under Review") {
         toast.error("Your verification is under review. You can apply once the admin approves your identity.");
@@ -179,50 +165,42 @@ export default function JobMatches() {
     setShowDetailModal(true);
   }
 
-  // Sort descending by match score (rank 1 = highest)
-  const sortedJobs = [...jobs].sort((a, b) => b.matchScore - a.matchScore);
+  // Chronological sort: newest first (created_at DESC)
+  const sortedJobs = [...jobs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
   const filteredJobs = sortedJobs.filter(job => {
-    // Filter out unrelated jobs (< 40%) completely unless selectedMatch says 'All' ?
-    // "Filter out strictly unrelated jobs (e.g., matching score < 40%)." - I will do it globally.
-    if (job.matchScore < 40) return false;
     // Search filter
     const matchesSearch = 
+      !searchTerm.trim() ||
       job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (job.location && job.location.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (job.required_skills && job.required_skills.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (job.description && job.description.toLowerCase().includes(searchTerm.toLowerCase()));
+      (job.description && job.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (job.company_name && job.company_name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     // Employment type filter
     const matchesType = selectedType === "All" || job.employment_type === selectedType;
 
-    // Match quality filter
-    let matchesMatch = true;
-    if (selectedMatch === "High") {
-      matchesMatch = job.matchScore >= 75;
-    } else if (selectedMatch === "Medium") {
-      matchesMatch = job.matchScore >= 40 && job.matchScore < 75;
-    } else if (selectedMatch === "Basic") {
-      matchesMatch = job.matchScore < 40;
-    }
+    // Work setup filter
+    const matchesSetup = selectedSetup === "All" || job.work_setup === selectedSetup;
 
     // Bookmark filter
     const matchesBookmark = !showBookmarkedOnly || bookmarks.includes(job.id);
 
-    return matchesSearch && matchesType && matchesMatch && matchesBookmark;
+    return matchesSearch && matchesType && matchesSetup && matchesBookmark;
   });
 
   return (
     <DashboardLayout
       role="candidate"
-      title="Skill Aligned Job Openings"
-      subtitle="AI-driven job screening matching your profile achievements."
+      title="Job Marketplace"
+      subtitle="Browse all available employer job postings, ordered by newest first."
     >
       <section className="dashboard-panel">
         <div className="panel-header">
           <div>
-            <h2>Intelligent Job Matching</h2>
-            <p>Our matching algorithm ranks openings by comparing your skills to the recruiter's specifications.</p>
+            <h2>Active Job Openings</h2>
+            <p>Explore current opportunities posted by employers across all industries.</p>
           </div>
         </div>
 
@@ -257,18 +235,12 @@ export default function JobMatches() {
           )
         )}
 
-        {/* ── LOADING / MATCHING STATES ── */}
+        {/* ── LOADING STATE ── */}
         {loading ? (
           <div className="empty-state">
             <span style={{ fontSize: "40px" }}>⏳</span>
-            <h3>Loading your job matches...</h3>
-            <p>Please wait while we fetch your personalized recommendations.</p>
-          </div>
-        ) : matching ? (
-          <div className="empty-state">
-            <span style={{ fontSize: "40px", display: "block", animation: "spin 1.2s linear infinite" }}>🧠</span>
-            <h3>AI Matching in Progress...</h3>
-            <p>Analyzing your resume and scoring all active job postings. This takes just a moment.</p>
+            <h3>Loading job marketplace...</h3>
+            <p>Fetching active open positions.</p>
           </div>
         ) : (
         <>
@@ -276,7 +248,7 @@ export default function JobMatches() {
         <div className="matches-controls-row">
           <input
             type="text"
-            placeholder="🔍 Search title, skills, location..."
+            placeholder="🔍 Search title, company, skills, location..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="search-filter-input"
@@ -288,22 +260,22 @@ export default function JobMatches() {
             className="filter-select"
           >
             <option value="All">All Job Types</option>
-            <option value="Full-time">Full-Time</option>
-            <option value="Part-time">Part-Time</option>
+            <option value="Full-time">Full-time</option>
+            <option value="Part-time">Part-time</option>
             <option value="Contract">Contract</option>
             <option value="Remote">Remote</option>
             <option value="Internship">Internship</option>
           </select>
 
           <select
-            value={selectedMatch}
-            onChange={(e) => setSelectedMatch(e.target.value)}
+            value={selectedSetup}
+            onChange={(e) => setSelectedSetup(e.target.value)}
             className="filter-select"
           >
-            <option value="All">All Match Levels</option>
-            <option value="High">🔥 High Matches (≥75%)</option>
-            <option value="Medium">⚡ Medium Matches (40-74%)</option>
-            <option value="Basic">📈 Basic Matches (&lt;40%)</option>
+            <option value="All">All Work Setups</option>
+            <option value="On-site">On-site</option>
+            <option value="Hybrid">Hybrid</option>
+            <option value="Remote">Remote</option>
           </select>
 
           <button
@@ -318,75 +290,55 @@ export default function JobMatches() {
         {filteredJobs.length === 0 ? (
           <div className="empty-state">
             <span>◎</span>
-            <h3>{hasResume ? "No matching jobs found" : "Upload a resume to see your job matches"}</h3>
-            <p>{hasResume ? "Try adjusting your search criteria or clearing your filters." : "Your AI-powered recommendations will appear here after uploading your resume."}</p>
+            <h3>No jobs found</h3>
+            <p>There are currently no active job openings matching your search criteria. Please check back later.</p>
           </div>
         ) : (
           <div className="job-match-list">
             {filteredJobs.map((job, listIdx) => {
               const rank = listIdx + 1;
-              const score = job.matchScore;
-              let matchClass = "basic-match";
-              let badgeClass = "basic";
-              if (score >= 75) { matchClass = "high-match"; badgeClass = "high"; }
-              else if (score >= 40) { matchClass = "medium-match"; badgeClass = "medium"; }
-
               const applied = hasApplied(job.id);
               const applyDisabled = applied || isApplyBlocked;
               const applyLabel = applied ? "Applied ✓" : isApplyBlocked ? "🔒 Apply Now" : "Apply Now";
               const applyTitle = applied ? "You have already applied" : !hasResume ? "Upload a resume to apply" : verificationStatus !== "Verified" && verificationStatus !== "Approved" ? "Complete identity verification to apply" : "";
 
               return (
-                <article className={`job-match-card ${matchClass}`} key={job.id}>
+                <article className="job-match-card" key={job.id}>
                   <div className="job-card-header">
                     <div className="job-card-title-area">
-                      {/* Rank Badge */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                        <span style={{
-                          display: "inline-flex", alignItems: "center", justifyContent: "center",
-                          width: "26px", height: "26px", borderRadius: "50%", fontSize: "12px", fontWeight: "800",
-                          background: rank === 1 ? "#f59e0b" : rank === 2 ? "#94a3b8" : rank === 3 ? "#b45309" : "#e2e8f0",
-                          color: rank <= 3 ? "#fff" : "#64748b"
-                        }}>#{rank}</span>
-                        <h3 style={{ margin: 0 }}>{job.title}</h3>
-                      </div>
-                      <h4>Hiring Partner</h4>
+                      <h3 style={{ margin: "0 0 4px 0", fontSize: "18px", fontWeight: "900", color: "#1e1b4b" }}>{job.title}</h3>
+                      <p style={{ margin: "2px 0 0 0", fontSize: "13px", color: "#64748b", fontWeight: "600" }}>
+                        {[job.company_name || "Employer", formatPostedDate(job.created_at)].filter(Boolean).join(" · ")}
+                      </p>
                     </div>
 
-                    <div className={`match-score-badge ${badgeClass}`}>
-                      🧠 {score}% Match
-                    </div>
+                    {job.salary_range && (
+                      <div style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "4px 12px", borderRadius: "8px", fontSize: "12px", fontWeight: "800" }}>
+                        💰 {job.salary_range}
+                      </div>
+                    )}
                   </div>
 
                   <p className="job-description-excerpt">{job.description || "No job description provided."}</p>
 
-                  {/* Skills with ✓/✗ from engine */}
+                  {/* Required Skills Tags */}
                   <div className="job-skills-list">
                     {job.required_skills ? (
-                      job.required_skills.split(",").map((s) => {
-                        const skill = s.trim();
-                        const skillNorm = skill.toLowerCase().replace(/[^a-z0-9]/g, "");
-                        const isMatched = Array.isArray(job.matchedSkills)
-                          ? job.matchedSkills.some(m => {
-                              const mNorm = String(m).toLowerCase().replace(/[^a-z0-9]/g, "");
-                              return mNorm.includes(skillNorm) || skillNorm.includes(mNorm);
-                            })
-                          : false;
-                        return (
-                          <span key={skill} className={`job-skill-badge ${isMatched ? "matched" : ""}`}>
-                            {isMatched ? "✓ " : "✗ "}{skill}
-                          </span>
-                        );
-                      })
+                      job.required_skills.split(",").map((s) => (
+                        <span key={s} className="job-skill-badge">
+                          {s.trim()}
+                        </span>
+                      ))
                     ) : (
-                      <span className="job-skill-badge">No required skills specified</span>
+                      <span className="job-skill-badge">No specific skills listed</span>
                     )}
                   </div>
 
                   <div className="job-card-footer">
                     <div className="job-card-meta">
-                      <span>📍 {job.location || "Not specified"}</span>
+                      <span>📍 {job.location || "Location not specified"}</span>
                       <span>💼 {job.employment_type || "Full-time"}</span>
+                      {job.work_setup && <span>🏢 {job.work_setup}</span>}
                     </div>
 
                     <div className="job-card-actions">
@@ -400,7 +352,7 @@ export default function JobMatches() {
                         type="button"
                         className="view-details-btn"
                         onClick={() => handleViewDetails(job)}
-                      >View Alignment</button>
+                      >View Details</button>
                       <button
                         type="button"
                         className="job-apply-primary"
@@ -426,170 +378,81 @@ export default function JobMatches() {
           <div className="modal-card" style={{ maxWidth: "700px" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <h3 style={{ fontSize: "20px" }}>{selectedJob.title}</h3>
-                <span style={{ fontSize: "13px", color: "#58158f", fontWeight: "800" }}>Company Hiring Partner</span>
+                <h3 style={{ fontSize: "20px", margin: 0 }}>{selectedJob.title}</h3>
+                <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#58158f", fontWeight: "700" }}>
+                  {[selectedJob.company_name || "Employer", formatPostedDate(selectedJob.created_at)].filter(Boolean).join(" · ")}
+                </p>
               </div>
               <button className="modal-close-btn" onClick={() => setShowDetailModal(false)}>×</button>
             </div>
-            
-            {/* Skills Comparison */}
-            <div className="skills-comparison-card">
-              <h4>Skill Alignment Comparison</h4>
-              <div className="skills-comparison-group">
-                <div className="skills-comparison-label">Matched Skills ({selectedJob.matchedSkills?.length || 0})</div>
-                <div className="job-skills-list">
-                  {selectedJob.matchedSkills?.map(skill => (
-                    <span key={skill} className="job-skill-badge matched">✓ {skill}</span>
-                  ))}
-                  {(!selectedJob.matchedSkills || selectedJob.matchedSkills.length === 0) && (
-                    <em style={{ fontSize: "12px", color: "#8b8f9c" }}>No matching skills yet. Add these to your profile.</em>
-                  )}
-                </div>
-              </div>
-              
-              <div className="skills-comparison-group">
-                <div className="skills-comparison-label">Missing Skills ({selectedJob.missingSkills?.length || 0})</div>
-                <div className="job-skills-list">
-                  {selectedJob.missingSkills?.map(skill => (
-                    <span key={skill} className="job-skill-badge" style={{ color: "#d97706", background: "#fffbeb", border: "1px solid #fde68a" }}>{skill}</span>
-                  ))}
-                  {(!selectedJob.missingSkills || selectedJob.missingSkills.length === 0) && (
-                    <span className="job-skill-badge matched">✓ Complete match!</span>
-                  )}
-                </div>
-              </div>
-            </div>
 
-            {/* AI Reasoning */}
-            {selectedJob.matchReason && (
-              <div className="ai-reasoning-card" style={{ marginTop: "16px", padding: "16px", backgroundColor: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "8px" }}>
-                <h4 style={{ color: "#334155", marginBottom: "8px", fontSize: "15px", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>🧠</span> AI Match Breakdown
-                </h4>
-                <p style={{ fontSize: "13px", color: "#475569", lineHeight: "1.5" }}>{selectedJob.matchReason}</p>
-                <div style={{ display: "flex", gap: "16px", marginTop: "12px", flexWrap: "wrap" }}>
-                  <div style={{ fontSize: "12px", color: "#64748b" }}>
-                    <strong>Skills:</strong> {Math.round((selectedJob.skillsScore / 100) * 60)}/60 pts
-                    <span style={{ marginLeft: 6, color: "#94a3b8" }}>({selectedJob.skillsScore}%)</span>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#64748b" }}>
-                    <strong>Education:</strong> {Math.round((selectedJob.educationScore / 100) * 25)}/25 pts
-                    <span style={{ marginLeft: 6, color: "#94a3b8" }}>({selectedJob.educationScore}%)</span>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#64748b" }}>
-                    <strong>Experience:</strong> {Math.round((selectedJob.experienceScore / 100) * 15)}/15 pts
-                    <span style={{ marginLeft: 6, color: "#94a3b8" }}>({selectedJob.experienceScore}%)</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Micro-Credentials Section ── */}
-            {selectedJob.microCredentials && selectedJob.microCredentials.length > 0 && (
-              <div style={{ marginTop: "16px", padding: "16px", background: "linear-gradient(135deg, #eff6ff, #f0fdf4)", border: "1px solid #bfdbfe", borderRadius: "12px" }}>
-                <h4 style={{ color: "#1e40af", marginBottom: "6px", fontSize: "15px", display: "flex", alignItems: "center", gap: "8px" }}>
-                  🏅 Recommended Micro-Credentials
-                </h4>
-                <p style={{ fontSize: "12px", color: "#3b82f6", marginBottom: "12px" }}>
-                  Earn these professional certificates to boost your match score and stand out to recruiters.
-                </p>
-                <div style={{ display: "grid", gap: "8px" }}>
-                  {selectedJob.microCredentials.map((mc, idx) => (
-                    <a key={idx} href={mc.link} target="_blank" rel="noopener noreferrer"
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#fff", borderRadius: "10px", textDecoration: "none", border: "1px solid #dbeafe" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <span style={{ fontSize: "20px" }}>🎖️</span>
-                        <div>
-                          <strong style={{ display: "block", color: "#1e40af", fontSize: "13px" }}>{mc.badge}</strong>
-                          <span style={{ fontSize: "11px", color: "#64748b" }}>Skill gap: {mc.skill}</span>
-                        </div>
-                      </div>
-                      <span style={{ fontSize: "11px", fontWeight: "800", color: "#2563eb", whiteSpace: "nowrap" }}>{mc.provider} →</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ── Recommended Courses Section ── */}
-            {selectedJob.recommendedCourses && selectedJob.recommendedCourses.length > 0 && (
-              <div style={{ marginTop: "12px", padding: "16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "12px" }}>
-                <h4 style={{ color: "#166534", marginBottom: "6px", fontSize: "15px", display: "flex", alignItems: "center", gap: "8px" }}>
-                  📚 Upskilling Courses
-                </h4>
-                <p style={{ fontSize: "12px", color: "#15803d", marginBottom: "12px" }}>
-                  Courses to close your skill gaps for this role:
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {selectedJob.recommendedCourses.map((course, idx) => (
-                    <a key={idx} href={course.link} target="_blank" rel="noopener noreferrer"
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", background: "#fff", borderRadius: "8px", textDecoration: "none", border: "1px solid #dcfce7" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <span style={{ fontSize: "16px" }}>🎓</span>
-                        <strong style={{ color: "#166534", fontSize: "12px" }}>{course.course}</strong>
-                      </div>
-                      <span style={{ fontSize: "11px", color: "#2563eb", fontWeight: "700" }}>Enroll →</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ── Matched Certs Boost ── */}
-            {selectedJob.matchedCerts && selectedJob.matchedCerts.length > 0 && (
-              <div style={{ marginTop: "12px", padding: "12px 16px", background: "#fefce8", border: "1px solid #fde68a", borderRadius: "10px" }}>
-                <h4 style={{ color: "#92400e", marginBottom: "8px", fontSize: "14px" }}>🏆 Your Certifications That Boosted This Match</h4>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                  {selectedJob.matchedCerts.map((cert, idx) => (
-                    <span key={idx} style={{ fontSize: "12px", fontWeight: "800", padding: "5px 10px", background: "#fffbeb", border: "1px solid #fbbf24", borderRadius: "8px", color: "#92400e" }}>
-                      🎖️ {cert}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-
-            <div className="job-detail-grid">
+            <div style={{ padding: "20px 0", display: "flex", flexDirection: "column", gap: "16px" }}>
               <div className="job-detail-main">
-                <h4>Job Description</h4>
-                <p>{selectedJob.description || "No description provided by the recruiter."}</p>
+                <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Job Description</h4>
+                <p style={{ margin: 0, fontSize: "13px", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
+                  {selectedJob.description || "No description provided by recruiter."}
+                </p>
               </div>
 
-              <div className="job-detail-sidebar">
-                <div className="detail-sidebar-item">
-                  <h5>Location</h5>
-                  <p>{selectedJob.location || "Office Location"}</p>
+              {selectedJob.required_skills && (
+                <div>
+                  <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Required Skills</h4>
+                  <div className="job-skills-list">
+                    {selectedJob.required_skills.split(",").map((s) => (
+                      <span key={s} className="job-skill-badge">
+                        {s.trim()}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                <div className="detail-sidebar-item">
-                  <h5>Employment Type</h5>
-                  <p>{selectedJob.employment_type || "Full-time"}</p>
+              )}
+
+              {selectedJob.required_education && (
+                <div>
+                  <h4 style={{ color: "#58158f", margin: "0 0 4px 0", fontSize: "14px", fontWeight: "800" }}>Required Education</h4>
+                  <p style={{ margin: 0, fontSize: "13px", color: "#334155" }}>{selectedJob.required_education}</p>
                 </div>
-                <div className="detail-sidebar-item">
-                  <h5>AI Match Rating</h5>
-                  <p style={{ color: selectedJob.matchScore >= 75 ? "#10b981" : "#8b5cf6" }}>
-                    {selectedJob.matchScore}% Match
-                  </p>
+              )}
+
+              {selectedJob.experience_required && (
+                <div>
+                  <h4 style={{ color: "#58158f", margin: "0 0 4px 0", fontSize: "14px", fontWeight: "800" }}>Required Experience</h4>
+                  <p style={{ margin: 0, fontSize: "13px", color: "#334155" }}>{selectedJob.experience_required}</p>
+                </div>
+              )}
+
+              <div className="job-detail-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "#f8fafc", padding: "14px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+                <div>
+                  <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Location</strong>
+                  <p style={{ margin: "2px 0 0 0", fontSize: "13px", fontWeight: "700", color: "#1e293b" }}>{selectedJob.location || "Not specified"}</p>
+                </div>
+                <div>
+                  <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Employment Type</strong>
+                  <p style={{ margin: "2px 0 0 0", fontSize: "13px", fontWeight: "700", color: "#1e293b" }}>{selectedJob.employment_type || "Full-time"}</p>
+                </div>
+                <div>
+                  <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Work Setup</strong>
+                  <p style={{ margin: "2px 0 0 0", fontSize: "13px", fontWeight: "700", color: "#1e293b" }}>{selectedJob.work_setup || "On-site"}</p>
+                </div>
+                <div>
+                  <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Salary Range</strong>
+                  <p style={{ margin: "2px 0 0 0", fontSize: "13px", fontWeight: "700", color: "#166534" }}>{selectedJob.salary_range || "Confidential"}</p>
                 </div>
               </div>
             </div>
 
-            <div className="modal-actions">
+            <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "12px", borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
               <button
                 type="button"
-                className="modal-btn secondary"
+                className="view-details-btn"
                 onClick={() => setShowDetailModal(false)}
               >Close</button>
               <button
                 type="button"
-                className="modal-btn primary"
+                className="job-apply-primary"
                 onClick={() => handleApply(selectedJob)}
                 disabled={hasApplied(selectedJob.id) || isApplyBlocked}
-                title={!hasResume ? "Upload a resume to apply" : verificationStatus !== "Verified" && verificationStatus !== "Approved" ? "Complete identity verification to apply" : ""}
-                style={isApplyBlocked && !hasApplied(selectedJob.id) ? { opacity: 0.6, cursor: "not-allowed" } : {}}
-              >
-                {hasApplied(selectedJob.id) ? "Applied ✓" : isApplyBlocked ? "🔒 Apply for Job" : "Apply for Job"}
-              </button>
+              >{hasApplied(selectedJob.id) ? "Applied ✓" : "Apply for this Job"}</button>
             </div>
           </div>
         </div>

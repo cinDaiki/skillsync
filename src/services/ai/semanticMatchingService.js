@@ -124,29 +124,35 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
     const vectorResults = await findMatchingJobsForCandidate(resumeEmbedding, 20)
     const dFind = performance.now() - tFindStart;
 
-    if (!vectorResults.length) {
-      console.log('[SemanticMatching] No vector results — likely no job embeddings yet.')
-      return
+    const similarityMap = {}
+    let jobs = []
+
+    if (vectorResults && vectorResults.length > 0) {
+      const jobIds = vectorResults.map(r => r.job_id)
+      vectorResults.forEach(r => { similarityMap[r.job_id] = r.similarity })
+
+      const { data: fetchedJobs } = await supabase.from('jobs').select('*').in('id', jobIds).eq('status', 'open')
+      jobs = fetchedJobs || []
     }
 
-    const jobIds = vectorResults.map(r => r.job_id)
-    const similarityMap = {}
-    vectorResults.forEach(r => { similarityMap[r.job_id] = r.similarity })
+    // Fallback: If vector search yielded no jobs (e.g. no job embeddings exist yet), fetch all open jobs!
+    if (!jobs || jobs.length === 0) {
+      console.log('[SemanticMatching] Vector search produced no jobs — falling back to querying all open jobs.')
+      const { data: openJobs } = await supabase.from('jobs').select('*').eq('status', 'open')
+      jobs = openJobs || []
+    }
 
-    // ── 2. Fetch job details, candidate profile, and latest resume (for ATS score) ────────
     const tFetchStart = performance.now();
     const [
-      { data: jobs },
       { data: candidateProfile },
       { data: resumeRow }
     ] = await Promise.all([
-      supabase.from('jobs').select('*').in('id', jobIds).eq('status', 'open'),
       supabase.from('candidate_profiles').select('*').eq('user_id', userId).maybeSingle(),
       supabase.from('resumes').select('resume_score').eq('applicant_id', userId).maybeSingle()
     ])
     const dFetch = performance.now() - tFetchStart;
 
-    if (!jobs?.length) {
+    if (!jobs || !jobs.length) {
       console.log('[SemanticMatching] Job details not found.')
       return
     }

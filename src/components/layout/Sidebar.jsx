@@ -18,7 +18,7 @@ const sidebarLinks = {
   candidate: [
     { label: "Dashboard",   icon: "⌂",  path: "/candidate/dashboard"  },
     { label: "Resume",      icon: "▤",  path: "/candidate/resume"      },
-    { label: "Job Matches", icon: "◎",  path: "/candidate/jobs"        },
+    { label: "Job Marketplace", icon: "◎", path: "/candidate/jobs"    },
     { label: "AI Matches",  icon: "🤖", path: "/candidate/ai-matches"  },
     { label: "Applications",icon: "▣",  path: "/candidate/applications"},
     { label: "Profile",     icon: "👤", path: "/candidate/profile"     },

@@ -9,6 +9,10 @@ import { runMatchingForCandidate }                 from "../../services/matching
 import { generateAndStoreResumeEmbedding,
          buildResumeTextForEmbedding }             from "../../services/ai/embeddingService";
 import { runSemanticMatchingForCandidate }         from "../../services/ai/semanticMatchingService";
+import RecommendedJobs                           from "../../components/resume/RecommendedJobs.jsx";
+import { applyForJobWithSnapshot }                 from "../../services/applicationService";
+import { fetchSemanticMatchesForCandidate }         from "../../services/ai/semanticMatchingService";
+import { useToast }                                from "../../contexts/ToastContext";
 import ErrorBoundary                               from "../../components/guards/ErrorBoundary.jsx";
 import "./Resume.css";
 
@@ -19,12 +23,14 @@ const SkillDictionary = lazy(() => import("../../components/resume/SkillDictiona
 const ResumeMetadata = lazy(() => import("../../components/resume/ResumeMetadata.jsx"));
 
 const TABS_CONFIG = [
+  { id: 'jobs', label: 'Recommended Jobs', icon: '🎯' },
   { id: 'ats', label: 'ATS Scan Report', icon: '🤖' },
   { id: 'skills', label: 'AI Skill Dictionary', icon: '🧠' },
   { id: 'meta', label: 'Parsed Metadata', icon: '📝' }
 ];
 
 export default function Resume() {
+  const toast = useToast();
   const fileInputRef = useRef(null);
   const [resumeFile, setResumeFile] = useState(null);
   const [message, setMessage] = useState("");
@@ -32,7 +38,14 @@ export default function Resume() {
   const [userId, setUserId] = useState(null);
 
   // Tab State
-  const [activeTab, setActiveTab] = useState('ats');
+  const [activeTab, setActiveTab] = useState('jobs');
+
+  // Recommended Jobs State (Phase 8)
+  const [recommendedJobs, setRecommendedJobs] = useState([]);
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [matchingJobs, setMatchingJobs] = useState(false);
+  const [applications, setApplications] = useState([]);
+  const [applyingJobId, setApplyingJobId] = useState(null);
 
   // Skills editor state
   const [extractedSkills, setExtractedSkills] = useState([]);
@@ -78,6 +91,21 @@ export default function Resume() {
       }];
       setUploadHistory(initialHistory);
       localStorage.setItem(`skillsync_resume_history_${user.id}`, JSON.stringify(initialHistory));
+    }
+
+    // Load Phase 8 Job Matches & Applications
+    setLoadingJobs(true);
+    try {
+      const [matches, appsRes] = await Promise.all([
+        fetchSemanticMatchesForCandidate(user.id),
+        supabase.from("applications").select("job_id").eq("applicant_id", user.id)
+      ]);
+      setRecommendedJobs(matches || []);
+      setApplications((appsRes?.data || []).map(a => a.job_id));
+    } catch (err) {
+      console.warn("Failed loading job recommendations:", err);
+    } finally {
+      setLoadingJobs(false);
     }
 
     syncApplicantSnapshot(user.id).catch(() => {});
@@ -242,16 +270,22 @@ export default function Resume() {
     // stores it in resumes.resume_embedding, then runs semantic matching.
     ;(async () => {
       try {
+        setMatchingJobs(true);
         const resumeText = buildResumeTextForEmbedding(analysis, analysis.extractedText || '')
         const { embedding, error: embErr } = await generateAndStoreResumeEmbedding(user.id, resumeText)
         if (!embErr && embedding) {
           await runSemanticMatchingForCandidate(user.id, embedding)
           console.log('[Resume] Semantic AI matching complete.')
         } else {
-          console.warn('[Resume] Embedding generation failed — semantic matching skipped.', embErr?.message)
+          console.warn('[Resume] Embedding generation failed — running rule-based fallback matching.', embErr?.message)
+          await runMatchingForCandidate(user.id)
         }
+        const freshMatches = await fetchSemanticMatchesForCandidate(user.id);
+        setRecommendedJobs(freshMatches || []);
       } catch (aiErr) {
         console.warn('[Resume] AI pipeline error (non-critical):', aiErr.message)
+      } finally {
+        setMatchingJobs(false);
       }
     })()
     // ── End AI Pipeline ──────────────────────────────────────────────────
@@ -259,6 +293,25 @@ export default function Resume() {
     setMessage("Resume uploaded and parsed successfully.");
     setLoading(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function handleApplyJob(job) {
+    if (!userId || applyingJobId) return;
+    setApplyingJobId(job.id);
+    try {
+      const { error } = await applyForJobWithSnapshot(job.id, userId);
+      if (error) {
+        if (toast) toast.error(error.message || 'Failed to apply.');
+        return;
+      }
+      setApplications(prev => [...prev, job.id]);
+      if (toast) toast.success(`Applied to "${job.title}" successfully!`);
+      await triggerSimulationNotification(userId, 'job_applied', { jobTitle: job.title });
+    } catch (err) {
+      if (toast) toast.error('Unexpected error applying.');
+    } finally {
+      setApplyingJobId(null);
+    }
   }
 
   async function handleDeleteResume() {
@@ -463,6 +516,17 @@ export default function Resume() {
               <div className="resume-tab-panel-container" style={{ marginTop: "16px" }}>
                 <ErrorBoundary>
                   <Suspense fallback={<div className="panel-loading-spinner">Loading analysis view...</div>}>
+                    {activeTab === 'jobs' && (
+                      <RecommendedJobs
+                        jobs={recommendedJobs}
+                        loading={loadingJobs}
+                        matching={matchingJobs}
+                        hasResume={!!resumeFile}
+                        applications={applications}
+                        onApply={handleApplyJob}
+                        applyingJobId={applyingJobId}
+                      />
+                    )}
                     {activeTab === 'ats' && (
                       <AtsReport atsData={resumeFile.parsed_details?.ats || null} />
                     )}
