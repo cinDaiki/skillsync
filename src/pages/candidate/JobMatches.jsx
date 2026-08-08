@@ -87,10 +87,10 @@ export default function JobMatches() {
       if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
     }
 
-    // 5. Fetch ALL active open jobs, ordered by created_at DESC (newest first)
+    // 5. Fetch ALL active open jobs from Approved/Verified employers, ordered by created_at DESC (newest first)
     const { data: openJobs, error: jobsError } = await supabase
       .from("jobs")
-      .select("*")
+      .select("*, profiles:employer_id(verification_status, full_name, email)")
       .eq("status", "open")
       .order("created_at", { ascending: false });
 
@@ -98,7 +98,16 @@ export default function JobMatches() {
       console.error("[Marketplace] Error loading jobs:", jobsError.message);
       setJobs([]);
     } else {
-      setJobs(openJobs || []);
+      // Filter strictly for open jobs from Approved or Verified employers
+      const validJobs = (openJobs || []).filter(j => {
+        const empStatus = j.profiles?.verification_status || j.employer_verification_status;
+        return empStatus === "Approved" || empStatus === "Verified";
+      }).map(j => ({
+        ...j,
+        employer_verification_status: j.profiles?.verification_status || "Approved",
+        verified_employer: true
+      }));
+      setJobs(validJobs);
     }
 
     setLoading(false);
@@ -327,6 +336,11 @@ export default function JobMatches() {
                       <p style={{ margin: "2px 0 0 0", fontSize: "13px", color: "#64748b", fontWeight: "600" }}>
                         {[job.company_name || "Employer", formatPostedDate(job.created_at)].filter(Boolean).join(" · ")}
                       </p>
+                      {(job.employer_verification_status === "Approved" || job.employer_verification_status === "Verified" || job.verified_employer) && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "700", marginTop: "4px" }}>
+                          ✓ Verified Employer
+                        </span>
+                      )}
                     </div>
 
                     {job.salary_range && (
@@ -505,18 +519,27 @@ export default function JobMatches() {
 
               </div>
 
-              <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "12px", borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
+              <div className="modal-footer" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
                 <button
                   type="button"
-                  className="view-details-btn"
-                  onClick={() => setShowDetailModal(false)}
-                >Close</button>
-                <button
-                  type="button"
-                  className="job-apply-primary"
-                  onClick={() => handlePromptApply(selectedJob)}
-                  disabled={hasApplied(selectedJob.id) || isApplyBlocked}
-                >{hasApplied(selectedJob.id) ? "Applied ✓" : "Apply Now"}</button>
+                  style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fca5a5", padding: "8px 14px", borderRadius: "8px", fontSize: "12px", fontWeight: "700", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+                  onClick={() => setReportingJob(selectedJob)}
+                >
+                  🚩 Report Job
+                </button>
+                <div style={{ display: "flex", gap: "12px" }}>
+                  <button
+                    type="button"
+                    className="view-details-btn"
+                    onClick={() => setShowDetailModal(false)}
+                  >Close</button>
+                  <button
+                    type="button"
+                    className="job-apply-primary"
+                    onClick={() => handlePromptApply(selectedJob)}
+                    disabled={hasApplied(selectedJob.id) || isApplyBlocked}
+                  >{hasApplied(selectedJob.id) ? "Applied ✓" : "Apply Now"}</button>
+                </div>
               </div>
             </div>
           </div>
@@ -567,6 +590,114 @@ export default function JobMatches() {
           </div>
         );
       })()}
+
+      {/* ── REPORT JOB MODAL ── */}
+      {reportingJob && (
+        <ReportJobModal
+          job={reportingJob}
+          userId={userId}
+          onClose={() => setReportingJob(null)}
+          onSuccess={() => {
+            setReportingJob(null);
+            setShowDetailModal(false);
+          }}
+        />
+      )}
     </DashboardLayout>
+  );
+}
+
+/**
+ * Report Job Modal Component
+ */
+function ReportJobModal({ job, userId, onClose, onSuccess }) {
+  const toast = useToast();
+  const [reason, setReason] = useState("Scam / Fraud");
+  const [details, setDetails] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const reportReasons = [
+    "Scam / Fraud",
+    "Fake Job",
+    "Asking for Money",
+    "Misleading Information",
+    "Suspicious Employer",
+    "Incorrect Job Details",
+    "Inappropriate Content",
+    "Other"
+  ];
+
+  async function handleSubmitReport(e) {
+    e.preventDefault();
+    setSubmitting(true);
+
+    const { submitJobReport } = await import("../../services/adminService");
+    const { error } = await submitJobReport({
+      jobId: job.id,
+      reporterId: userId,
+      reason,
+      details
+    });
+
+    setSubmitting(false);
+
+    if (error) {
+      toast.error("Failed to submit report: " + error.message);
+      return;
+    }
+
+    toast.success("Job report submitted for administrator investigation.");
+    onSuccess();
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "480px" }}>
+        <div className="modal-header">
+          <div>
+            <h3 style={{ margin: 0, fontSize: "18px", color: "#991b1b" }}>🚩 Report Job Posting</h3>
+            <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#64748b" }}>
+              Reporting <strong>{job.title}</strong> at {job.company_name || "Employer"}
+            </p>
+          </div>
+          <button className="modal-close-btn" onClick={onClose}>×</button>
+        </div>
+
+        <form onSubmit={handleSubmitReport} style={{ padding: "20px 0" }}>
+          <label style={{ display: "block", marginBottom: "14px", fontSize: "13px", fontWeight: "700", color: "#1e293b" }}>
+            Reason for reporting *
+            <select
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              style={{ display: "block", width: "100%", marginTop: "6px", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+            >
+              {reportReasons.map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ display: "block", marginBottom: "14px", fontSize: "13px", fontWeight: "700", color: "#1e293b" }}>
+            Additional Details (Optional)
+            <textarea
+              rows={4}
+              placeholder="Describe the issue or suspicious activity..."
+              value={details}
+              onChange={(e) => setDetails(e.target.value)}
+              style={{ display: "block", width: "100%", marginTop: "6px", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+            />
+          </label>
+
+          <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: "12px", borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
+            <button type="button" className="view-details-btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="job-apply-primary" disabled={submitting} style={{ background: "#dc2626" }}>
+              {submitting ? "Submitting..." : "Submit Report"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }

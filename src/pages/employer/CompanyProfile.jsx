@@ -150,42 +150,95 @@ export default function CompanyProfile() {
         contact_email: company.contactEmail,
         contact_number: company.contactNumber,
         about: company.about,
+        id_image_url: company.id_image_url || null,
+        selfie_image_url: company.selfie_image_url || null,
+        business_permit_url: company.business_permit_url || null,
+        sec_registration_url: company.sec_registration_url || null,
+        company_logo_url: company.company_logo_url || null,
+        cover_photo_url: company.cover_photo_url || null,
         updated_at: new Date().toISOString()
       };
 
-      // Upload Identity Verification files
+      // Upload Identity & Verification files to PRIVATE storage
       if (uploadFiles.id_image) {
-        const { data } = await uploadEmployerVerification(uploadFiles.id_image, userId);
+        const { data, error: idErr } = await uploadEmployerVerification(uploadFiles.id_image, userId, "valid_id");
+        if (idErr) throw idErr;
         if (data) finalData.id_image_url = data;
       }
       if (uploadFiles.selfie_image) {
-        const { data } = await uploadEmployerVerification(uploadFiles.selfie_image, userId);
+        const { data, error: selfieErr } = await uploadEmployerVerification(uploadFiles.selfie_image, userId, "selfie");
+        if (selfieErr) throw selfieErr;
         if (data) finalData.selfie_image_url = data;
       }
-
-      // Upload Branding/Permit files
       if (uploadFiles.business_permit) {
-        const { data } = await uploadCompanyBranding(uploadFiles.business_permit, userId);
+        const { data, error: permitErr } = await uploadEmployerVerification(uploadFiles.business_permit, userId, "permit");
+        if (permitErr) throw permitErr;
         if (data) finalData.business_permit_url = data;
       }
       if (uploadFiles.sec_registration) {
-        const { data } = await uploadCompanyBranding(uploadFiles.sec_registration, userId);
+        const { data, error: secErr } = await uploadEmployerVerification(uploadFiles.sec_registration, userId, "sec");
+        if (secErr) throw secErr;
         if (data) finalData.sec_registration_url = data;
       }
+
+      // Upload Public Branding files
       if (uploadFiles.company_logo) {
-        const { data } = await uploadCompanyBranding(uploadFiles.company_logo, userId);
+        const { data, error: logoErr } = await uploadCompanyBranding(uploadFiles.company_logo, userId, "logo");
+        if (logoErr) throw logoErr;
         if (data) finalData.company_logo_url = data;
       }
       if (uploadFiles.cover_photo) {
-        const { data } = await uploadCompanyBranding(uploadFiles.cover_photo, userId);
+        const { data, error: coverErr } = await uploadCompanyBranding(uploadFiles.cover_photo, userId, "cover");
+        if (coverErr) throw coverErr;
         if (data) finalData.cover_photo_url = data;
       }
 
-      // Upsert into Supabase
-      const { error } = await supabase.from("employer_profiles").upsert([finalData]);
-      if (error) throw error;
+      // 1. Upsert into employer_profiles with explicit conflict target
+      console.log("[CompanyProfile] employer_profiles upsert payload:", finalData);
+      const { error: empError } = await supabase
+        .from("employer_profiles")
+        .upsert([finalData], { onConflict: "id" });
 
-      setMessage({ text: "Profile updated successfully!", type: "success" });
+      if (empError) {
+        console.error("[CompanyProfile] employer_profiles upsert error:", {
+          message: empError.message,
+          code: empError.code,
+          details: empError.details,
+          hint: empError.hint,
+          status: empError.status
+        });
+        throw empError;
+      }
+
+      // 2. Sync valid profile fields to public.profiles table (only columns that exist on profiles table)
+      const profileUpdates = {
+        contact_number: company.contactNumber,
+        updated_at: new Date().toISOString()
+      };
+      if (finalData.id_image_url) profileUpdates.id_image_url = finalData.id_image_url;
+      if (finalData.selfie_image_url) profileUpdates.selfie_image_url = finalData.selfie_image_url;
+
+      console.log("[CompanyProfile] profiles update payload:", profileUpdates);
+      const { error: profError } = await supabase
+        .from("profiles")
+        .update(profileUpdates)
+        .eq("id", userId);
+
+      if (profError) {
+        console.error("[CompanyProfile] profiles update error:", {
+          message: profError.message,
+          code: profError.code,
+          details: profError.details,
+          hint: profError.hint,
+          status: profError.status
+        });
+        throw profError;
+      }
+
+      setMessage({
+        text: "Profile saved successfully. Your verification documents have been submitted for review.",
+        type: "success"
+      });
       setIsEditing(false);
       
       // Clear file inputs
@@ -195,9 +248,33 @@ export default function CompanyProfile() {
       
       loadCompanyProfile();
     } catch (error) {
-      setMessage({ text: "Failed to save profile: " + error.message, type: "error" });
+      console.error("[CompanyProfile] Save Technical Error:", error);
+      setMessage({
+        text: "Unable to save profile. Please try again.",
+        type: "error"
+      });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleViewDocument(filePathOrUrl) {
+    if (!filePathOrUrl) {
+      setMessage({ text: "No document file uploaded yet.", type: "error" });
+      return;
+    }
+    try {
+      const { getPrivateDocumentSignedUrl } = await import("../../services/api");
+      const { url, error } = await getPrivateDocumentSignedUrl(filePathOrUrl);
+      if (error || !url) {
+        console.error("[CompanyProfile] Document signed URL error:", error);
+        setMessage({ text: "Unable to load verification document. Access denied or link expired.", type: "error" });
+        return;
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      console.error("[CompanyProfile] Document viewing exception:", err);
+      setMessage({ text: "Unable to open document. Please try again.", type: "error" });
     }
   }
 
@@ -295,31 +372,47 @@ export default function CompanyProfile() {
             </>
           ) : (
             <div className="verification-tab">
-              <div style={{ padding: '16px', background: company.verification_status === 'Verified' ? '#dcfce7' : '#fef9c3', borderRadius: '8px', marginBottom: '20px' }}>
-                <h3 style={{ margin: 0, color: company.verification_status === 'Verified' ? '#166534' : '#854d0e' }}>
+              <div style={{ padding: '16px', background: company.verification_status === 'Verified' || company.verification_status === 'Approved' ? '#dcfce7' : '#fef9c3', borderRadius: '8px', marginBottom: '20px' }}>
+                <h3 style={{ margin: 0, color: company.verification_status === 'Verified' || company.verification_status === 'Approved' ? '#166534' : '#854d0e' }}>
                   Verification Status: {company.verification_status}
                 </h3>
                 <p style={{ fontSize: '13px', margin: '4px 0 0 0', color: '#475569' }}>
-                  {company.verification_status === 'Verified' ? 'Your identity and business are verified. You can post jobs.' : 'Please upload your ID and business permits to get verified.'}
+                  {company.verification_status === 'Verified' || company.verification_status === 'Approved' ? 'Your identity and business are verified. You can post jobs.' : 'Please upload your ID and business permits to get verified.'}
                 </p>
               </div>
 
               <div className="profile-form-grid">
                 <label><span>Government ID (PDF/Image)</span>
                   <input type="file" name="id_image" accept="image/*,.pdf" onChange={handleFileChange} disabled={!isEditing} />
-                  {company.id_image_url && <a href={company.id_image_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px' }}>View Uploaded ID</a>}
+                  {company.id_image_url && (
+                    <button type="button" onClick={() => handleViewDocument(company.id_image_url)} style={{ background: "none", border: "none", color: "#58158f", fontSize: "12px", textDecoration: "underline", cursor: "pointer", textAlign: "left", padding: 0 }}>
+                      🔒 View Uploaded ID (Secure Signed Link)
+                    </button>
+                  )}
                 </label>
                 <label><span>Selfie with ID</span>
                   <input type="file" name="selfie_image" accept="image/*" onChange={handleFileChange} disabled={!isEditing} />
-                  {company.selfie_image_url && <a href={company.selfie_image_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px' }}>View Uploaded Selfie</a>}
+                  {company.selfie_image_url && (
+                    <button type="button" onClick={() => handleViewDocument(company.selfie_image_url)} style={{ background: "none", border: "none", color: "#58158f", fontSize: "12px", textDecoration: "underline", cursor: "pointer", textAlign: "left", padding: 0 }}>
+                      🔒 View Uploaded Selfie (Secure Signed Link)
+                    </button>
+                  )}
                 </label>
                 <label><span>Business Permit</span>
                   <input type="file" name="business_permit" accept="image/*,.pdf" onChange={handleFileChange} disabled={!isEditing} />
-                  {company.business_permit_url && <a href={company.business_permit_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px' }}>View Business Permit</a>}
+                  {company.business_permit_url && (
+                    <button type="button" onClick={() => handleViewDocument(company.business_permit_url)} style={{ background: "none", border: "none", color: "#58158f", fontSize: "12px", textDecoration: "underline", cursor: "pointer", textAlign: "left", padding: 0 }}>
+                      🔒 View Business Permit (Secure Signed Link)
+                    </button>
+                  )}
                 </label>
                 <label><span>SEC Registration</span>
                   <input type="file" name="sec_registration" accept="image/*,.pdf" onChange={handleFileChange} disabled={!isEditing} />
-                  {company.sec_registration_url && <a href={company.sec_registration_url} target="_blank" rel="noreferrer" style={{ fontSize: '12px' }}>View SEC Registration</a>}
+                  {company.sec_registration_url && (
+                    <button type="button" onClick={() => handleViewDocument(company.sec_registration_url)} style={{ background: "none", border: "none", color: "#58158f", fontSize: "12px", textDecoration: "underline", cursor: "pointer", textAlign: "left", padding: 0 }}>
+                      🔒 View SEC Registration (Secure Signed Link)
+                    </button>
+                  )}
                 </label>
                 <label><span>Company Logo</span>
                   <input type="file" name="company_logo" accept="image/*" onChange={handleFileChange} disabled={!isEditing} />

@@ -96,6 +96,10 @@ export default function ManageJobs() {
     setSaving(true);
     const encodedCerts = encodeApplicationRequirements(editForm.required_certifications, editForm.appReqs || []);
 
+    const targetJob = jobs.find(j => j.id === jobId);
+    // If updating an existing open job, revert to pending_review for admin moderation
+    const nextStatus = targetJob?.status === "open" ? "pending_review" : targetJob?.status || "pending_review";
+
     const payload = {
       title: editForm.title.trim(),
       department: editForm.department?.trim() || null,
@@ -108,6 +112,7 @@ export default function ManageJobs() {
       experience_required: editForm.experience_required,
       number_of_openings: parseInt(editForm.number_of_openings, 10) || 1,
       description: editForm.description.trim(),
+      status: nextStatus,
     };
     if (editForm.salary_range?.trim()) payload.salary_range = editForm.salary_range.trim();
     if (editForm.deadline) payload.deadline = editForm.deadline;
@@ -121,20 +126,50 @@ export default function ManageJobs() {
     setSaving(false);
 
     if (error) {
-      toast.error("Could not save changes. Please try again.");
+      toast.error("Could not save changes: " + error.message);
       return;
     }
 
     setEditingJobId(null);
     await loadJobs();
     runMatchingForJob(jobId).catch(console.error);
-    toast.success("Job post saved successfully.");
+    
+    if (targetJob?.status === "open") {
+      toast.info("Job modifications submitted for administrator review (Status: Pending Review).");
+    } else {
+      toast.success("Job post saved successfully.");
+    }
   }
 
   async function handleToggleStatus(jobId, currentStatus) {
-    const newStatus = currentStatus === "closed" ? "open" : "closed";
-    await supabase.from("jobs").update({ status: newStatus })
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("verification_status")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const isVerified = prof?.verification_status === "Approved" || prof?.verification_status === "Verified";
+
+    if (currentStatus === "closed" && !isVerified) {
+      toast.error("Verification Required: You cannot reopen jobs while your account is pending verification.");
+      return;
+    }
+
+    // Reopening a closed job transitions to pending_review
+    const newStatus = currentStatus === "closed" ? "pending_review" : "closed";
+    const { error } = await supabase.from("jobs").update({ status: newStatus })
       .eq("id", jobId).eq("employer_id", userId);
+
+    if (error) {
+      toast.error("Could not update job status: " + error.message);
+      return;
+    }
+
+    if (newStatus === "pending_review") {
+      toast.info("Job resubmitted for administrator review.");
+    } else {
+      toast.success("Job marked as closed.");
+    }
     loadJobs();
   }
 
@@ -344,11 +379,39 @@ export default function ManageJobs() {
                         <span className="job-applicant-count-badge">
                           👥 {applicantCounts[job.id] || 0} applicant{(applicantCounts[job.id] || 0) !== 1 ? "s" : ""}
                         </span>
-                        <span className={`job-status-badge ${job.status === "closed" ? "closed" : "open"}`}>
-                          {job.status || "open"}
+                        <span
+                          className={`job-status-badge ${
+                            job.status === "closed" ? "closed" :
+                            job.status === "pending_review" ? "pending" :
+                            job.status === "rejected" ? "closed" :
+                            job.status === "suspended" ? "closed" : "open"
+                          }`}
+                          style={
+                            job.status === "pending_review" ? { background: "#fef3c7", color: "#b45309", border: "1px solid #fde68a" } :
+                            job.status === "rejected" ? { background: "#fef2f2", color: "#b91c1c", border: "1px solid #fca5a5" } :
+                            job.status === "suspended" ? { background: "#450a0a", color: "#ffffff", border: "1px solid #991b1b" } : {}
+                          }
+                        >
+                          {job.status === "pending_review" ? "⏳ Pending Review" :
+                           job.status === "rejected" ? "❌ Rejected" :
+                           job.status === "suspended" ? "🚫 Suspended" :
+                           job.status === "closed" ? "Closed" : "Open"}
                         </span>
                       </div>
                     </div>
+
+                    {/* Moderation Reason Banner */}
+                    {(job.status === "rejected" || job.status === "suspended" || job.status === "pending_review") && (
+                      <div style={{ margin: "10px 0", padding: "8px 12px", borderRadius: "6px", fontSize: "12px", background: job.status === "pending_review" ? "#fffbeb" : job.status === "suspended" ? "#fef2f2" : "#fef2f2", color: job.status === "pending_review" ? "#92400e" : "#991b1b", border: "1px solid #fde68a" }}>
+                        {job.status === "pending_review" ? (
+                          <>⏳ <strong>Under Review:</strong> This job post is awaiting administrator review before becoming visible to jobseekers.</>
+                        ) : job.status === "rejected" ? (
+                          <>❌ <strong>Job Rejected by Admin:</strong> {job.rejection_reason || "Does not meet posting guidelines."}</>
+                        ) : (
+                          <>🚫 <strong>Job Suspended by Admin:</strong> {job.rejection_reason || "Suspended due to policy investigation."}</>
+                        )}
+                      </div>
+                    )}
 
                     {/* Meta chips */}
                     <div className="job-manage-meta-row">

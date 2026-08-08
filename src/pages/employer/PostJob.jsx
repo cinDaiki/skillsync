@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { useToast } from "../../contexts/ToastContext";
@@ -28,6 +28,10 @@ export default function PostJob() {
     description: "",
   });
 
+  // Employer verification status state
+  const [employerProfile, setEmployerProfile] = useState(null);
+  const [checkingVerification, setCheckingVerification] = useState(true);
+
   // Application Document Requirements State
   const [appReqs, setAppReqs] = useState(
     PRESET_REQUIREMENTS.filter(p => p.defaultSelected).map(p => p.name)
@@ -36,6 +40,24 @@ export default function PostJob() {
 
   const [loading, setLoading] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
+
+  useEffect(() => {
+    checkEmployerVerification();
+  }, []);
+
+  async function checkEmployerVerification() {
+    setCheckingVerification(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+      setEmployerProfile(prof);
+    }
+    setCheckingVerification(false);
+  }
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -88,9 +110,19 @@ export default function PostJob() {
     }
   }
 
+  const isVerifiedEmployer =
+    employerProfile?.verification_status === "Approved" ||
+    employerProfile?.verification_status === "Verified";
+
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
+
+    if (!isVerifiedEmployer) {
+      toast.error("Verification Required: Your employer account must be verified before you can publish job postings.");
+      setLoading(false);
+      return;
+    }
 
     if (!formData.title.trim() || !formData.location.trim() || !formData.description.trim()) {
       toast.error("Please fill in all required fields."); 
@@ -122,7 +154,7 @@ export default function PostJob() {
       number_of_openings: parseInt(formData.number_of_openings, 10) || 1,
       description: formData.description.trim(),
       deadline: formData.deadline || null,
-      status: "open",
+      status: "pending_review", // Newly created jobs require admin moderation
       employer_id: user.id,
     };
 
@@ -152,9 +184,9 @@ export default function PostJob() {
       })()
     }
 
-    toast.success("Job posted successfully!");
+    toast.success("Job submitted for administrator review! Status: Pending Review.");
     setLoading(false);
-    setTimeout(() => navigate("/employer/jobs"), 800);
+    setTimeout(() => navigate("/employer/jobs"), 1200);
   }
 
   return (
@@ -170,6 +202,29 @@ export default function PostJob() {
             <p>Fill in the requirements and let our AI suggest keywords to improve matches.</p>
           </div>
         </div>
+
+        {/* ── EMPLOYER VERIFICATION WARNING BANNER ── */}
+        {!checkingVerification && !isVerifiedEmployer && (
+          <div style={{ margin: "16px 0", padding: "16px 20px", background: employerProfile?.verification_status === "Rejected" ? "#fef2f2" : employerProfile?.verification_status === "Suspended" ? "#450a0a" : "#fffbeb", border: employerProfile?.verification_status === "Rejected" ? "1px solid #fca5a5" : employerProfile?.verification_status === "Suspended" ? "1px solid #991b1b" : "1px solid #fde68a", borderRadius: "10px", color: employerProfile?.verification_status === "Suspended" ? "#fff" : "#1e293b" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+              <span style={{ fontSize: "20px" }}>
+                {employerProfile?.verification_status === "Rejected" ? "❌" : employerProfile?.verification_status === "Suspended" ? "🚫" : "⏳"}
+              </span>
+              <strong style={{ fontSize: "15px", color: employerProfile?.verification_status === "Suspended" ? "#fff" : "#92400e" }}>
+                {employerProfile?.verification_status === "Rejected" ? "Employer Account Verification Rejected" : employerProfile?.verification_status === "Suspended" ? "Employer Account Suspended" : "Verification Status: Pending Administrator Review"}
+              </strong>
+            </div>
+            <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.5" }}>
+              {employerProfile?.verification_status === "Rejected" ? (
+                <>Reason: {employerProfile?.verification_reason || "Verification documents did not meet platform guidelines."} Please update your verification documents in your Company Profile.</>
+              ) : employerProfile?.verification_status === "Suspended" ? (
+                <>Reason: {employerProfile?.verification_reason || "Account suspended due to policy violation."} Your job posting privileges are currently disabled.</>
+              ) : (
+                <>Your employer account is awaiting administrator verification. You cannot publish jobs until your account is approved.</>
+              )}
+            </p>
+          </div>
+        )}
 
         <form className="profile-form" onSubmit={handleSubmit}>
           <div className="profile-form-grid">

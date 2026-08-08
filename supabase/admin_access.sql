@@ -105,6 +105,20 @@ DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
+    WHERE tablename = 'profiles' AND policyname = 'Admins can update all profiles'
+  ) THEN
+    CREATE POLICY "Admins can update all profiles"
+    ON profiles FOR UPDATE
+    TO authenticated
+    USING (public.is_platform_admin())
+    WITH CHECK (public.is_platform_admin());
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
     WHERE tablename = 'profiles' AND policyname = 'Admins can delete profiles'
   ) THEN
     CREATE POLICY "Admins can delete profiles"

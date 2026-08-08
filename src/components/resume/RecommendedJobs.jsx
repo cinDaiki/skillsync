@@ -214,6 +214,12 @@ export default function RecommendedJobs({
                             .filter(Boolean)
                             .join(' · ')}
                         </p>
+                        {/* Verified Employer Badge */}
+                        {(job.employer_verification_status === "Approved" || job.employer_verification_status === "Verified" || job.verified_employer) && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "700", marginTop: "4px" }}>
+                            ✓ Verified Employer
+                          </span>
+                        )}
                       </div>
                     </div>
                     <MatchScoreBadge score={job.matchScore} />

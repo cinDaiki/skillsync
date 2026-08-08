@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase } from './supabase.js'
 
 function extractResumeStoragePath(fileUrl) {
   if (!fileUrl) return null
@@ -142,39 +142,103 @@ export const uploadCertificateFile = async (file, userId) => {
 }
 
 /**
- * Upload an employer identity verification document (ID or Selfie)
+ * Helper to extract object storage path from full URL or return plain relative path
  */
-export async function uploadEmployerVerification(file, userId) {
-  if (!file || !userId) return { data: null, error: new Error('File and User ID required') };
+export function extractVerificationStoragePath(filePathOrUrl) {
+  if (!filePathOrUrl) return null;
+  if (!filePathOrUrl.startsWith("http")) return filePathOrUrl; // Already a relative path
 
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${userId}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-  
-  const { error: uploadError } = await supabase.storage
-    .from('employer_verification')
-    .upload(fileName, file);
-    
-  if (uploadError) return { data: null, error: uploadError };
+  const markers = [
+    '/storage/v1/object/public/employer_verification/',
+    '/storage/v1/object/sign/employer_verification/',
+    '/storage/v1/object/authenticated/employer_verification/',
+    '/storage/v1/object/public/company_branding/',
+    '/storage/v1/object/sign/company_branding/'
+  ];
 
-  const { data: urlData } = supabase.storage
-    .from('employer_verification')
-    .getPublicUrl(fileName);
-  
-  return { data: urlData.publicUrl, error: null };
+  for (const marker of markers) {
+    const idx = filePathOrUrl.indexOf(marker);
+    if (idx !== -1) {
+      return decodeURIComponent(filePathOrUrl.slice(idx + marker.length).split('?')[0]);
+    }
+  }
+
+  const fallback = filePathOrUrl.indexOf('/employer_verification/');
+  if (fallback !== -1) {
+    return decodeURIComponent(filePathOrUrl.slice(fallback + '/employer_verification/'.length).split('?')[0]);
+  }
+
+  return filePathOrUrl;
 }
 
 /**
- * Upload company branding or permit documents
+ * Generates a short-lived authorized signed URL for viewing private verification documents
  */
-export async function uploadCompanyBranding(file, userId) {
+export async function getPrivateDocumentSignedUrl(filePathOrUrl, expiresSec = 3600) {
+  if (!filePathOrUrl) return { url: null, error: new Error('No document path specified') };
+
+  const storagePath = extractVerificationStoragePath(filePathOrUrl);
+  if (!storagePath) return { url: filePathOrUrl, error: null };
+
+  // Generate 1-hour authorized signed URL from private employer_verification bucket
+  const { data, error } = await supabase.storage
+    .from('employer_verification')
+    .createSignedUrl(storagePath, expiresSec);
+
+  if (error || !data?.signedUrl) {
+    // Attempt fallback from resumes/verifications bucket if legacy
+    const { data: resData } = await supabase.storage
+      .from('resumes')
+      .createSignedUrl(storagePath, expiresSec);
+    if (resData?.signedUrl) return { url: resData.signedUrl, error: null };
+
+    return { url: filePathOrUrl, error };
+  }
+
+  return { url: data.signedUrl, error: null };
+}
+
+/**
+ * Upload an employer identity verification document (ID, Selfie, Permit, SEC) to PRIVATE storage
+ * Stores storage path, NOT a public URL.
+ */
+export async function uploadEmployerVerification(file, userId, docType = 'doc') {
   if (!file || !userId) return { data: null, error: new Error('File and User ID required') };
 
   const fileExt = file.name.split('.').pop();
-  const fileName = `${userId}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+  const storagePath = `${userId}/${docType}_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+  console.log("[Verification Upload] bucket:", "employer_verification");
+  console.log("[Verification Upload] path:", storagePath);
+  
+  // Upload to private 'employer_verification' bucket
+  const { data: uploadResult, error: uploadError } = await supabase.storage
+    .from('employer_verification')
+    .upload(storagePath, file, { upsert: true });
+
+  if (uploadError) {
+    console.error("[Verification Upload] upload error:", uploadError);
+    return { data: null, error: uploadError };
+  }
+
+  console.log("[Verification Upload] upload result:", uploadResult);
+
+  // Return the relative storage object path for private security
+  return { data: storagePath, error: null };
+}
+
+/**
+ * Upload public company branding (Logo or Cover Photo)
+ */
+export async function uploadCompanyBranding(file, userId, brandType = 'logo') {
+  if (!file || !userId) return { data: null, error: new Error('File and User ID required') };
+
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${userId}/${brandType}_${Date.now()}.${fileExt}`;
   
   const { error: uploadError } = await supabase.storage
     .from('company_branding')
-    .upload(fileName, file);
+    .upload(fileName, file, { upsert: true });
     
   if (uploadError) return { data: null, error: uploadError };
 
@@ -182,5 +246,5 @@ export async function uploadCompanyBranding(file, userId) {
     .from('company_branding')
     .getPublicUrl(fileName);
   
-  return { data: urlData.publicUrl, error: null };
+  return { data: urlData?.publicUrl || fileName, error: null };
 }

@@ -11,6 +11,7 @@ export default function EmployerDashboard() {
   const [notifications, setNotifications] = useState([]);
   const [showBell, setShowBell] = useState(false);
   const [userId, setUserId] = useState(null);
+  const [employerProfile, setEmployerProfile] = useState(null);
   const [activityLogs, setActivityLogs] = useState([]);
   const [recommendedCandidates, setRecommendedCandidates] = useState([]);
 
@@ -20,6 +21,14 @@ export default function EmployerDashboard() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
+
+    // Profile for verification status
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
+    setEmployerProfile(prof);
 
     // Jobs
     const { data: jobsData } = await supabase
@@ -104,16 +113,16 @@ export default function EmployerDashboard() {
     }       // end if (myJobs.length > 0)
   }         // end loadDashboardData
 
-  async function handleNotifClick(id) {
-    await markAsRead(id);
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+  async function handleNotifClick(notifId) {
+    await markAsRead(notifId);
+    setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, is_read: true } : n));
   }
   async function handleMarkAllRead() {
     if (!userId) return;
     await markAllAsRead(userId);
     setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
   }
-  async function handleClearAll() {
+  async function handleClearAllNotifs() {
     if (!userId) return;
     await clearAllNotifications(userId);
     setNotifications([]);
@@ -121,13 +130,19 @@ export default function EmployerDashboard() {
   }
 
   // Derived stats
-  const openJobs        = jobs.filter(j => j.status === "open");
-  const closedJobs      = jobs.filter(j => j.status === "closed");
+  const openJobs          = jobs.filter(j => j.status === "open");
+  const pendingReviewJobs = jobs.filter(j => j.status === "pending_review");
+  const rejectedJobs      = jobs.filter(j => j.status === "rejected");
+  const suspendedJobs     = jobs.filter(j => j.status === "suspended");
+  const closedJobs        = jobs.filter(j => j.status === "closed");
+
   const shortlisted     = applications.filter(a => a.status === "shortlisted");
   const interviews      = applications.filter(a => String(a.status||"").toLowerCase().includes("interview"));
   const hired           = applications.filter(a => ["hired","accepted"].includes(String(a.status||"").toLowerCase()));
   const pending         = applications.filter(a => ["applied","pending","submitted"].includes(String(a.status||"").toLowerCase()));
   const unread          = notifications.filter(n => !n.is_read).length;
+
+  const isVerifiedEmployer = employerProfile?.verification_status === "Approved" || employerProfile?.verification_status === "Verified";
 
   // Donut chart: pipeline distribution
   const total = applications.length || 1; // avoid /0
@@ -197,6 +212,37 @@ export default function EmployerDashboard() {
         </div>
       </div>
 
+      {/* ── EMPLOYER VERIFICATION STATUS BANNER ── */}
+      <div style={{ margin: "0 0 20px 0", padding: "16px 20px", background: isVerifiedEmployer ? "#f0fdf4" : employerProfile?.verification_status === "Rejected" ? "#fef2f2" : employerProfile?.verification_status === "Suspended" ? "#450a0a" : "#fffbeb", border: isVerifiedEmployer ? "1px solid #bbf7d0" : employerProfile?.verification_status === "Rejected" ? "1px solid #fca5a5" : employerProfile?.verification_status === "Suspended" ? "1px solid #991b1b" : "1px solid #fde68a", borderRadius: "12px", color: employerProfile?.verification_status === "Suspended" ? "#fff" : "#1e293b", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+            <span style={{ fontSize: "20px" }}>
+              {isVerifiedEmployer ? "🛡️" : employerProfile?.verification_status === "Rejected" ? "❌" : employerProfile?.verification_status === "Suspended" ? "🚫" : "⏳"}
+            </span>
+            <strong style={{ fontSize: "16px", color: isVerifiedEmployer ? "#166534" : employerProfile?.verification_status === "Suspended" ? "#fff" : "#92400e" }}>
+              {isVerifiedEmployer ? "✓ Verified Employer Account" : employerProfile?.verification_status === "Rejected" ? "Verification Status: Rejected" : employerProfile?.verification_status === "Suspended" ? "Account Suspended" : "Verification Status: Pending Administrator Review"}
+            </strong>
+          </div>
+          <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.4" }}>
+            {isVerifiedEmployer ? (
+              <>Your business identity has been verified. You may create and manage job postings.</>
+            ) : employerProfile?.verification_status === "Rejected" ? (
+              <>Reason: {employerProfile?.verification_reason || "Verification documents did not meet guidelines."} Please update your verification documents in Company Profile.</>
+            ) : employerProfile?.verification_status === "Suspended" ? (
+              <>Reason: {employerProfile?.verification_reason || "Account suspended due to policy violation."} Posting privileges are disabled.</>
+            ) : (
+              <>Your account is awaiting administrator review. You cannot publish jobs until approved.</>
+            )}
+          </p>
+        </div>
+
+        {!isVerifiedEmployer && (
+          <Link to="/employer/company-profile" style={{ background: "#58158f", color: "#fff", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", textDecoration: "none" }}>
+            View Verification Profile →
+          </Link>
+        )}
+      </div>
+
       {/* Stats grid — 7 cards */}
       <div className="enterprise-stats-grid">
         <div className="enterprise-stat-card">
@@ -210,14 +256,14 @@ export default function EmployerDashboard() {
           <div className="enterprise-stat-icon blue">◎</div>
           <div className="enterprise-stat-info">
             <h3>{openJobs.length}</h3>
-            <p>Active Listings</p>
+            <p>Active Open Jobs</p>
           </div>
         </div>
         <div className="enterprise-stat-card">
-          <div className="enterprise-stat-icon teal">👥</div>
+          <div className="enterprise-stat-icon orange">⏳</div>
           <div className="enterprise-stat-info">
-            <h3>{applications.length}</h3>
-            <p>Total Applicants</p>
+            <h3>{pendingReviewJobs.length}</h3>
+            <p>Pending Review</p>
           </div>
         </div>
         <div className="enterprise-stat-card">

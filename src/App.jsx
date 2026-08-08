@@ -159,6 +159,15 @@ function App() {
           }
         />
 
+        <Route
+          path="/employer/company-profile"
+          element={
+            <RoleRoute allowedRoles={[ROLES.EMPLOYER]}>
+              <CompanyProfile />
+            </RoleRoute>
+          }
+        />
+
         {/* Admin pages */}
         <Route
           path="/admin/dashboard"
