@@ -1,7 +1,9 @@
-import { supabase } from "./supabase";
+import { supabase } from "./supabase.js";
 
 /**
- * Service to manage candidate and platform notifications.
+ * SkillSync — Notification & Reminders Service
+ * Manages candidate and employer notifications across recruitment & interview lifecycles.
+ * Includes database-backed notification deduplication for reminders.
  */
 
 // Fetch all notifications for the current authenticated user
@@ -84,8 +86,69 @@ export async function addNotification(userId, title, message, type = "announceme
 }
 
 /**
+ * Checks upcoming interviews for tomorrow/today and dispatches reminder notifications.
+ * Features DB-backed deduplication to prevent repeated duplicate reminders.
+ */
+export async function checkAndSendInterviewReminders(userId) {
+  if (!userId) return;
+
+  try {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
+
+    // Query upcoming confirmed interviews for user (as candidate or employer)
+    const { data: upcoming } = await supabase
+      .from("interviews")
+      .select("*, jobs(title)")
+      .in("status", ["CONFIRMED", "PENDING_CONFIRMATION"])
+      .or(`candidate_id.eq.${userId},employer_id.eq.${userId}`)
+      .in("scheduled_date", [todayStr, tomorrowStr]);
+
+    if (!upcoming || upcoming.length === 0) return;
+
+    // Fetch existing recent notifications (past 24h) for user to deduplicate
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentNotifs } = await supabase
+      .from("notifications")
+      .select("title, message")
+      .eq("user_id", userId)
+      .gte("created_at", yesterday);
+
+    const recentNotifTitles = new Set((recentNotifs || []).map(n => n.title));
+
+    for (const inv of upcoming) {
+      const isToday = inv.scheduled_date === todayStr;
+      const timeLabel = isToday ? "today" : "tomorrow";
+      const jobTitle = inv.jobs?.title || "Job Placement";
+
+      if (userId === inv.candidate_id) {
+        const title = "🔔 Upcoming Interview Reminder";
+        const message = `Your interview for "${jobTitle}" is scheduled for ${timeLabel} at ${inv.scheduled_time}.`;
+
+        // DB Deduplication Check: Only add if title isn't present in recent 24h
+        if (!recentNotifTitles.has(title)) {
+          await addNotification(userId, title, message, "interview");
+          recentNotifTitles.add(title);
+        }
+      } else if (userId === inv.employer_id) {
+        const title = "🔔 Interview Approaching";
+        const message = `Interview scheduled for ${timeLabel} at ${inv.scheduled_time} for "${jobTitle}".`;
+
+        if (!recentNotifTitles.has(title)) {
+          await addNotification(userId, title, message, "interview");
+          recentNotifTitles.add(title);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Check interview reminders error:", err);
+  }
+}
+
+/**
  * Helper to generate smart simulated notifications based on user events
- * (Provides instantaneous mock updates to demo platform AI).
  */
 export async function triggerSimulationNotification(userId, actionType, meta = {}) {
   try {
@@ -111,13 +174,8 @@ export async function triggerSimulationNotification(userId, actionType, meta = {
         break;
       case "interview_scheduled":
         title = "Interview Invitation";
-        message = `An interview has been scheduled for "${meta.jobTitle || "Product Designer"}" on ${meta.date || "tomorrow"} via Google Meet.`;
+        message = `An interview has been scheduled for "${meta.jobTitle || "Product Designer"}" on ${meta.date || "tomorrow"}.`;
         type = "interview";
-        break;
-      case "application_feedback":
-        title = "New Recruiter Feedback";
-        message = `Recruiter left feedback for your "${meta.jobTitle}" application: "${meta.feedbackText}".`;
-        type = "feedback";
         break;
       case "application_status_change":
         title = "Application Status Updated";
