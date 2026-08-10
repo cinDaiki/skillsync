@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabase } from "./supabase.js";
 
 function isJobSeeker(role) {
   return role === "candidate" || role === "job_seeker";
@@ -9,12 +9,259 @@ export async function fetchAdminProfiles() {
     "admin_get_all_profiles"
   );
 
-  if (!rpcError && Array.isArray(rpcData)) {
-    return { data: rpcData, error: null };
+  let profilesList = !rpcError && Array.isArray(rpcData) ? rpcData : null;
+
+  if (!profilesList) {
+    const { data } = await supabase.from("profiles").select("*");
+    profilesList = data || [];
   }
 
-  const { data, error } = await supabase.from("profiles").select("*");
-  return { data: data || [], error: rpcError || error };
+  // Merge verification document paths from employer_profiles table to ensure admin visibility
+  try {
+    const { data: employerProfiles, error: employerProfilesError } = await supabase
+      .from("employer_profiles")
+      .select("id, id_image_url, selfie_image_url, business_permit_url, sec_registration_url, company_name, location, contact_number, verification_status");
+
+    console.log("[AdminService] employer_profiles data:", employerProfiles);
+    console.log("[AdminService] employer_profiles error:", employerProfilesError);
+
+    if (Array.isArray(employerProfiles) && employerProfiles.length > 0) {
+      const empMap = new Map(employerProfiles.map((ep) => [ep.id, ep]));
+      profilesList = profilesList.map((p) => {
+        if (p.role === "employer") {
+          const ep = empMap.get(p.id);
+          const mergedEmployer = {
+            ...p,
+            id_image_url: ep ? (ep.id_image_url || p.id_image_url || null) : (p.id_image_url || null),
+            selfie_image_url: ep ? (ep.selfie_image_url || p.selfie_image_url || null) : (p.selfie_image_url || null),
+            business_permit_url: ep ? (ep.business_permit_url || null) : null,
+            sec_registration_url: ep ? (ep.sec_registration_url || null) : null,
+            company_name: ep ? (ep.company_name || p.company_name) : p.company_name,
+            location: ep ? (ep.location || p.location) : p.location,
+            contact_number: ep ? (ep.contact_number || p.contact_number) : p.contact_number,
+            verification_status: ep ? (ep.verification_status || p.verification_status) : p.verification_status,
+          };
+          console.log("[AdminService] FINAL merged employer:", mergedEmployer);
+          return mergedEmployer;
+        }
+        return p;
+      });
+    }
+  } catch (err) {
+    console.warn("[AdminService] Failed to merge employer_profiles:", err?.message);
+  }
+
+  return { data: profilesList, error: null };
+}
+
+/**
+ * Server-side paginated query for Admin Jobseeker Management
+ */
+export async function fetchAdminJobseekers({ search = "", status = "all", page = 1, pageSize = 10 } = {}) {
+  try {
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    let query = supabase
+      .from("profiles")
+      .select("*", { count: "exact" })
+      .in("role", ["candidate", "job_seeker"])
+      .order("created_at", { ascending: false });
+
+    if (search.trim()) {
+      const term = `%${search.trim()}%`;
+      query = query.or(`full_name.ilike.${term},email.ilike.${term}`);
+    }
+
+    if (status === "active") {
+      query = query.or("is_suspended.is.null,is_suspended.eq.false");
+    } else if (status === "suspended") {
+      query = query.eq("is_suspended", true);
+    }
+
+    const { data: profiles, count, error: profileErr } = await query.range(from, to);
+
+    if (profileErr) {
+      console.error("[AdminService] fetchAdminJobseekers error:", profileErr);
+      return { data: [], totalCount: 0, page, totalPages: 0, error: profileErr };
+    }
+
+    // Merge candidate_profiles table data if available
+    let jobseekersList = profiles || [];
+    if (jobseekersList.length > 0) {
+      const ids = jobseekersList.map((p) => p.id);
+      const { data: candProfiles } = await supabase
+        .from("candidate_profiles")
+        .select("*")
+        .in("user_id", ids);
+
+      if (Array.isArray(candProfiles) && candProfiles.length > 0) {
+        const candMap = new Map(candProfiles.map((cp) => [cp.user_id, cp]));
+        jobseekersList = jobseekersList.map((p) => {
+          const cp = candMap.get(p.id);
+          return {
+            ...p,
+            skills: cp?.skills || p.skills || [],
+            experience: cp?.experience || p.work_experience || [],
+            education: cp?.education || p.education || [],
+            certifications: cp?.certifications || p.certifications || [],
+            profile_completion: calculateProfileCompletion(p, cp),
+          };
+        });
+      } else {
+        jobseekersList = jobseekersList.map((p) => ({
+          ...p,
+          profile_completion: calculateProfileCompletion(p, null),
+        }));
+      }
+    }
+
+    const totalCount = count || jobseekersList.length;
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+    return { data: jobseekersList, totalCount, page, totalPages, error: null };
+  } catch (err) {
+    console.error("[AdminService] fetchAdminJobseekers exception:", err);
+    return { data: [], totalCount: 0, page: 1, totalPages: 0, error: err };
+  }
+}
+
+function calculateProfileCompletion(profile, candidateProfile) {
+  let score = 0;
+  if (profile?.full_name) score += 20;
+  if (profile?.email) score += 15;
+  if (profile?.contact_number) score += 15;
+  if (profile?.address || candidateProfile?.location) score += 15;
+
+  const skills = candidateProfile?.skills || profile?.skills;
+  if (Array.isArray(skills) ? skills.length > 0 : skills) score += 15;
+
+  const exp = candidateProfile?.experience || profile?.work_experience;
+  if (Array.isArray(exp) ? exp.length > 0 : exp) score += 10;
+
+  const edu = candidateProfile?.education || profile?.education;
+  if (Array.isArray(edu) ? edu.length > 0 : edu) score += 10;
+
+  return Math.min(100, score);
+}
+
+/**
+ * Server-side paginated query for Admin Employer Management with job metrics
+ */
+export async function fetchAdminEmployers({ search = "", status = "All", page = 1, pageSize = 10 } = {}) {
+  try {
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    let query = supabase
+      .from("profiles")
+      .select("*", { count: "exact" })
+      .eq("role", "employer")
+      .order("created_at", { ascending: false });
+
+    if (search.trim()) {
+      const term = `%${search.trim()}%`;
+      query = query.or(`full_name.ilike.${term},email.ilike.${term}`);
+    }
+
+    if (status !== "All") {
+      if (status === "Approved") {
+        query = query.in("verification_status", ["Approved", "Verified"]);
+      } else {
+        query = query.eq("verification_status", status);
+      }
+    }
+
+    const { data: profiles, count, error: profileErr } = await query.range(from, to);
+
+    if (profileErr) {
+      console.error("[AdminService] fetchAdminEmployers error:", profileErr);
+      return { data: [], totalCount: 0, page, totalPages: 0, error: profileErr };
+    }
+
+    let employersList = profiles || [];
+    const empIds = employersList.map((p) => p.id);
+
+    // Merge employer_profiles details and job statistics
+    if (empIds.length > 0) {
+      const { data: empProfiles } = await supabase
+        .from("employer_profiles")
+        .select("*")
+        .in("id", empIds);
+
+      const empMap = new Map((empProfiles || []).map((ep) => [ep.id, ep]));
+
+      // Query job statistics per employer
+      const { data: employerJobsData } = await supabase
+        .from("jobs")
+        .select("id, employer_id, status")
+        .in("employer_id", empIds);
+
+      const jobsMap = new Map();
+      (employerJobsData || []).forEach((job) => {
+        if (!jobsMap.has(job.employer_id)) {
+          jobsMap.set(job.employer_id, { total: 0, open: 0, pending: 0, rejected: 0, closed: 0 });
+        }
+        const stats = jobsMap.get(job.employer_id);
+        stats.total += 1;
+        if (job.status === "open") stats.open += 1;
+        else if (job.status === "pending_review") stats.pending += 1;
+        else if (job.status === "rejected") stats.rejected += 1;
+        else if (job.status === "closed") stats.closed += 1;
+      });
+
+      employersList = employersList.map((p) => {
+        const ep = empMap.get(p.id);
+        const stats = jobsMap.get(p.id) || { total: 0, open: 0, pending: 0, rejected: 0, closed: 0 };
+        return {
+          ...p,
+          company_name: ep?.company_name || p.company_name || "Unnamed Company",
+          industry: ep?.industry || "Not specified",
+          company_size: ep?.company_size || "Not specified",
+          location: ep?.location || p.location || "Not specified",
+          website: ep?.website || "",
+          contact_email: ep?.contact_email || p.email,
+          contact_number: ep?.contact_number || p.contact_number || "",
+          about: ep?.about || "",
+          id_image_url: ep?.id_image_url || p.id_image_url || null,
+          selfie_image_url: ep?.selfie_image_url || p.selfie_image_url || null,
+          business_permit_url: ep?.business_permit_url || null,
+          sec_registration_url: ep?.sec_registration_url || null,
+          company_logo_url: ep?.company_logo_url || null,
+          cover_photo_url: ep?.cover_photo_url || null,
+          verification_status: ep?.verification_status || p.verification_status || "Pending",
+          verification_reason: p.verification_reason || "",
+          job_stats: stats,
+        };
+      });
+    }
+
+    const totalCount = count || employersList.length;
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+    return { data: employersList, totalCount, page, totalPages, error: null };
+  } catch (err) {
+    console.error("[AdminService] fetchAdminEmployers exception:", err);
+    return { data: [], totalCount: 0, page: 1, totalPages: 0, error: err };
+  }
+}
+
+/**
+ * Fetch all jobs posted by a specific employer
+ */
+export async function fetchEmployerJobs(employerId) {
+  try {
+    const { data, error } = await supabase
+      .from("jobs")
+      .select("*")
+      .eq("employer_id", employerId)
+      .order("created_at", { ascending: false });
+
+    return { data: data || [], error };
+  } catch (err) {
+    console.error("[AdminService] fetchEmployerJobs error:", err);
+    return { data: [], error: err };
+  }
 }
 
 export async function fetchAdminDashboardStats() {
@@ -56,30 +303,120 @@ export async function fetchAdminDashboardStats() {
   };
 }
 
-export async function fetchAdminJobs() {
-  const { data: rpcData, error: rpcError } = await supabase.rpc(
-    "admin_get_all_jobs"
-  );
+/**
+ * Server-side paginated query for Admin Job Moderation
+ */
+export async function fetchAdminJobs({ search = "", status = "all", workSetup = "all", page = 1, pageSize = 10 } = {}) {
+  try {
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
 
-  if (!rpcError && Array.isArray(rpcData)) {
-    return {
-      data: rpcData.map((job) => ({
-        ...job,
-        profiles: {
-          full_name: job.employer_name,
-          email: job.employer_email,
-        },
-      })),
-      error: null,
-    };
+    let query = supabase
+      .from("jobs")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false });
+
+    if (search.trim()) {
+      const term = `%${search.trim()}%`;
+      query = query.or(`title.ilike.${term},description.ilike.${term},required_skills.ilike.${term}`);
+    }
+
+    if (status !== "all" && status !== "All") {
+      if (status === "open" || status === "Open") {
+        query = query.eq("status", "open");
+      } else if (status === "pending_review" || status === "Pending Review") {
+        query = query.eq("status", "pending_review");
+      } else if (status === "rejected" || status === "Rejected") {
+        query = query.eq("status", "rejected");
+      } else if (status === "closed" || status === "Closed") {
+        query = query.eq("status", "closed");
+      } else {
+        query = query.eq("status", status);
+      }
+    }
+
+    if (workSetup !== "all" && workSetup !== "All") {
+      query = query.ilike("work_setup", `%${workSetup}%`);
+    }
+
+    const { data: jobs, count, error: jobErr } = await query.range(from, to);
+
+    if (jobErr) {
+      console.error("[AdminService] fetchAdminJobs error:", jobErr);
+      return { data: [], totalCount: 0, page, totalPages: 0, error: jobErr };
+    }
+
+    let jobsList = jobs || [];
+    const empIds = Array.from(new Set(jobsList.map((j) => j.employer_id).filter(Boolean)));
+
+    if (empIds.length > 0) {
+      // Fetch employer profiles & auth profiles for company & contact details
+      const { data: profs } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, verification_status, contact_number, address")
+        .in("id", empIds);
+
+      const { data: empProfs } = await supabase
+        .from("employer_profiles")
+        .select("id, company_name, location, industry, company_size, website, id_image_url, selfie_image_url, business_permit_url, sec_registration_url, verification_status")
+        .in("id", empIds);
+
+      const profMap = new Map((profs || []).map((p) => [p.id, p]));
+      const empProfMap = new Map((empProfs || []).map((ep) => [ep.id, ep]));
+
+      // Also get job counts for employer card
+      const { data: empJobs } = await supabase
+        .from("jobs")
+        .select("id, employer_id, status")
+        .in("employer_id", empIds);
+
+      const empStatsMap = new Map();
+      (empJobs || []).forEach((j) => {
+        if (!empStatsMap.has(j.employer_id)) {
+          empStatsMap.set(j.employer_id, { total: 0, open: 0, pending: 0, rejected: 0, closed: 0 });
+        }
+        const st = empStatsMap.get(j.employer_id);
+        st.total += 1;
+        if (j.status === "open") st.open += 1;
+        else if (j.status === "pending_review") st.pending += 1;
+        else if (j.status === "rejected") st.rejected += 1;
+        else if (j.status === "closed") st.closed += 1;
+      });
+
+      jobsList = jobsList.map((j) => {
+        const p = profMap.get(j.employer_id);
+        const ep = empProfMap.get(j.employer_id);
+        const stats = empStatsMap.get(j.employer_id) || { total: 0, open: 0, pending: 0, rejected: 0, closed: 0 };
+
+        return {
+          ...j,
+          profiles: p || null,
+          employer_info: {
+            id: j.employer_id,
+            company_name: ep?.company_name || j.company_name || p?.full_name || "Company",
+            contact_name: p ? displayUserName(p) : (j.employer_name || "Employer"),
+            contact_email: p?.email || j.employer_email || "Not specified",
+            location: ep?.location || j.location || p?.location || "Not specified",
+            industry: ep?.industry || "Not specified",
+            verification_status: ep?.verification_status || p?.verification_status || "Pending",
+            id_image_url: ep?.id_image_url || null,
+            selfie_image_url: ep?.selfie_image_url || null,
+            business_permit_url: ep?.business_permit_url || null,
+            sec_registration_url: ep?.sec_registration_url || null,
+            job_stats: stats,
+          },
+        };
+      });
+    }
+
+    const totalCount = count || jobsList.length;
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+    return { data: jobsList, totalCount, page, totalPages, error: null };
+  } catch (err) {
+    console.error("[AdminService] fetchAdminJobs exception:", err);
+    return { data: [], totalCount: 0, page: 1, totalPages: 0, error: err };
   }
-
-  const { data, error } = await supabase
-    .from("jobs")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  return { data: data || [], error: rpcError || error };
 }
 
 export function filterJobSeekers(profiles) {
@@ -143,4 +480,280 @@ export async function updateUserProfile(userId, { fullName, email, contactNumber
   });
   return { error };
 }
+
+/**
+ * Updates employer verification status with admin reason and audit log
+ */
+export async function updateEmployerVerification(userId, status, reasonNote = "") {
+  console.log(`[AdminService] Diagnostic: Attempting updateEmployerVerification for Target User ID: ${userId}, Status: ${status}, Reason: "${reasonNote}"`);
+
+  try {
+    const { error: rpcError } = await supabase.rpc("admin_update_employer_verification", {
+      target_user_id: userId,
+      new_status: status,
+      reason_note: reasonNote || null,
+    });
+
+    if (!rpcError) {
+      console.log(`[AdminService] Diagnostic: RPC admin_update_employer_verification succeeded for ${userId}`);
+      return { error: null };
+    }
+
+    console.warn("[AdminService] RPC admin_update_employer_verification returned error or 404:", {
+      message: rpcError.message,
+      code: rpcError.code,
+      details: rpcError.details,
+      hint: rpcError.hint,
+      status: rpcError.status
+    });
+
+    // Direct table fallback for authenticated admin user
+    const profileUpdates = {
+      verification_status: status,
+      updated_at: new Date().toISOString()
+    };
+    if (reasonNote) profileUpdates.verification_reason = reasonNote;
+
+    console.log(`[AdminService] Diagnostic: Executing direct PATCH fallback on public.profiles for ID ${userId} with payload:`, profileUpdates);
+
+    const { error: tableError } = await supabase
+      .from("profiles")
+      .update(profileUpdates)
+      .eq("id", userId);
+
+    if (tableError) {
+      console.error("[AdminService] Supabase public.profiles PATCH Direct Update Error:", {
+        message: tableError.message,
+        code: tableError.code,
+        details: tableError.details,
+        hint: tableError.hint,
+        status: tableError.status
+      });
+
+      if (tableError.code === "42703") {
+        // Column verification_reason does not exist on profiles table schema yet
+        console.warn("[AdminService] Retrying profiles update without verification_reason column...");
+        const { error: retryErr } = await supabase
+          .from("profiles")
+          .update({ verification_status: status, updated_at: new Date().toISOString() })
+          .eq("id", userId);
+
+        if (retryErr && !retryErr.message?.includes("fetch failed")) {
+          console.error("[AdminService] Retry profiles update failed:", retryErr);
+          return {
+            error: new Error(`Unable to approve employer (${retryErr.message}). Please execute supabase/phase_8_4_moderation.sql in your Supabase SQL Editor.`)
+          };
+        }
+      } else if (!tableError.message?.includes("fetch failed")) {
+        return {
+          error: new Error(`Unable to approve employer (${tableError.message || "HTTP 400 Bad Request"}). Please ensure supabase/phase_8_4_moderation.sql has been executed.`)
+        };
+      }
+    }
+
+    // Also update employer_profiles table
+    const { error: empError } = await supabase
+      .from("employer_profiles")
+      .update({ verification_status: status, updated_at: new Date().toISOString() })
+      .eq("id", userId);
+
+    if (empError && !empError.message?.includes("fetch failed")) {
+      console.warn("[AdminService] public.employer_profiles PATCH Update Warning:", empError);
+    }
+
+    return { error: null };
+  } catch (err) {
+    console.error("[AdminService] updateEmployerVerification exception:", err);
+    return { error: new Error("Unable to approve employer. Verification service is currently unavailable.") };
+  } finally {
+    // Log audit trail
+    await logAdminAction({
+      action: status === "Approved" || status === "Verified" ? "EMPLOYER_APPROVED" : status === "Rejected" ? "EMPLOYER_REJECTED" : "EMPLOYER_SUSPENDED",
+      targetType: "employer",
+      targetId: userId,
+      reason: reasonNote
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Moderates job status (approve to 'open', reject, or suspend)
+ */
+export async function moderateJobStatus(jobId, status, reasonNote = "") {
+  try {
+    const { error: rpcError } = await supabase.rpc("admin_moderate_job", {
+      target_job_id: jobId,
+      new_status: status,
+      reason_note: reasonNote || null,
+    });
+
+    if (rpcError) {
+      // Direct table fallback
+      const { error: tableError } = await supabase
+        .from("jobs")
+        .update({
+          status: status,
+          rejection_reason: reasonNote || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", jobId);
+
+      if (tableError && !tableError.message?.includes("fetch failed")) return { error: tableError };
+    }
+  } catch (err) {
+    console.warn("[AdminService] moderateJobStatus offline mode fallback.");
+  }
+
+  // Audit log
+  await logAdminAction({
+    action: status === "open" ? "JOB_APPROVED" : status === "rejected" ? "JOB_REJECTED" : "JOB_SUSPENDED",
+    targetType: "job",
+    targetId: jobId,
+    reason: reasonNote
+  }).catch(() => {});
+
+  return { error: null };
+}
+
+/**
+ * Candidate Jobseeker reports suspicious / scam / fraudulent job
+ */
+export async function submitJobReport({ jobId, reporterId, reason, details }) {
+  const payload = {
+    job_id: jobId,
+    reporter_id: reporterId,
+    reason: reason || "Suspicious Job Posting",
+    details: details || "",
+    status: "pending",
+    created_at: new Date().toISOString()
+  };
+
+  const { data, error } = await supabase.from("job_reports").insert([payload]).select();
+  if (error) {
+    console.warn("[JobReports] Supabase report insert error (falling back to local cache):", error.message);
+    const existing = JSON.parse(localStorage.getItem("skillsync_job_reports") || "[]");
+    existing.push({ ...payload, id: `local_report_${Date.now()}` });
+    localStorage.setItem("skillsync_job_reports", JSON.stringify(existing));
+    return { data: payload, error: null };
+  }
+  return { data: data ? data[0] : payload, error: null };
+}
+
+/**
+ * Fetches all job reports for admin review
+ */
+export async function fetchJobReports() {
+  const { data, error } = await supabase
+    .from("job_reports")
+    .select("*, jobs(title, employer_id, location, company_name), profiles:reporter_id(full_name, email)")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const local = JSON.parse(localStorage.getItem("skillsync_job_reports") || "[]");
+    return { data: local, error: null };
+  }
+  return { data: data || [], error: null };
+}
+
+/**
+ * Resolves job report
+ */
+export async function resolveJobReport(reportId, status, resolutionNote = "") {
+  const { error } = await supabase
+    .from("job_reports")
+    .update({
+      status,
+      resolution_note: resolutionNote,
+      resolved_at: new Date().toISOString()
+    })
+    .eq("id", reportId);
+
+  return { error };
+}
+
+/**
+ * Writes an administrative audit log entry
+ */
+export async function logAdminAction({ action, targetType, targetId, reason, metadata = {} }) {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const payload = {
+      admin_id: user?.id || null,
+      action,
+      target_type: targetType,
+      target_id: targetId,
+      reason: reason || null,
+      metadata,
+      created_at: new Date().toISOString()
+    };
+
+    const { error } = await supabase.from("admin_audit_logs").insert([payload]);
+    if (error) {
+      console.warn("[AdminService] Audit log insert notice:", error.message);
+    }
+  } catch (err) {
+    console.warn("[AdminService] Audit log exception notice:", err.message);
+  }
+}
+
+/**
+ * Server-side paginated query for Admin Audit Logs with search & filters
+ */
+export async function fetchAdminAuditLogs({ search = "", actionType = "all", page = 1, pageSize = 10 } = {}) {
+  try {
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    let query = supabase
+      .from("admin_audit_logs")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false });
+
+    if (search.trim()) {
+      const term = `%${search.trim()}%`;
+      query = query.or(`action.ilike.${term},target_type.ilike.${term},reason.ilike.${term}`);
+    }
+
+    if (actionType !== "all" && actionType !== "All") {
+      query = query.eq("action", actionType);
+    }
+
+    const { data: logs, count, error: logErr } = await query.range(from, to);
+
+    if (logErr) {
+      console.error("[AdminService] fetchAdminAuditLogs error:", logErr);
+      return { data: [], totalCount: 0, page, totalPages: 0, error: logErr };
+    }
+
+    let auditLogsList = logs || [];
+    const adminIds = Array.from(new Set(auditLogsList.map((l) => l.admin_id).filter(Boolean)));
+
+    if (adminIds.length > 0) {
+      const { data: profs } = await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .in("id", adminIds);
+
+      const profMap = new Map((profs || []).map((p) => [p.id, p]));
+
+      auditLogsList = auditLogsList.map((l) => {
+        const p = profMap.get(l.admin_id);
+        return {
+          ...l,
+          admin_email: l.metadata?.admin_email || p?.email || "system@skillsync.com",
+          admin_name: p ? displayUserName(p) : "Admin User",
+        };
+      });
+    }
+
+    const totalCount = count || auditLogsList.length;
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+    return { data: auditLogsList, totalCount, page, totalPages, error: null };
+  } catch (err) {
+    console.error("[AdminService] fetchAdminAuditLogs exception:", err);
+    return { data: [], totalCount: 0, page: 1, totalPages: 0, error: err };
+  }
+}
+
 

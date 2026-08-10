@@ -10,10 +10,19 @@
  */
 
 import { supabase }                  from '../supabase.js'
-import { findMatchingJobsForCandidate } from './vectorSearchService.js'
+import { findMatchingJobsForCandidate, cosineSimilarity } from './vectorSearchService.js'
 import { generateMatchRecommendation }  from './recommendationService.js'
 import { normalizeSkillName }           from '../normalization.js'
 import { SEMANTIC_MATCHING_CONFIG }    from './semanticMatchingConfig.js'
+import { calculateJobFit }             from './jobFitEngine.js'
+import { ensureOpenJobEmbeddings }     from './embeddingService.js'
+
+/**
+ * In-memory request deduplication maps.
+ * Prevents concurrent duplicate executions caused by React StrictMode or multiple component mounts.
+ */
+const activeRefreshPromises = new Map();
+const activeMatchingPromises = new Map();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -28,206 +37,203 @@ export function parseSkills(raw) {
     try {
       parsed = JSON.parse(raw)
     } catch {
-      parsed = raw.split(',').map(s => s.trim())
+      return raw.split(',').map(s => s.trim()).filter(Boolean)
     }
   }
-  if (Array.isArray(parsed)) {
-    return parsed.map(s => {
-      if (s && typeof s === 'object') {
-        // Support rich skill shape: { canonicalName/normalized }
-        return normalizeSkillName(s.normalized || s.canonicalName || s.name || '')
-      }
-      return normalizeSkillName(s)
-    }).filter(Boolean)
-  }
-  return []
+  if (!Array.isArray(parsed)) return []
+  return parsed.map(item => {
+    if (typeof item === 'string') return item.trim()
+    if (item && typeof item === 'object') return (item.name || item.skill || '').trim()
+    return ''
+  }).filter(Boolean)
 }
 
 /**
- * Computes a rule-based skill alignment score. Matches are weighted based on
- * the candidate's skill detection confidence and config policies.
- * 
- * @param {Array<string|object>} candidateSkillsRaw - Raw candidate skills (flat or rich)
- * @param {string[]} jobSkills - Required job skills
- * @param {object} config - Config containing scoring policy
- * @returns {object} { pct, matched, missing }
+ * Rule-based skill matching helper.
+ * Calculates matching, missing, and extra skills along with a 0-100 score.
  */
-export function getRuleBasedSkillScore(candidateSkillsRaw, jobSkills, config = SEMANTIC_MATCHING_CONFIG) {
-  if (!jobSkills.length) return { pct: 100, matched: [], missing: [] }
-  
-  const matched = []
-  const missing = []
-  let totalScore = 0
+export function getRuleBasedSkillScore(candidateSkills, requiredSkills) {
+  const cNorm = (candidateSkills || []).map(normalizeSkillName).filter(Boolean)
+  const rNorm = (requiredSkills  || []).map(normalizeSkillName).filter(Boolean)
 
-  const policy = config.scoringPolicy || { minimumConfidenceWeight: 0.5, confidenceScaling: true };
-
-  // Helper to get normalized search name for candidate skill
-  const getCandSkillName = (s) => {
-    if (s && typeof s === 'object') {
-      return normalizeSkillName(s.normalized || s.canonicalName || s.name || '')
-    }
-    return normalizeSkillName(s)
+  if (rNorm.length === 0) {
+    return { score: 100, matchingSkills: candidateSkills || [], missingSkills: [] }
   }
 
-  jobSkills.forEach(req => {
-    // Find matching candidate skill in candidateSkillsRaw
-    const match = (candidateSkillsRaw || []).find(c => {
-      const candName = getCandSkillName(c)
-      const reqName = normalizeSkillName(req)
-      return candName.includes(reqName) || reqName.includes(candName)
-    })
+  const cSet = new Set(cNorm)
+  const matching = []
+  const missing  = []
 
-    if (match) {
-      matched.push(req)
-
-      // Calculate weight based on config policy
-      if (typeof match === 'object') {
-        const confidence = match.confidenceScore !== undefined 
-          ? match.confidenceScore / 100 
-          : (match.confidence !== undefined ? match.confidence : 1.0);
-        
-        if (policy.confidenceScaling) {
-          // Scale linearly from minimumConfidenceWeight to 1.0
-          const weight = policy.minimumConfidenceWeight + (1 - policy.minimumConfidenceWeight) * confidence;
-          totalScore += Math.max(policy.minimumConfidenceWeight, Math.min(1.0, weight));
-        } else {
-          totalScore += policy.minimumConfidenceWeight;
-        }
-      } else {
-        totalScore += 1.0; // flat string has no confidence metadata, assume 1.0
-      }
+  rNorm.forEach((skill, idx) => {
+    const orig = requiredSkills[idx] || skill
+    if (cSet.has(skill)) {
+      matching.push(orig)
     } else {
-      missing.push(req)
+      missing.push(orig)
     }
   })
 
-  const pct = (totalScore / jobSkills.length) * 100
-  return { pct: Math.round(pct), matched, missing }
+  const score = Math.round((matching.length / rNorm.length) * 100)
+  return { score, matchingSkills: matching, missingSkills: missing }
 }
 
-// ─── Main Export ──────────────────────────────────────────────────────────────
+// ─── Main Orchestrator ────────────────────────────────────────────────────────
 
 /**
- * Run semantic + hybrid matching for a candidate against all open jobs.
+ * Candidate side: Run semantic matching for a specific candidate against ALL active open jobs.
  * Called automatically after a resume is uploaded.
+ * Features in-memory request deduplication for concurrent triggers.
  *
  * @param {string}   userId          - candidate's Supabase auth user ID
  * @param {number[]} resumeEmbedding - 384-dim float array (just generated)
  */
 export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
-  console.log('[SemanticMatching] Starting for candidate:', userId)
+  if (!userId) return;
 
-  try {
-    // ── 1. Vector search: find top 20 semantically similar jobs ──────────────
-    const vectorResults = await findMatchingJobsForCandidate(resumeEmbedding, 20)
-    if (!vectorResults.length) {
-      console.log('[SemanticMatching] No vector results — likely no job embeddings yet.')
-      return
-    }
-
-    const jobIds = vectorResults.map(r => r.job_id)
-    const similarityMap = {}
-    vectorResults.forEach(r => { similarityMap[r.job_id] = r.similarity })
-
-    // ── 2. Fetch job details, candidate profile, and latest resume (for ATS score) ────────
-    const [
-      { data: jobs },
-      { data: candidateProfile },
-      { data: resumeRow }
-    ] = await Promise.all([
-      supabase.from('jobs').select('*').in('id', jobIds).eq('status', 'open'),
-      supabase.from('candidate_profiles').select('*').eq('user_id', userId).maybeSingle(),
-      supabase.from('resumes').select('resume_score').eq('applicant_id', userId).maybeSingle()
-    ])
-
-    if (!jobs?.length) {
-      console.log('[SemanticMatching] Job details not found.')
-      return
-    }
-
-    // Safely parse candidate skills (handles objects or string list)
-    let candidateSkillsRaw = []
-    if (candidateProfile?.skills) {
-      try {
-        candidateSkillsRaw = JSON.parse(candidateProfile.skills)
-        if (!Array.isArray(candidateSkillsRaw)) candidateSkillsRaw = [candidateProfile.skills]
-      } catch {
-        candidateSkillsRaw = (candidateProfile.skills || '').split(',').map(s => s.trim())
-      }
-    }
-
-    // Retrieve ATS score from latest resume
-    const atsScore = resumeRow?.resume_score ?? 80; // Fallback to 80 if resume record has no score
-
-    // Load matching weights from dynamic config
-    const config = SEMANTIC_MATCHING_CONFIG;
-    const w = config.weights;
-
-    // ── 3. Build hybrid scores using config weights ──────────────────────────
-    const upserts = jobs.map(job => {
-      const semanticScore  = similarityMap[job.id] ?? 0           // 0–1
-      const jobSkills      = parseSkills(job.required_skills)
-      
-      const { pct: skillPct, matched, missing } = getRuleBasedSkillScore(
-        candidateSkillsRaw, 
-        jobSkills, 
-        config
-      )
-
-      // Calculate final ranking match_score based on config weights
-      const hybridScore = Math.round(
-        (semanticScore * 100 * w.semantic) + 
-        (skillPct * w.skills) + 
-        (atsScore * w.ats)
-      )
-
-      const recommendation = generateMatchRecommendation(
-        hybridScore, matched, missing, job.title
-      )
-
-      return {
-        user_id:        userId,
-        job_id:         job.id,
-        match_score:    hybridScore,
-        semantic_score: Math.round(semanticScore * 100),
-        skills_score:   Math.round(skillPct),
-        match_status:   'Recommended',
-        matching_skills: matched,
-        missing_skills:  missing,
-        strengths:       matched,
-        recommendations: recommendation,
-        match_reason:    recommendation,
-        match_type:      'semantic',
-        updated_at:      new Date().toISOString(),
-      }
-    })
-
-    // ── 4. Upsert results ─────────────────────────────────────────────────────
-    const { error } = await supabase
-      .from('job_matches')
-      .upsert(upserts, { onConflict: 'user_id,job_id' })
-
-    if (error) {
-      console.error('[SemanticMatching] Upsert error:', error.message)
-    } else {
-      console.log(`[SemanticMatching] Saved ${upserts.length} semantic matches for candidate ${userId}`)
-
-      // ── 5. Notify high matches (≥80%) ──────────────────────────────────────
-      const highMatches = upserts.filter(u => u.match_score >= 80)
-      if (highMatches.length > 0) {
-        const best = highMatches[0]
-        const bestJob = jobs.find(j => j.id === best.job_id)
-        await supabase.from('notifications').insert([{
-          user_id: userId,
-          title:   `🔥 ${highMatches.length} High AI Match${highMatches.length > 1 ? 'es' : ''} Found!`,
-          message: `Your resume is a ${best.match_score}% AI match for "${bestJob?.title || 'a job'}". Check your AI Job Matches!`,
-          type:    'job_match',
-        }])
-      }
-    }
-  } catch (err) {
-    console.error('[SemanticMatching] Unexpected error:', err)
+  if (activeMatchingPromises.has(userId)) {
+    console.log('[SemanticMatching] Deduplicating concurrent runSemanticMatchingForCandidate for candidate:', userId);
+    return activeMatchingPromises.get(userId);
   }
+
+  const promise = (async () => {
+    const tStart = performance.now();
+    console.log('[SemanticMatching] Starting for candidate:', userId)
+
+    try {
+      // 0. Ensure open jobs have embeddings generated (auto-backfill if needed)
+      await ensureOpenJobEmbeddings().catch(console.warn);
+
+      // ── 1. Vector search: find top 20 semantically similar jobs ──────────────
+      const tFindStart = performance.now();
+      const vectorResults = await findMatchingJobsForCandidate(resumeEmbedding, 20)
+      const dFind = performance.now() - tFindStart;
+
+      const similarityMap = {}
+      let jobs = []
+
+      if (vectorResults && vectorResults.length > 0) {
+        const jobIds = vectorResults.map(r => r.job_id)
+        vectorResults.forEach(r => { similarityMap[r.job_id] = r.similarity })
+
+        const { data: fetchedJobs } = await supabase.from('jobs').select('*').in('id', jobIds).eq('status', 'open')
+        jobs = fetchedJobs || []
+      }
+
+      // Fallback: If vector search yielded no jobs (e.g. no job embeddings exist yet), fetch all open jobs!
+      if (!jobs || jobs.length === 0) {
+        console.log('[SemanticMatching] Vector search produced no jobs — falling back to querying all open jobs.')
+        const { data: openJobs } = await supabase.from('jobs').select('*').eq('status', 'open')
+        jobs = openJobs || []
+      }
+
+      const tFetchStart = performance.now();
+      const { data: candidateProfile } = await supabase
+        .from('candidate_profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle()
+      const dFetch = performance.now() - tFetchStart;
+
+      if (!jobs || !jobs.length) {
+        console.log('[SemanticMatching] Job details not found.')
+        return
+      }
+
+      // Safely parse candidate skills (handles objects or string list)
+      const tCalcStart = performance.now();
+      const candidateObj = candidateProfile || {};
+
+      // ── 3. Build unified Job Fit scores for each open job ────────────────────
+      const upserts = jobs.map(job => {
+        let semanticSim = similarityMap[job.id];
+
+        // Calculate real cosine similarity if not returned by RPC
+        if (semanticSim === undefined || semanticSim === null) {
+          if (job.job_embedding && Array.isArray(resumeEmbedding)) {
+            const jobVec = Array.isArray(job.job_embedding)
+              ? job.job_embedding
+              : (typeof job.job_embedding === 'string' ? JSON.parse(job.job_embedding) : null);
+
+            if (jobVec && jobVec.length === resumeEmbedding.length) {
+              semanticSim = cosineSimilarity(resumeEmbedding, jobVec);
+            } else {
+              semanticSim = 0; // Real 0 when embedding unavailable - no fabrication!
+            }
+          } else {
+            semanticSim = 0; // Real 0 when embedding unavailable - no fabrication!
+          }
+        }
+
+        const fitResult = calculateJobFit(candidateObj, job, semanticSim);
+
+        const recommendationStr = fitResult.strengths.length > 0
+          ? `${fitResult.tier}: ${fitResult.strengths.join('; ')}`
+          : `${fitResult.tier}: Alignment evaluated against role qualifications.`;
+
+        return {
+          user_id:         userId,
+          job_id:          job.id,
+          match_score:     fitResult.jobFitScore,
+          semantic_score:  fitResult.breakdown.semanticRelevance,
+          skills_score:    fitResult.breakdown.requiredSkillsScore,
+          education_score: fitResult.breakdown.educationCompatibility,
+          experience_score: fitResult.breakdown.experienceCompatibility,
+          match_status:    fitResult.tier,
+          matching_skills: fitResult.matchedSkills,
+          missing_skills:  fitResult.missingSkills,
+          strengths:       fitResult.strengths,
+          recommendations: recommendationStr,
+          match_reason:     recommendationStr,
+          micro_credentials: fitResult.recommendedMicrocredentials,
+          matched_certs:   fitResult.matchedCertifications,
+          match_type:      'semantic',
+          updated_at:      new Date().toISOString(),
+        }
+      })
+      const dCalc = performance.now() - tCalcStart;
+
+      // ── 4. Upsert results ─────────────────────────────────────────────────────
+      const tUpsertStart = performance.now();
+      const { error } = await supabase
+        .from('job_matches')
+        .upsert(upserts, { onConflict: 'user_id,job_id' })
+      const dUpsert = performance.now() - tUpsertStart;
+
+      const dTotal = performance.now() - tStart;
+      console.log(`[Perf-SemanticMatching] runSemanticMatchingForCandidate Complete:
+        - Vector Search Database Fetch: ${dFind.toFixed(2)}ms
+        - Details (Jobs, Profile, Resume) fetch: ${dFetch.toFixed(2)}ms
+        - Match Score Calculations: ${dCalc.toFixed(2)}ms
+        - Supabase Upserts: ${dUpsert.toFixed(2)}ms
+        - runSemanticMatchingForCandidate() Total: ${dTotal.toFixed(2)}ms`);
+
+      if (error) {
+        console.error('[SemanticMatching] Upsert error:', error.message)
+      } else {
+        console.log(`[SemanticMatching] Saved ${upserts.length} semantic matches for candidate ${userId}`)
+
+        // ── 5. Notify high matches (≥80%) ──────────────────────────────────────
+        const highMatches = upserts.filter(u => u.match_score >= 80)
+        if (highMatches.length > 0) {
+          const best = highMatches[0]
+          const bestJob = jobs.find(j => j.id === best.job_id)
+          await supabase.from('notifications').insert([{
+            user_id: userId,
+            title:   `🔥 ${highMatches.length} High AI Match${highMatches.length > 1 ? 'es' : ''} Found!`,
+            message: `Your resume is a ${best.match_score}% AI match for "${bestJob?.title || 'a job'}". Check your AI Job Matches!`,
+            type:    'job_match',
+          }])
+        }
+      }
+    } catch (err) {
+      console.error('[SemanticMatching] Unexpected error:', err)
+    } finally {
+      activeMatchingPromises.delete(userId);
+    }
+  })();
+
+  activeMatchingPromises.set(userId, promise);
+  return promise;
 }
 
 /**
@@ -238,6 +244,8 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
  * @returns {Promise<object[]>}
  */
 export async function fetchSemanticMatchesForCandidate(userId) {
+  if (!userId) return [];
+
   const { data, error } = await supabase
     .from('job_matches')
     .select('*, jobs!inner(*)')
@@ -256,12 +264,85 @@ export async function fetchSemanticMatchesForCandidate(userId) {
       ...m.jobs,
       rank:            idx + 1,
       matchScore:      m.match_score      ?? 0,
+      matchStatus:     m.match_status     ?? 'Recommended',
       semanticScore:   m.semantic_score   ?? 0,
       skillsScore:     m.skills_score     ?? 0,
+      educationScore:  m.education_score  ?? 100,
+      experienceScore: m.experience_score ?? 100,
       matchedSkills:   Array.isArray(m.matching_skills) ? m.matching_skills : (m.matching_skills ? JSON.parse(m.matching_skills) : []),
       missingSkills:   Array.isArray(m.missing_skills)  ? m.missing_skills  : (m.missing_skills  ? JSON.parse(m.missing_skills)  : []),
       strengths:       Array.isArray(m.strengths)        ? m.strengths       : (m.strengths        ? JSON.parse(m.strengths)        : []),
       recommendations: m.recommendations ?? '',
       matchReason:     m.match_reason     ?? '',
+      microCredentials: Array.isArray(m.micro_credentials) ? m.micro_credentials : (m.micro_credentials ? (typeof m.micro_credentials === 'string' ? JSON.parse(m.micro_credentials) : []) : []),
+      matchedCerts:     Array.isArray(m.matched_certs)     ? m.matched_certs     : (m.matched_certs     ? (typeof m.matched_certs     === 'string' ? JSON.parse(m.matched_certs)     : []) : []),
     }))
+}
+
+/**
+ * Re-evaluates all currently active open jobs against the candidate's existing
+ * parsed resume / profile without requiring a resume re-upload.
+ * Features in-memory deduplication to prevent duplicate execution.
+ *
+ * @param {string} userId
+ * @returns {Promise<{ matches: object[], totalEvaluatedJobs: number }>}
+ */
+export async function refreshCandidateRecommendations(userId) {
+  if (!userId) return { matches: [], totalEvaluatedJobs: 0 };
+
+  if (activeRefreshPromises.has(userId)) {
+    console.log('[SemanticMatching] Deduplicating concurrent refreshCandidateRecommendations for candidate:', userId);
+    return activeRefreshPromises.get(userId);
+  }
+
+  const promise = (async () => {
+    try {
+      console.log('[SemanticMatching] Refreshing recommendations for candidate:', userId);
+
+      // 1. Fetch open jobs count
+      const { data: openJobs } = await supabase
+        .from('jobs')
+        .select('id, job_embedding')
+        .eq('status', 'open');
+
+      const totalEvaluatedJobs = openJobs?.length || 0;
+
+      // 2. Fetch candidate resume row for embedding
+      const { data: resumeRow } = await supabase
+        .from('resumes')
+        .select('resume_embedding, extracted_skills')
+        .eq('applicant_id', userId)
+        .maybeSingle();
+
+      let resumeEmbedding = null;
+      if (resumeRow?.resume_embedding) {
+        if (Array.isArray(resumeRow.resume_embedding)) {
+          resumeEmbedding = resumeRow.resume_embedding;
+        } else if (typeof resumeRow.resume_embedding === 'string') {
+          try {
+            resumeEmbedding = JSON.parse(resumeRow.resume_embedding);
+          } catch {
+            resumeEmbedding = null;
+          }
+        }
+      }
+
+      // 3. Run semantic or standard candidate matching across all open jobs
+      if (resumeEmbedding && Array.isArray(resumeEmbedding) && resumeEmbedding.length > 0) {
+        await runSemanticMatchingForCandidate(userId, resumeEmbedding);
+      } else {
+        const { runMatchingForCandidate } = await import('../matchingEngine.js');
+        await runMatchingForCandidate(userId);
+      }
+
+      // 4. Fetch updated matches
+      const matches = await fetchSemanticMatchesForCandidate(userId);
+      return { matches, totalEvaluatedJobs };
+    } finally {
+      activeRefreshPromises.delete(userId);
+    }
+  })();
+
+  activeRefreshPromises.set(userId, promise);
+  return promise;
 }

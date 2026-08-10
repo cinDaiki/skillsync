@@ -3,6 +3,7 @@ import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
 import { fetchAdminApplications } from "../../services/adminService";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
+import { calculateJobFit } from "../../services/ai/jobFitEngine";
 
 export default function AdminManageApplications() {
   const [applications, setApplications] = useState([]);
@@ -51,31 +52,10 @@ export default function AdminManageApplications() {
     });
   }
 
-  // Real-time Skill Matching Algorithm
+  // Real-time Skill Matching Algorithm via unified jobFitEngine
   function calculateMatchScore(candidateSkillsStr, jobSkillsStr) {
-    if (!jobSkillsStr) return 100; // If no specific skills required, 100%
-    if (!candidateSkillsStr) return 0; // If candidate has no skills listed, 0%
-
-    const candidateSkills = candidateSkillsStr
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean);
-
-    const jobSkills = jobSkillsStr
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean);
-
-    if (jobSkills.length === 0) return 100;
-
-    let matches = 0;
-    jobSkills.forEach((skill) => {
-      if (candidateSkills.includes(skill)) {
-        matches++;
-      }
-    });
-
-    return Math.round((matches / jobSkills.length) * 100);
+    const fit = calculateJobFit({ skills: candidateSkillsStr }, { required_skills: jobSkillsStr }, 0.70);
+    return fit.jobFitScore;
   }
 
   function getMatchLabel(score) {

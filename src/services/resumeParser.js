@@ -1,4 +1,4 @@
-import { normalizeSkillName } from "./normalization";
+import { normalizeSkillName } from "./normalization.js";
 import { runPipeline } from "./parser/index.js";
 
 /**
@@ -170,6 +170,85 @@ function extractSkills(text) {
   return detectedSkills;
 }
 
+/**
+ * Extract actual visible text from a PDF file using PDF.js CDN (browser) or fallback (Node.js).
+ */
+async function extractTextFromPdf(file) {
+  try {
+    if (typeof window === "undefined") {
+      // CLI / Node.js test environment — read rawText to avoid DOM errors
+      const arrayBuffer = await file.arrayBuffer();
+      return extractTextFallback(arrayBuffer);
+    }
+
+    let pdfjsLib = window["pdfjs-dist/build/pdf"];
+    if (!pdfjsLib) {
+      // Load PDF.js from CDN dynamically if not already present
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js";
+      document.head.appendChild(script);
+      await new Promise((resolve) => {
+        script.onload = resolve;
+        script.onerror = resolve; // avoid hanging
+      });
+      pdfjsLib = window["pdfjs-dist/build/pdf"];
+    }
+
+    if (!pdfjsLib) {
+      const arrayBuffer = await file.arrayBuffer();
+      return extractTextFallback(arrayBuffer);
+    }
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let extractedText = "";
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      
+      // Group and sort items by vertical and horizontal position to preserve line structure
+      const items = content.items.map(item => ({
+        str: item.str,
+        x: item.transform[4],
+        y: item.transform[5]
+      }));
+      
+      // Sort top-to-bottom (y descending), then left-to-right (x ascending)
+      // We allow a small tolerance (3 units) for items on the same line
+      items.sort((a, b) => {
+        if (Math.abs(a.y - b.y) < 3) {
+          return a.x - b.x;
+        }
+        return b.y - a.y;
+      });
+
+      let pageText = "";
+      let lastY = null;
+      for (const item of items) {
+        if (lastY !== null && Math.abs(item.y - lastY) >= 3) {
+          pageText += "\n";
+        }
+        pageText += item.str + " ";
+        lastY = item.y;
+      }
+      extractedText += pageText.trim() + "\n";
+    }
+
+    return extractedText.trim();
+  } catch (err) {
+    console.error("[Parser v2] PDF.js extraction error:", err);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      return extractTextFallback(arrayBuffer);
+    } catch {
+      return "";
+    }
+  }
+}
+
 // ─── Main Parser (Adapter) ────────────────────────────────────────────────────
 
 /**
@@ -179,6 +258,7 @@ function extractSkills(text) {
  * Preserves 100% backward-compatible return shape.
  */
 export async function parseResumeFile(file) {
+  const tStart = performance.now();
   const fileName = file.name.toLowerCase();
   const isDocx = fileName.endsWith(".docx");
   const isDoc  = fileName.endsWith(".doc");
@@ -186,8 +266,11 @@ export async function parseResumeFile(file) {
 
   // ── Step 1: Extract text ──────────────────────────────────────────────────
   let text = "";
+  const tExtractStart = performance.now();
   if (isDocx || isDoc) {
     text = await extractTextFromDocx(file);
+  } else if (isPdf) {
+    text = await extractTextFromPdf(file);
   } else {
     const rawText = await new Promise((resolve) => {
       const reader = new FileReader();
@@ -197,9 +280,11 @@ export async function parseResumeFile(file) {
     });
     text = extractTextFromPdfOrTxt(rawText);
   }
+  const dExtract = performance.now() - tExtractStart;
 
   // ── Step 2: Run new pipeline (Phase 1: skills + contact) ─────────────────
   let pipelineResult = null;
+  const tPipeStart = performance.now();
   try {
     pipelineResult = await runPipeline({
       rawText:  text,
@@ -210,6 +295,11 @@ export async function parseResumeFile(file) {
     // Pipeline failure must NEVER break the existing UI — fall through to legacy
     console.warn("[Parser v2] Pipeline error, falling back to legacy:", pipelineErr);
   }
+  const dPipe = performance.now() - tPipeStart;
+
+  console.log(`[Perf-Parser] parseResumeFile Adapt:
+    - Text Extraction (PDF/DOCX/Txt): ${dExtract.toFixed(2)}ms
+    - runPipeline() adapter wrapper: ${dPipe.toFixed(2)}ms`);
 
   // ── Step 3: Legacy fallbacks (for fields not yet in pipeline) ────────────
   const emailMatch    = text.match(/[\w.-]+@[\w.-]+\.\w{2,}/i);

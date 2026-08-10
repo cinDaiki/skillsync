@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getResumeViewUrl } from "../../services/api";
+import { getResumeViewUrl, getCertificateSignedUrl } from "../../services/api";
 
 function getFileName(resume) {
   return resume?.file_name || resume?.name || "Resume";
@@ -244,8 +244,19 @@ export default function ResumeViewerModal({ applicant, onClose, onAccept, onReje
                       <strong style={{ fontSize: "12px", color: "#334155" }}>{cert.name || "Certificate"}</strong>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "4px" }}>
                         <span style={{ fontSize: "11px", color: "#10b981", fontWeight: "bold" }}>✓ Authenticity Verified</span>
-                        {cert.file_url && (
-                          <a href={cert.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", color: "#58158f", textDecoration: "none", fontWeight: "600" }}>View File</a>
+                        {(cert.file_url || cert.fileUrl) && (
+                          <a
+                            href="#"
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              const targetUrl = cert.file_url || cert.fileUrl;
+                              const { url } = await getCertificateSignedUrl(targetUrl);
+                              if (url) window.open(url, "_blank", "noopener,noreferrer");
+                            }}
+                            style={{ fontSize: "11px", color: "#58158f", textDecoration: "none", fontWeight: "600" }}
+                          >
+                            View File
+                          </a>
                         )}
                       </div>
                     </div>

@@ -6,22 +6,22 @@ import { signOut } from "../../services/authService";
 const sidebarLinks = {
   admin: [
     { label: "Dashboard", icon: "⌂", path: "/admin/dashboard" },
-    { label: "Manage Users", icon: "👥", path: "/admin/users" },
-    { label: "Manage Jobs", icon: "▣", path: "/admin/jobs" },
-    { label: "Employers", icon: "▤", path: "/admin/employers" },
+    { label: "Jobseekers", icon: "👤", path: "/admin/jobseekers" },
+    { label: "Employers", icon: "🏢", path: "/admin/employers" },
+    { label: "Manage Jobs", icon: "💼", path: "/admin/jobs" },
+    { label: "Applications", icon: "📋", path: "/admin/applications" },
     { label: "Resume Vault", icon: "📁", path: "/admin/resumes" },
-    { label: "Applications", icon: "↗", path: "/admin/applications" },
     { label: "Reports", icon: "⚙", path: "/admin/reports" },
+    { label: "Audit Logs", icon: "📜", path: "/admin/audit-logs" },
     { label: "My Profile", icon: "👤", path: "/admin/profile" },
   ],
 
   candidate: [
-    { label: "Dashboard",   icon: "⌂",  path: "/candidate/dashboard"  },
-    { label: "Resume",      icon: "▤",  path: "/candidate/resume"      },
-    { label: "Job Matches", icon: "◎",  path: "/candidate/jobs"        },
-    { label: "AI Matches",  icon: "🤖", path: "/candidate/ai-matches"  },
-    { label: "Applications",icon: "▣",  path: "/candidate/applications"},
-    { label: "Profile",     icon: "👤", path: "/candidate/profile"     },
+    { label: "Dashboard",       icon: "⌂",  path: "/candidate/dashboard"   },
+    { label: "My Resume",       icon: "📄", path: "/candidate/resume"      },
+    { label: "Job Marketplace", icon: "💼", path: "/candidate/jobs"        },
+    { label: "My Applications", icon: "📋", path: "/candidate/applications"},
+    { label: "Profile",         icon: "👤", path: "/candidate/profile"     },
   ],
 
   employer: [

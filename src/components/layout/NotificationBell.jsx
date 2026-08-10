@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../../services/supabase";
 import { getNotifications, markAsRead, markAllAsRead } from "../../services/notificationService";
 import { useToast } from "../../contexts/ToastContext";
@@ -10,6 +11,7 @@ export default function NotificationBell() {
   const [currentUser, setCurrentUser] = useState(null);
   const dropdownRef = useRef(null);
   const toast = useToast();
+  const navigate = useNavigate();
 
   useEffect(() => {
     let channel;
@@ -25,7 +27,6 @@ export default function NotificationBell() {
 
       const channelName = `notifications-${userId}`;
       
-      // Prevent duplicates by setting up `.on` before `.subscribe`
       channel = supabase
         .channel(channelName)
         .on(
@@ -34,12 +35,10 @@ export default function NotificationBell() {
           (payload) => {
             const newNotif = payload.new;
             setNotifications((prev) => {
-              // Deduplicate if already present
               if (prev.some(n => n.id === newNotif.id)) return prev;
               return [newNotif, ...prev];
             });
             
-            // Show toast for new realtime notification
             if (newNotif.type === 'error') toast.error(newNotif.title);
             else if (newNotif.type === 'success') toast.success(newNotif.title);
             else toast.info(newNotif.title);
@@ -80,6 +79,16 @@ export default function NotificationBell() {
       setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
     }
     setIsOpen(false);
+
+    // Deep link navigation based on notification type & user role
+    const userRole = currentUser?.user_metadata?.role;
+    if (notif.type === 'interview' || notif.type === 'application_update') {
+      if (userRole === 'employer') {
+        navigate('/employer/applicants');
+      } else {
+        navigate('/candidate/applications');
+      }
+    }
   }
 
   async function handleMarkAllRead() {

@@ -96,19 +96,41 @@ export async function runPipeline({ rawText, fileType, includeAts = false, jobRe
     }
   }
 
-  // Chain pipeline stages
-  let ctx = { rawText, fileType }
-  ctx = analyzeLayout(ctx)    // P02 — layout + language detection
-  ctx = normalizeText(ctx)    // P03 — text cleaning
-  ctx = detectSections(ctx)   // P05 — section boundaries
-  ctx = buildGraph(ctx)       // P04 — document structure graph
-  ctx = extractFields(ctx)    // P06 — contact, education, experience, projects
-  ctx = detectEntities(ctx)   // P07 — name detection
-  ctx = recognizeSkills(ctx)  // P08 — context-aware skill recognition (Phase 3)
+  // Chain pipeline stages with high-res performance timers
+  const perfStart = performance.now();
+  let ctx = { rawText, fileType };
+  
+  const tP02 = performance.now();
+  ctx = analyzeLayout(ctx);    // P02 — layout + language detection
+  const dP02 = performance.now() - tP02;
+
+  const tP03 = performance.now();
+  ctx = normalizeText(ctx);    // P03 — text cleaning
+  const dP03 = performance.now() - tP03;
+
+  const tP05 = performance.now();
+  ctx = detectSections(ctx);   // P05 — section boundaries
+  const dP05 = performance.now() - tP05;
+
+  const tP04 = performance.now();
+  ctx = buildGraph(ctx);       // P04 — document structure graph
+  const dP04 = performance.now() - tP04;
+
+  const tP06 = performance.now();
+  ctx = extractFields(ctx);    // P06 — contact, education, experience, projects
+  const dP06 = performance.now() - tP06;
+
+  const tP07 = performance.now();
+  ctx = detectEntities(ctx);   // P07 — name detection
+  const dP07 = performance.now() - tP07;
+
+  const tP08 = performance.now();
+  ctx = recognizeSkills(ctx);  // P08 — context-aware skill recognition (Phase 3)
+  const dP08 = performance.now() - tP08;
 
   // Use pipeline contact if found, otherwise fallback regex
-  const hasContact = ctx.contact?.email?.normalized || ctx.contact?.phone?.normalized
-  const contact    = hasContact ? ctx.contact : extractContactFallback(rawText)
+  const hasContact = ctx.contact?.email?.normalized || ctx.contact?.phone?.normalized;
+  const contact    = hasContact ? ctx.contact : extractContactFallback(rawText);
 
   const meta = {
     parserVersion:     PARSER_VERSION,
@@ -116,11 +138,11 @@ export async function runPipeline({ rawText, fileType, includeAts = false, jobRe
     parseTimestamp:    new Date().toISOString(),
     language:          ctx.language    || 'EN',
     layout:            ctx.layoutType  || 'UNKNOWN',
-    parseTimeMs:       Date.now() - t0,
+    parseTimeMs:       Math.round(performance.now() - perfStart),
     sectionOrder:      ctx.sectionOrder || [],
     dictionaryStats:   DICTIONARY_STATS,
     skillRecognition:  ctx.skillRecognition || {},
-  }
+  };
 
   const result = {
     meta,
@@ -134,11 +156,26 @@ export async function runPipeline({ rawText, fileType, includeAts = false, jobRe
     totalExpYears:  ctx.totalExpYears  || 0,
     _rawText:       rawText,
     _fileType:      fileType,
+  };
+
+  let dAts = 0;
+  if (includeAts) {
+    const tAts = performance.now();
+    result.ats = evaluateATS(result, { jobRequirements });
+    dAts = performance.now() - tAts;
   }
 
-  if (includeAts) {
-    result.ats = evaluateATS(result, { jobRequirements });
-  }
+  const dTotal = performance.now() - perfStart;
+  console.log(`[Perf-Pipeline] Pipeline breakdown:
+    - P02 Layout Analysis: ${dP02.toFixed(2)}ms
+    - P03 Text Normalization: ${dP03.toFixed(2)}ms
+    - P05 Section Detection: ${dP05.toFixed(2)}ms
+    - P04 Document Graph: ${dP04.toFixed(2)}ms
+    - P06 Field Extraction: ${dP06.toFixed(2)}ms
+    - P07 Entity Detection: ${dP07.toFixed(2)}ms
+    - P08 Skill Recognition: ${dP08.toFixed(2)}ms
+    - Phase 4 ATS Evaluation: ${dAts.toFixed(2)}ms
+    - runPipeline() Total: ${dTotal.toFixed(2)}ms`);
 
   return result;
 }

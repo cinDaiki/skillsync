@@ -14,15 +14,36 @@ import { fuzzyMatch } from '../utils/fuzzyMatcher.js'
  * @type {Array<{ term: string, entry: SkillEntry, isCanonical: boolean }>}
  */
 const SEARCH_TERMS = []
+const BUCKETS = new Map()
 
 ALL_SKILLS.forEach(entry => {
-  SEARCH_TERMS.push({ term: entry.canonical, entry, isCanonical: true })
+  const canonicalLower = entry.canonical.toLowerCase().trim()
+  const canonicalItem = { term: canonicalLower, entry, isCanonical: true }
+  SEARCH_TERMS.push(canonicalItem)
+
+  const canonicalFirst = canonicalLower[0]
+  if (canonicalFirst) {
+    if (!BUCKETS.has(canonicalFirst)) BUCKETS.set(canonicalFirst, [])
+    BUCKETS.get(canonicalFirst).push(canonicalItem)
+  }
+
   ;(entry.aliases || []).forEach(alias => {
-    SEARCH_TERMS.push({ term: alias, entry, isCanonical: false })
+    const aliasLower = alias.toLowerCase().trim()
+    const aliasItem = { term: aliasLower, entry, isCanonical: false }
+    SEARCH_TERMS.push(aliasItem)
+
+    const aliasFirst = aliasLower[0]
+    if (aliasFirst) {
+      if (!BUCKETS.has(aliasFirst)) BUCKETS.set(aliasFirst, [])
+      BUCKETS.get(aliasFirst).push(aliasItem)
+    }
   })
 })
 
 SEARCH_TERMS.sort((a, b) => b.term.length - a.term.length)
+BUCKETS.forEach(bucket => {
+  bucket.sort((a, b) => b.term.length - a.term.length)
+})
 
 const REGEX_CACHE = new Map()
 
@@ -31,7 +52,7 @@ function escapeRegex(value) {
 }
 
 function getBoundaryRegex(term) {
-  const key = term.toLowerCase()
+  const key = term
   if (REGEX_CACHE.has(key)) return REGEX_CACHE.get(key)
 
   const escaped = escapeRegex(term)
@@ -64,6 +85,17 @@ export function generateSynonymVariants(token) {
   return variants
 }
 
+const STOP_WORDS_CACHE = new Map()
+function getStopWordsSet(config) {
+  if (!config || !config.stopWords) return new Set()
+  if (STOP_WORDS_CACHE.has(config.stopWords)) {
+    return STOP_WORDS_CACHE.get(config.stopWords)
+  }
+  const set = new Set(config.stopWords.map(w => w.toLowerCase()))
+  STOP_WORDS_CACHE.set(config.stopWords, set)
+  return set
+}
+
 /**
  * Match a single token against the skill dictionary.
  *
@@ -76,6 +108,13 @@ export function matchToken(token, config) {
 
   const normalized = token.trim()
   const lower = normalized.toLowerCase()
+
+  // stop-word filter
+  const stopWords = getStopWordsSet(config)
+  if (stopWords.has(lower)) return null
+
+  // non-alphabetic character guard
+  if (!/[a-z]/i.test(lower)) return null
 
   const direct = SKILL_MAP.get(lower)
   if (direct) {
@@ -118,31 +157,26 @@ export function matchToken(token, config) {
   let bestEntry = null
   let bestMethod = ''
 
-  // Cap counts unique skills evaluated (not individual alias terms).
-  // Python = skill #133, Kubernetes = skill #436 by term-count —
-  // counting skills instead of terms keeps the full dictionary reachable.
-  const maxSkills = ALL_SKILLS.length  // scan full dictionary; early-exit handles performance
-  let skillsChecked = 0
+  const firstChar = lower[0]
+  const bucket = BUCKETS.get(firstChar) || []
+  const maxDist = config.fuzzy.maxLevenshteinDistance || 2
 
-  outer: for (const skill of ALL_SKILLS) {
-    if (++skillsChecked > maxSkills) break outer
-    const terms = [skill.canonical, ...(skill.aliases || [])]
-    for (const term of terms) {
-      if (term.length < minLen) continue
-      const result = fuzzyMatch(
-        normalized,
-        term,
-        minLen,
-        config.fuzzy.maxLevenshteinDistance,
-        config.fuzzy.jaroWinklerThreshold
-      )
-      if (result.match && result.score > bestScore) {
-        bestScore  = result.score
-        bestEntry  = skill
-        bestMethod = result.method
-        // Early exit: near-perfect match found — no need to scan further
-        if (bestScore >= 0.99) break outer
-      }
+  outer: for (const { term, entry } of bucket) {
+    // Length-difference filtering
+    if (Math.abs(lower.length - term.length) > maxDist) continue
+
+    const result = fuzzyMatch(
+      lower,
+      term,
+      minLen,
+      maxDist,
+      config.fuzzy.jaroWinklerThreshold
+    )
+    if (result.match && result.score > bestScore) {
+      bestScore  = result.score
+      bestEntry  = entry
+      bestMethod = result.method
+      if (bestScore >= 0.99) break outer
     }
   }
 

@@ -5,6 +5,7 @@ import { useToast } from "../../contexts/ToastContext";
 import { useModal } from "../../contexts/ModalContext";
 import { supabase } from "../../services/supabase";
 import { runMatchingForJob } from "../../services/matchingEngine";
+import { parseJobRequirements, encodeApplicationRequirements, PRESET_REQUIREMENTS } from "../../utils/jobRequirementsHelper";
 import "./ManageJobs.css";
 
 export default function ManageJobs() {
@@ -25,6 +26,7 @@ export default function ManageJobs() {
     title: "", employment_type: "Full-time",
     location: "", required_skills: "", description: "",
     salary_range: "", deadline: "",
+    appReqs: []
   });
 
   useEffect(() => { loadJobs(); }, []);
@@ -56,6 +58,7 @@ export default function ManageJobs() {
 
   function handleEditJob(job) {
     setEditingJobId(job.id);
+    const parsed = parseJobRequirements(job);
     setEditForm({
       title: job.title || "",
       department: job.department || "",
@@ -63,17 +66,26 @@ export default function ManageJobs() {
       work_setup: job.work_setup || "On-site",
       location: job.location || "",
       required_skills: job.required_skills || "",
-      required_certifications: job.required_certifications || "",
+      required_certifications: parsed.cleanCertifications || "",
       required_education: job.required_education || "Bachelor's Degree",
       experience_required: job.experience_required || "1-3 years",
       number_of_openings: job.number_of_openings || 1,
       description: job.description || "",
       salary_range: job.salary_range || "",
       deadline: job.deadline ? job.deadline.substring(0,10) : "",
+      appReqs: parsed.applicationRequirements || []
     });
   }
 
-
+  function handleToggleEditReq(name) {
+    setEditForm(prev => {
+      const current = prev.appReqs || [];
+      const updated = current.includes(name)
+        ? current.filter(r => r !== name)
+        : [...current, name];
+      return { ...prev, appReqs: updated };
+    });
+  }
 
   async function handleSaveEdit(jobId) {
     if (!editForm.title.trim()) {
@@ -82,6 +94,11 @@ export default function ManageJobs() {
     }
 
     setSaving(true);
+    const encodedCerts = encodeApplicationRequirements(editForm.required_certifications, editForm.appReqs || []);
+
+    const targetJob = jobs.find(j => j.id === jobId);
+
+    // Resubmission rule: saving edits on a rejected, open, or pending job submits it for admin moderation (status: pending_review)
     const payload = {
       title: editForm.title.trim(),
       department: editForm.department?.trim() || null,
@@ -89,11 +106,15 @@ export default function ManageJobs() {
       work_setup: editForm.work_setup,
       location: editForm.location.trim(),
       required_skills: editForm.required_skills.trim(),
-      required_certifications: editForm.required_certifications?.trim() || null,
+      required_certifications: encodedCerts,
       required_education: editForm.required_education,
       experience_required: editForm.experience_required,
       number_of_openings: parseInt(editForm.number_of_openings, 10) || 1,
       description: editForm.description.trim(),
+      status: "pending_review",
+      rejection_reason: null,
+      resubmitted_at: new Date().toISOString(),
+      moderation_count: (targetJob?.moderation_count || 0) + 1,
     };
     if (editForm.salary_range?.trim()) payload.salary_range = editForm.salary_range.trim();
     if (editForm.deadline) payload.deadline = editForm.deadline;
@@ -107,20 +128,50 @@ export default function ManageJobs() {
     setSaving(false);
 
     if (error) {
-      toast.error("Could not save changes. Please try again.");
+      toast.error("Could not save changes: " + error.message);
       return;
     }
 
     setEditingJobId(null);
     await loadJobs();
     runMatchingForJob(jobId).catch(console.error);
-    toast.success("Job post saved successfully.");
+
+    if (targetJob?.status === "rejected") {
+      toast.success("Job revised and resubmitted for administrator review (Status: Pending Review).");
+    } else {
+      toast.info("Job post saved and submitted for administrator review.");
+    }
   }
 
   async function handleToggleStatus(jobId, currentStatus) {
-    const newStatus = currentStatus === "closed" ? "open" : "closed";
-    await supabase.from("jobs").update({ status: newStatus })
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("verification_status")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const isVerified = prof?.verification_status === "Approved" || prof?.verification_status === "Verified";
+
+    if (currentStatus === "closed" && !isVerified) {
+      toast.error("Verification Required: You cannot reopen jobs while your account is pending verification.");
+      return;
+    }
+
+    // Reopening a closed job transitions to pending_review
+    const newStatus = currentStatus === "closed" ? "pending_review" : "closed";
+    const { error } = await supabase.from("jobs").update({ status: newStatus })
       .eq("id", jobId).eq("employer_id", userId);
+
+    if (error) {
+      toast.error("Could not update job status: " + error.message);
+      return;
+    }
+
+    if (newStatus === "pending_review") {
+      toast.info("Job resubmitted for administrator review.");
+    } else {
+      toast.success("Job marked as closed.");
+    }
     loadJobs();
   }
 
@@ -187,6 +238,8 @@ export default function ManageJobs() {
           <select className="manage-jobs-filter" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
             <option value="All">All Status</option>
             <option value="Open">Open</option>
+            <option value="pending_review">Pending Review</option>
+            <option value="rejected">Rejected</option>
             <option value="Closed">Closed</option>
           </select>
           <select className="manage-jobs-filter" value={filterType} onChange={e => setFilterType(e.target.value)}>
@@ -262,7 +315,7 @@ export default function ManageJobs() {
                         <input name="required_skills" value={editForm.required_skills} onChange={e => setEditForm(p => ({...p, required_skills: e.target.value}))} />
                       </label>
                       <label className="job-edit-label">
-                        Required Certifications (comma-separated)
+                        Required Certifications (Qualifications)
                         <input name="required_certifications" value={editForm.required_certifications || ""} onChange={e => setEditForm(p => ({...p, required_certifications: e.target.value}))} />
                       </label>
                       <label className="job-edit-label">
@@ -274,7 +327,28 @@ export default function ManageJobs() {
                         <input type="date" name="deadline" value={editForm.deadline} onChange={e => setEditForm(p => ({...p, deadline: e.target.value}))} />
                       </label>
                     </div>
-                    <label className="job-edit-label">
+
+                    {/* Edit Application Document Requirements */}
+                    <div style={{ marginTop: "14px", background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                      <span style={{ fontSize: "12px", fontWeight: "700", color: "#1e1b4b", display: "block", marginBottom: "6px" }}>📋 Application Document Requirements</span>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "6px" }}>
+                        {PRESET_REQUIREMENTS.map(preset => {
+                          const isSelected = (editForm.appReqs || []).includes(preset.name);
+                          return (
+                            <label key={preset.id} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", cursor: "pointer" }}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleEditReq(preset.name)}
+                              />
+                              <span>{preset.icon} {preset.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <label className="job-edit-label" style={{ marginTop: "12px" }}>
                       Job Description
                       <textarea value={editForm.description}
                         onChange={e => setEditForm(p => ({...p, description: e.target.value}))} />
@@ -309,11 +383,39 @@ export default function ManageJobs() {
                         <span className="job-applicant-count-badge">
                           👥 {applicantCounts[job.id] || 0} applicant{(applicantCounts[job.id] || 0) !== 1 ? "s" : ""}
                         </span>
-                        <span className={`job-status-badge ${job.status === "closed" ? "closed" : "open"}`}>
-                          {job.status || "open"}
+                        <span
+                          className={`job-status-badge ${
+                            job.status === "closed" ? "closed" :
+                            job.status === "pending_review" ? "pending" :
+                            job.status === "rejected" ? "closed" :
+                            job.status === "suspended" ? "closed" : "open"
+                          }`}
+                          style={
+                            job.status === "pending_review" ? { background: "#fef3c7", color: "#b45309", border: "1px solid #fde68a" } :
+                            job.status === "rejected" ? { background: "#fef2f2", color: "#b91c1c", border: "1px solid #fca5a5" } :
+                            job.status === "suspended" ? { background: "#450a0a", color: "#ffffff", border: "1px solid #991b1b" } : {}
+                          }
+                        >
+                          {job.status === "pending_review" ? "⏳ Pending Review" :
+                           job.status === "rejected" ? "❌ Rejected" :
+                           job.status === "suspended" ? "🚫 Suspended" :
+                           job.status === "closed" ? "Closed" : "Open"}
                         </span>
                       </div>
                     </div>
+
+                    {/* Moderation Reason Banner */}
+                    {(job.status === "rejected" || job.status === "suspended" || job.status === "pending_review") && (
+                      <div style={{ margin: "10px 0", padding: "8px 12px", borderRadius: "6px", fontSize: "12px", background: job.status === "pending_review" ? "#fffbeb" : job.status === "suspended" ? "#fef2f2" : "#fef2f2", color: job.status === "pending_review" ? "#92400e" : "#991b1b", border: "1px solid #fde68a" }}>
+                        {job.status === "pending_review" ? (
+                          <>⏳ <strong>Under Review:</strong> This job post is awaiting administrator review before becoming visible to jobseekers.</>
+                        ) : job.status === "rejected" ? (
+                          <>❌ <strong>Job Rejected by Admin:</strong> {job.rejection_reason || "Does not meet posting guidelines."}</>
+                        ) : (
+                          <>🚫 <strong>Job Suspended by Admin:</strong> {job.rejection_reason || "Suspended due to policy investigation."}</>
+                        )}
+                      </div>
+                    )}
 
                     {/* Meta chips */}
                     <div className="job-manage-meta-row">
@@ -330,10 +432,27 @@ export default function ManageJobs() {
                       )}
                     </div>
 
+                    {/* Document Requirements Badges */}
+                    {(() => {
+                      const { applicationRequirements } = parseJobRequirements(job);
+                      return applicationRequirements.length > 0 ? (
+                        <div style={{ marginTop: "8px", display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "700", color: "#475569" }}>📋 Required Documents:</span>
+                          {applicationRequirements.map(req => (
+                            <span key={req} style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: "600" }}>
+                              ✓ {req}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()}
+
                     <p className="job-description-preview">{job.description || "No description provided."}</p>
 
                     <div className="job-actions">
-                      <button type="button" className="job-edit-btn" onClick={() => handleEditJob(job)}>Edit</button>
+                      <button type="button" className="job-edit-btn" onClick={() => handleEditJob(job)}>
+                        {job.status === "rejected" ? "✏️ Edit & Resubmit" : "Edit"}
+                      </button>
                       <button type="button" className="job-status-btn" onClick={() => handleToggleStatus(job.id, job.status)}>
                         {job.status === "closed" ? "Reopen" : "Close"}
                       </button>

@@ -76,6 +76,16 @@ export default {
     "HR & Admin",
     "Office"
   ],
+  "stopWords": [
+    "and", "to", "for", "a", "the", "of", "in", "with", "on", "at", "by", "from", "as", "an",
+    "that", "this", "these", "those", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "our", "your", "their", "his", "her", "its",
+    "my", "i", "we", "you", "they", "he", "she", "it", "me", "us", "him", "them",
+    "who", "whom", "which", "what", "whose", "or", "but", "not", "dynamic", "scalability",
+    "scalable", "building", "built", "designed", "maintain", "maintained", "developer",
+    "engineer", "analyst", "manager", "specialist", "lead", "senior", "junior", "professional",
+    "experience", "relevant", "hands-on", "years", "successfully", "acme", "corp", "company"
+  ],
   "features": {
     "contextAwareSources": true,
     "fuzzyMatching": true,

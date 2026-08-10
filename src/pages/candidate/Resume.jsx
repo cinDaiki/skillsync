@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { uploadResume, saveResumeRecord, getResume } from "../../services/api";
 import { syncApplicantSnapshot } from "../../services/applicationService";
@@ -9,14 +9,61 @@ import { runMatchingForCandidate }                 from "../../services/matching
 import { generateAndStoreResumeEmbedding,
          buildResumeTextForEmbedding }             from "../../services/ai/embeddingService";
 import { runSemanticMatchingForCandidate }         from "../../services/ai/semanticMatchingService";
+import RecommendedJobs                           from "../../components/resume/RecommendedJobs.jsx";
+import { applyForJobWithSnapshot }                 from "../../services/applicationService";
+import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
+import { useToast }                                from "../../contexts/ToastContext";
+import ErrorBoundary                               from "../../components/guards/ErrorBoundary.jsx";
 import "./Resume.css";
 
+// Lazy-loaded sub-components for Phase 6 modular UI
+const ResumeTabs = lazy(() => import("../../components/resume/ResumeTabs.jsx"));
+const AtsReport = lazy(() => import("../../components/resume/AtsReport.jsx"));
+const SkillDictionary = lazy(() => import("../../components/resume/SkillDictionary.jsx"));
+const ResumeMetadata = lazy(() => import("../../components/resume/ResumeMetadata.jsx"));
+
+const TABS_CONFIG = [
+  { id: 'jobs', label: 'Recommended Jobs', icon: '🎯' },
+  { id: 'ats', label: 'ATS Scan Report', icon: '🤖' },
+  { id: 'skills', label: 'AI Skill Dictionary', icon: '🧠' },
+  { id: 'meta', label: 'Parsed Metadata', icon: '📝' }
+];
+
 export default function Resume() {
+  const toast = useToast();
   const fileInputRef = useRef(null);
   const [resumeFile, setResumeFile] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
+
+  // Tab State
+  const [activeTab, setActiveTab] = useState('jobs');
+
+  // Recommended Jobs State (Phase 8)
+  const [recommendedJobs, setRecommendedJobs] = useState([]);
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [matchingJobs, setMatchingJobs] = useState(false);
+  const [applications, setApplications] = useState([]);
+  const [applyingJobId, setApplyingJobId] = useState(null);
+  const [refreshingJobs, setRefreshingJobs] = useState(false);
+  const [lastUpdatedText, setLastUpdatedText] = useState("");
+
+  async function handleRefreshRecommendations() {
+    if (!userId) return;
+    setRefreshingJobs(true);
+    try {
+      const { matches, totalEvaluatedJobs } = await refreshCandidateRecommendations(userId);
+      setRecommendedJobs(matches || []);
+      setLastUpdatedText(`Updated just now · ${totalEvaluatedJobs} open jobs evaluated`);
+      toast.success("Job recommendations updated!");
+    } catch (err) {
+      console.error("Failed refreshing recommendations:", err);
+      toast.error("Failed to refresh recommendations. Please try again.");
+    } finally {
+      setRefreshingJobs(false);
+    }
+  }
 
   // Skills editor state
   const [extractedSkills, setExtractedSkills] = useState([]);
@@ -62,6 +109,21 @@ export default function Resume() {
       }];
       setUploadHistory(initialHistory);
       localStorage.setItem(`skillsync_resume_history_${user.id}`, JSON.stringify(initialHistory));
+    }
+
+    // Load Phase 8 Job Matches & Applications
+    setLoadingJobs(true);
+    try {
+      const [matches, appsRes] = await Promise.all([
+        fetchSemanticMatchesForCandidate(user.id),
+        supabase.from("applications").select("job_id").eq("applicant_id", user.id)
+      ]);
+      setRecommendedJobs(matches || []);
+      setApplications((appsRes?.data || []).map(a => a.job_id));
+    } catch (err) {
+      console.warn("Failed loading job recommendations:", err);
+    } finally {
+      setLoadingJobs(false);
     }
 
     syncApplicantSnapshot(user.id).catch(() => {});
@@ -122,7 +184,9 @@ export default function Resume() {
       return;
     }
 
+    const tUploadStart = performance.now();
     const { data: fileUrl, error: uploadError } = await uploadResume(file, user.id);
+    const dUpload = performance.now() - tUploadStart;
 
     if (uploadError) {
       setMessage("Failed to upload resume. Please try again.");
@@ -130,6 +194,7 @@ export default function Resume() {
       return;
     }
 
+    const tDbOpsStart = performance.now();
     // Delete existing resume record before inserting new one
     await supabase.from("resumes").delete().eq("applicant_id", user.id);
 
@@ -189,8 +254,10 @@ export default function Resume() {
       score: analysis.score,
       skillsCount: analysis.skills.length
     });
+    const dDbOps = performance.now() - tDbOpsStart;
 
     // Reload from DB
+    const tReloadStart = performance.now();
     const { data: saved } = await getResume(user.id);
     if (saved) {
       setResumeFile(saved);
@@ -199,27 +266,44 @@ export default function Resume() {
         : [];
       setExtractedSkills(skillsList);
     }
+    const dReload = performance.now() - tReloadStart;
 
     syncApplicantSnapshot(user.id).catch(() => {});
 
+    console.log(`[Perf-UploadFlow] Upload Flow database and matching stages:
+      - Storage uploadResume(): ${dUpload.toFixed(2)}ms
+      - Supabase database upserts: ${dDbOps.toFixed(2)}ms
+      - DB Reload getResume(): ${dReload.toFixed(2)}ms`);
+
     // Run rule-based matching engine (existing)
-    runMatchingForCandidate(user.id).catch(console.error);
+    const tRuleMatch = performance.now();
+    runMatchingForCandidate(user.id)
+      .then(() => {
+        console.log(`[Perf-UploadFlow] Rule-based matching complete in ${(performance.now() - tRuleMatch).toFixed(2)}ms`);
+      })
+      .catch(console.error);
 
     // ── Semantic AI Embedding Pipeline (non-blocking) ────────────────────
     // Runs in background — generates a 384-dim embedding from resume text,
     // stores it in resumes.resume_embedding, then runs semantic matching.
     ;(async () => {
       try {
+        setMatchingJobs(true);
         const resumeText = buildResumeTextForEmbedding(analysis, analysis.extractedText || '')
         const { embedding, error: embErr } = await generateAndStoreResumeEmbedding(user.id, resumeText)
         if (!embErr && embedding) {
           await runSemanticMatchingForCandidate(user.id, embedding)
           console.log('[Resume] Semantic AI matching complete.')
         } else {
-          console.warn('[Resume] Embedding generation failed — semantic matching skipped.', embErr?.message)
+          console.warn('[Resume] Embedding generation failed — running rule-based fallback matching.', embErr?.message)
+          await runMatchingForCandidate(user.id)
         }
+        const freshMatches = await fetchSemanticMatchesForCandidate(user.id);
+        setRecommendedJobs(freshMatches || []);
       } catch (aiErr) {
         console.warn('[Resume] AI pipeline error (non-critical):', aiErr.message)
+      } finally {
+        setMatchingJobs(false);
       }
     })()
     // ── End AI Pipeline ──────────────────────────────────────────────────
@@ -227,6 +311,25 @@ export default function Resume() {
     setMessage("Resume uploaded and parsed successfully.");
     setLoading(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function handleApplyJob(job) {
+    if (!userId || applyingJobId) return;
+    setApplyingJobId(job.id);
+    try {
+      const { error } = await applyForJobWithSnapshot(job.id, userId);
+      if (error) {
+        if (toast) toast.error(error.message || 'Failed to apply.');
+        return;
+      }
+      setApplications(prev => [...prev, job.id]);
+      if (toast) toast.success(`Applied to "${job.title}" successfully!`);
+      await triggerSimulationNotification(userId, 'job_applied', { jobTitle: job.title });
+    } catch (err) {
+      if (toast) toast.error('Unexpected error applying.');
+    } finally {
+      setApplyingJobId(null);
+    }
   }
 
   async function handleDeleteResume() {
@@ -418,207 +521,22 @@ export default function Resume() {
               </div>
             </div>
 
-            {/* Split Screen Metrics & Skills Editor */}
-            <div className="resume-grid">
-              {/* Left Panel: Quality Scoring and completeness */}
-              <div className="resume-metrics-card">
-                <h3>Resume Parsing Metrics</h3>
-                
-                <div className="resume-score-gauge">
-                  <svg width="100" height="100" viewBox="0 0 80 80">
-                    <defs>
-                      <linearGradient id="score-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#58158f" />
-                        <stop offset="100%" stopColor="#f13093" />
-                      </linearGradient>
-                    </defs>
-                    <circle className="resume-score-circle-bg" cx="40" cy="40" r="32" />
-                    <circle 
-                      className="resume-score-circle-bar" 
-                      cx="40" 
-                      cy="40" 
-                      r="32" 
-                      strokeDasharray="200"
-                      strokeDashoffset={strokeDashoffset}
-                    />
-                  </svg>
-                  <div className="resume-score-number">
-                    <span className="resume-score-val">{resumeFile.resume_score || 0}</span>
-                    <span className="resume-score-label">Score</span>
-                  </div>
-                </div>
-
-                <div className={`resume-score-rating ${scoreInfo?.class}`}>
-                  {scoreInfo?.label}
-                </div>
-
-                <p style={{ fontSize: "13px", color: "#667085", margin: "4px 0 16px 0" }}>
-                  This score rates formatting structures, clear section headers, contact points, and keyword density.
-                </p>
-
-                {/* Completeness gauge */}
-                <div className="completeness-metric">
-                  <div className="completeness-metric-label">
-                    <span>Profile Integration Completeness</span>
-                    <span>{resumeFile.completeness || 0}%</span>
-                  </div>
-                  <div className="completeness-metric-bar-bg">
-                    <div 
-                      className="completeness-metric-bar-fill" 
-                      style={{ width: `${resumeFile.completeness || 0}%` }}
-                    ></div>
-                  </div>
-                </div>
-
-                {/* AI Extracted Key Info */}
-                {resumeFile.parsed_details && (
-                  <div style={{
-                    marginTop: "20px",
-                    padding: "18px 20px",
-                    background: "linear-gradient(135deg, #fbf9ff, #f3e8ff)",
-                    borderRadius: "14px",
-                    border: "1px solid #e9d5ff"
-                  }}>
-                    <h4 style={{ margin: "0 0 14px 0", color: "#58158f", fontSize: "13px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                      🤖 AI Extracted Key Info
-                    </h4>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                        <span style={{ fontSize: "16px", lineHeight: 1 }}>🎓</span>
-                        <div>
-                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: "0.05em" }}>Degree</div>
-                          <div style={{ fontSize: "13px", color: "#1e1b4b", fontWeight: 600, marginTop: "2px" }}>
-                            {resumeFile.parsed_details.degree
-                              ? resumeFile.parsed_details.degree.length > 60
-                                ? resumeFile.parsed_details.degree.slice(0, 60) + "…"
-                                : resumeFile.parsed_details.degree
-                              : <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not detected</span>}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                        <span style={{ fontSize: "16px", lineHeight: 1 }}>📚</span>
-                        <div>
-                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: "0.05em" }}>Course / Major</div>
-                          <div style={{ fontSize: "13px", color: "#1e1b4b", fontWeight: 600, marginTop: "2px" }}>
-                            {resumeFile.parsed_details.course
-                              ? resumeFile.parsed_details.course
-                              : <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not detected</span>}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                        <span style={{ fontSize: "16px", lineHeight: 1 }}>💼</span>
-                        <div>
-                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: "0.05em" }}>Experience</div>
-                          <div style={{ fontSize: "13px", color: "#1e1b4b", fontWeight: 600, marginTop: "2px" }}>
-                            {resumeFile.parsed_details.yearsOfExperience > 0
-                              ? `${resumeFile.parsed_details.yearsOfExperience}+ years`
-                              : resumeFile.parsed_details.hasExperienceSection
-                                ? <span style={{ color: "#16a34a" }}>Experience section found ✓</span>
-                                : <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not explicitly stated</span>}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                        <span style={{ fontSize: "16px", lineHeight: 1 }}>📧</span>
-                        <div>
-                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: "0.05em" }}>Contact Info</div>
-                          <div style={{ fontSize: "13px", color: "#1e1b4b", fontWeight: 600, marginTop: "2px" }}>
-                            {resumeFile.parsed_details.email || resumeFile.parsed_details.phone
-                              ? <span style={{ color: "#16a34a" }}>
-                                  {[resumeFile.parsed_details.email, resumeFile.parsed_details.phone].filter(Boolean).join(" · ")}
-                                </span>
-                              : resumeFile.parsed_details.hasContact
-                                ? <span style={{ color: "#16a34a" }}>Contact info found ✓</span>
-                                : <span style={{ color: "#f59e0b" }}>Not found — add to your resume</span>}
-                          </div>
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                )}
-
-              </div>
-
-              {/* Right Panel: Skills List Editor */}
-              <div className="extracted-skills-card">
-                <div className="extracted-skills-header">
-                  <h3>Auto-Detected Skill Tags</h3>
-                  <span className="skills-count-badge">{extractedSkills.length} Detected</span>
-                </div>
-
-                <p style={{ fontSize: "13px", color: "#667085", marginBottom: "16px" }}>
-                  Below are the skills parsed from your file. You can add or remove tags to improve matches.
-                </p>
-
-                {/* Add Custom Skill Tag */}
-                <form className="skills-editor-input-row" onSubmit={handleAddSkillTag}>
-                  <input
-                    type="text"
-                    value={newSkillInput}
-                    onChange={(e) => setNewSkillInput(e.target.value)}
-                    placeholder="Type skill name (e.g. React, Docker)"
-                    className="skills-editor-input"
-                    disabled={savingSkills}
-                  />
-                  <button type="submit" className="skills-editor-add-btn" disabled={savingSkills}>
-                    Add Tag
-                  </button>
-                </form>
-
-                {/* Display Tags */}
-                {extractedSkills.length > 0 ? (
-                  <div className="profile-skills-display">
-                    {extractedSkills.map((skill) => (
-                      <span key={skill} className="profile-skill-tag">
-                        {skill}
-                        <button 
-                          type="button" 
-                          className="profile-skill-remove" 
-                          onClick={() => handleRemoveSkillTag(skill)}
-                          disabled={savingSkills}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p style={{ color: "#8b8f9c", fontStyle: "italic", textAlign: "center", padding: "16px 0" }}>
-                    No skills extracted. Try adding tag keywords above!
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Resume Upload History Timeline */}
-            <div className="upload-history-card">
-              <h3>Upload & Parsing History Log</h3>
-              {uploadHistory.length > 0 ? (
-                <div className="history-list">
-                  {uploadHistory.map((item, index) => (
-                    <div className="history-item" key={item.id || index}>
-                      <div className="history-item-info">
-                        <h4>{item.file_name}</h4>
-                        <p>{formatFileSize(item.file_size)} • Uploaded {formatUploadDate(item.created_at)}</p>
-                      </div>
-                      <div className="history-item-actions">
-                        <span className={item.status === "Active" ? "history-action-badge" : "overview-status closed"} style={{ fontSize: "11px" }}>
-                          {item.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p style={{ color: "#667085", fontSize: "13px" }}>No previous upload history details recorded.</p>
-              )}
+            {/* Post-Upload Primary View: Recommended Jobs */}
+            <div className="resume-recommendations-wrapper" style={{ marginTop: "24px" }}>
+              <ErrorBoundary>
+                <RecommendedJobs
+                  jobs={recommendedJobs}
+                  loading={loadingJobs}
+                  matching={matchingJobs}
+                  hasResume={!!resumeFile}
+                  applications={applications}
+                  onApply={handleApplyJob}
+                  applyingJobId={applyingJobId}
+                  onRefresh={handleRefreshRecommendations}
+                  refreshing={refreshingJobs}
+                  lastUpdatedText={lastUpdatedText}
+                />
+              </ErrorBoundary>
             </div>
           </div>
         )}
