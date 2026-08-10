@@ -123,6 +123,55 @@ export const uploadVerificationDocument = async (file, userId, type) => {
   return { data: publicUrl, error: null };
 }
 
+/**
+ * Helper to extract certificate storage path from full URL, signed URL, or relative path
+ */
+export function extractCertificateStoragePath(filePathOrUrl) {
+  if (!filePathOrUrl || typeof filePathOrUrl !== 'string') return null;
+
+  const markers = [
+    '/storage/v1/object/public/certificates/',
+    '/storage/v1/object/sign/certificates/',
+    '/storage/v1/object/authenticated/certificates/',
+    '/storage/v1/object/certificates/'
+  ];
+
+  for (const marker of markers) {
+    const idx = filePathOrUrl.indexOf(marker);
+    if (idx !== -1) {
+      return decodeURIComponent(filePathOrUrl.slice(idx + marker.length).split('?')[0]);
+    }
+  }
+
+  const fallback = filePathOrUrl.indexOf('/certificates/');
+  if (fallback !== -1) {
+    return decodeURIComponent(filePathOrUrl.slice(fallback + '/certificates/'.length).split('?')[0]);
+  }
+
+  return filePathOrUrl.split('?')[0];
+}
+
+/**
+ * Generates a fresh authorized signed URL for viewing private certificate files
+ */
+export async function getCertificateSignedUrl(filePathOrUrl, expiresSec = 86400) {
+  if (!filePathOrUrl) return { url: null, error: new Error('No certificate path specified') };
+
+  const storagePath = extractCertificateStoragePath(filePathOrUrl);
+  if (!storagePath) return { url: null, error: new Error('Invalid certificate path') };
+
+  const { data, error } = await supabase.storage
+    .from('certificates')
+    .createSignedUrl(storagePath, expiresSec);
+
+  if (error || !data?.signedUrl) {
+    console.warn('[Certificates] Failed to generate signed URL for:', storagePath, error?.message);
+    return { url: null, error };
+  }
+
+  return { url: data.signedUrl, error: null };
+}
+
 // Upload Certificate File to Supabase Storage
 export const uploadCertificateFile = async (file, userId) => {
   const fileExt = file.name.split('.').pop();
@@ -134,17 +183,17 @@ export const uploadCertificateFile = async (file, userId) => {
   
   if (error) return { data: null, error };
   
-  // Storage bucket 'certificates' is private (public: false). Use createSignedUrl instead of getPublicUrl.
+  // Storage bucket 'certificates' is private (public: false).
+  // Generate initial signed URL while also storing the relative object path
   const { data: signedData, error: signedErr } = await supabase.storage
     .from('certificates')
-    .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1-year signed URL access
+    .createSignedUrl(fileName, 60 * 60 * 24);
   
   if (signedData?.signedUrl) {
-    return { data: signedData.signedUrl, error: null };
+    return { data: signedData.signedUrl, storagePath: fileName, error: null };
   }
 
-  // Fallback to relative object path
-  return { data: fileName, error: signedErr };
+  return { data: fileName, storagePath: fileName, error: signedErr };
 }
 
 /**

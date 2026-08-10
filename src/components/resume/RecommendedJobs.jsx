@@ -34,10 +34,15 @@ export default function RecommendedJobs({
   hasResume = false,
   applications = [],
   onApply,
-  applyingJobId = null
+  applyingJobId = null,
+  onRefresh = null,
+  refreshing = false,
+  evaluatedCount = 0,
+  lastUpdatedText = ""
 }) {
   const [selectedJob, setSelectedJob] = useState(null);
   const [confirmApplyJob, setConfirmApplyJob] = useState(null);
+  const [refreshState, setRefreshState] = useState("default"); // "default" | "updating" | "updated"
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -47,6 +52,19 @@ export default function RecommendedJobs({
   const [sortBy, setSortBy] = useState('best');
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 6;
+
+  const handleRefreshClick = async () => {
+    if (!onRefresh || refreshing) return;
+    setRefreshState("updating");
+    try {
+      await onRefresh();
+      setRefreshState("updated");
+      setCurrentPage(1);
+      setTimeout(() => setRefreshState("default"), 2500);
+    } catch {
+      setRefreshState("default");
+    }
+  };
 
   // Filter & Sort jobs
   const filteredJobs = jobs.filter((job) => {
@@ -124,15 +142,55 @@ export default function RecommendedJobs({
 
   return (
     <div className="rec-jobs-container">
-      <div className="rec-jobs-header">
+      <div className="rec-jobs-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
         <div>
           <h2 className="rec-jobs-title">🎯 Recommended Jobs for You</h2>
           <p className="rec-jobs-subtitle">
             Matched against your parsed resume skills, experience, and AI semantic profile.
+            {lastUpdatedText && (
+              <span style={{ display: "block", marginTop: "4px", color: "#16a34a", fontWeight: "600", fontSize: "12px" }}>
+                ✓ {lastUpdatedText}
+              </span>
+            )}
           </p>
         </div>
-        <div className="rec-jobs-count-badge">
-          {filteredJobs.length} Match{filteredJobs.length !== 1 ? 'es' : ''}
+
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {onRefresh && (
+            <button
+              type="button"
+              className="refresh-recommendations-btn"
+              disabled={refreshing || loading || refreshState === "updating"}
+              onClick={handleRefreshClick}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 16px",
+                borderRadius: "8px",
+                background: refreshState === "updated" ? "#dcfce7" : "#4f46e5",
+                color: refreshState === "updated" ? "#15803d" : "#ffffff",
+                border: refreshState === "updated" ? "1px solid #86efac" : "1px solid #4338ca",
+                fontSize: "13px",
+                fontWeight: "700",
+                cursor: refreshing || loading || refreshState === "updating" ? "not-allowed" : "pointer",
+                transition: "all 0.2s ease",
+                opacity: refreshing || loading || refreshState === "updating" ? 0.7 : 1
+              }}
+            >
+              {refreshState === "updating" || refreshing ? (
+                <>⟳ Updating...</>
+              ) : refreshState === "updated" ? (
+                <>✓ Updated</>
+              ) : (
+                <>↻ Refresh Recommendations</>
+              )}
+            </button>
+          )}
+
+          <div className="rec-jobs-count-badge">
+            {filteredJobs.length} Match{filteredJobs.length !== 1 ? 'es' : ''}
+          </div>
         </div>
       </div>
 

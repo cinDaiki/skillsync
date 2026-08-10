@@ -9,7 +9,7 @@ import {
   saveCandidateProfile,
   setCurrentUser,
 } from "../../services/localStorageService";
-import { uploadVerificationDocument, uploadCertificateFile } from "../../services/api";
+import { uploadVerificationDocument, uploadCertificateFile, getCertificateSignedUrl } from "../../services/api";
 import { runMatchingForCandidate } from "../../services/matchingEngine";
 import ProfilePictureUploader from "../../components/common/ProfilePictureUploader";
 import { isDevMode } from "../../services/devMode";
@@ -509,6 +509,18 @@ export default function Profile() {
   }
 
   // Certifications Operations
+  async function handleOpenCertificate(e, fileUrl) {
+    e.preventDefault();
+    if (!fileUrl) return;
+
+    const { url, error } = await getCertificateSignedUrl(fileUrl);
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      setMessage({ text: "Could not view certificate: " + (error?.message || "File unavailable"), type: "error" });
+    }
+  }
+
   function openAddCert() {
     setEditingCertIndex(null);
     setCertForm({ name: "", issuer: "", date: "", credentialId: "", file: null, fileUrl: "" });
@@ -1259,7 +1271,11 @@ export default function Profile() {
                           <h5>{cert.issuer}</h5>
                           {cert.credentialId && <small style={{ color: "#8b8f9c", display: "block" }}>Credential ID: {cert.credentialId}</small>}
                           {cert.fileUrl && (
-                            <a href={cert.fileUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-block", marginTop: "4px", fontSize: "12px", color: "#58158f", textDecoration: "none", fontWeight: "bold" }}>
+                            <a
+                              href="#"
+                              onClick={(e) => handleOpenCertificate(e, cert.fileUrl)}
+                              style={{ display: "inline-block", marginTop: "4px", fontSize: "12px", color: "#58158f", textDecoration: "none", fontWeight: "bold" }}
+                            >
                               📎 View Attached Certificate
                             </a>
                           )}
