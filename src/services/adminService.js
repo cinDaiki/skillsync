@@ -675,18 +675,25 @@ export async function resolveJobReport(reportId, status, resolutionNote = "") {
  * Writes an administrative audit log entry
  */
 export async function logAdminAction({ action, targetType, targetId, reason, metadata = {} }) {
-  const { data: { user } } = await supabase.auth.getUser();
-  const payload = {
-    admin_id: user?.id || null,
-    action,
-    target_type: targetType,
-    target_id: targetId,
-    reason: reason || null,
-    metadata,
-    created_at: new Date().toISOString()
-  };
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const payload = {
+      admin_id: user?.id || null,
+      action,
+      target_type: targetType,
+      target_id: targetId,
+      reason: reason || null,
+      metadata,
+      created_at: new Date().toISOString()
+    };
 
-  await supabase.from("admin_audit_logs").insert([payload]).catch(() => {});
+    const { error } = await supabase.from("admin_audit_logs").insert([payload]);
+    if (error) {
+      console.warn("[AdminService] Audit log insert notice:", error.message);
+    }
+  } catch (err) {
+    console.warn("[AdminService] Audit log exception notice:", err.message);
+  }
 }
 
 /**

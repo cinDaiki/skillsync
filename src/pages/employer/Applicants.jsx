@@ -937,13 +937,23 @@ export default function Applicants() {
                             </>
                           )}
 
-                          {(invStatus === "RESCHEDULE_REQUESTED" || invStatus === "DECLINED" || invStatus === "CANCELLED") && (
+                          {invStatus === "RESCHEDULE_REQUESTED" && (
                             <button
                               type="button"
                               className="inv-action-btn invite"
                               onClick={() => openInviteModal(app, true)}
                             >
-                              Propose New Schedule
+                              Propose Revised Schedule
+                            </button>
+                          )}
+
+                          {(invStatus === "DECLINED" || invStatus === "CANCELLED") && (
+                            <button
+                              type="button"
+                              className="inv-action-btn invite"
+                              onClick={() => openInviteModal(app, false)}
+                            >
+                              Propose New Interview
                             </button>
                           )}
 

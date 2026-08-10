@@ -130,15 +130,21 @@ export const uploadCertificateFile = async (file, userId) => {
   
   const { data, error } = await supabase.storage
     .from('certificates')
-    .upload(fileName, file);
+    .upload(fileName, file, { upsert: true });
   
   if (error) return { data: null, error };
   
-  const { data: urlData } = supabase.storage
+  // Storage bucket 'certificates' is private (public: false). Use createSignedUrl instead of getPublicUrl.
+  const { data: signedData, error: signedErr } = await supabase.storage
     .from('certificates')
-    .getPublicUrl(fileName);
+    .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1-year signed URL access
   
-  return { data: urlData.publicUrl, error: null };
+  if (signedData?.signedUrl) {
+    return { data: signedData.signedUrl, error: null };
+  }
+
+  // Fallback to relative object path
+  return { data: fileName, error: signedErr };
 }
 
 /**

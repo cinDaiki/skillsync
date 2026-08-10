@@ -64,25 +64,36 @@ export async function clearAllNotifications(userId) {
   return { error };
 }
 
-// Create a new notification
+/**
+ * Create a new notification.
+ * Performs a clean INSERT without attaching .select() so that sending notifications
+ * to transaction partners (e.g. employer to candidate) does not trigger RLS 403 Forbidden
+ * on the recipient's SELECT policy.
+ */
 export async function addNotification(userId, title, message, type = "announcement") {
   if (!userId) return { data: null, error: new Error("User ID is required") };
 
-  const { data, error } = await supabase
-    .from("notifications")
-    .insert([
-      {
-        user_id: userId,
-        title,
-        message,
-        type,
-        is_read: false
-      }
-    ])
-    .select()
-    .single();
+  try {
+    const { error } = await supabase
+      .from("notifications")
+      .insert([
+        {
+          user_id: userId,
+          title,
+          message,
+          type,
+          is_read: false
+        }
+      ]);
 
-  return { data, error };
+    if (error) {
+      console.warn("[NotificationService] addNotification warning:", error.message);
+    }
+    return { data: { success: !error }, error };
+  } catch (err) {
+    console.warn("[NotificationService] addNotification exception:", err.message);
+    return { data: null, error: err };
+  }
 }
 
 /**
@@ -127,7 +138,6 @@ export async function checkAndSendInterviewReminders(userId) {
         const title = "🔔 Upcoming Interview Reminder";
         const message = `Your interview for "${jobTitle}" is scheduled for ${timeLabel} at ${inv.scheduled_time}.`;
 
-        // DB Deduplication Check: Only add if title isn't present in recent 24h
         if (!recentNotifTitles.has(title)) {
           await addNotification(userId, title, message, "interview");
           recentNotifTitles.add(title);

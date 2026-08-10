@@ -11,7 +11,7 @@ import { generateAndStoreResumeEmbedding,
 import { runSemanticMatchingForCandidate }         from "../../services/ai/semanticMatchingService";
 import RecommendedJobs                           from "../../components/resume/RecommendedJobs.jsx";
 import { applyForJobWithSnapshot }                 from "../../services/applicationService";
-import { fetchSemanticMatchesForCandidate }         from "../../services/ai/semanticMatchingService";
+import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
 import { useToast }                                from "../../contexts/ToastContext";
 import ErrorBoundary                               from "../../components/guards/ErrorBoundary.jsx";
 import "./Resume.css";
@@ -46,6 +46,24 @@ export default function Resume() {
   const [matchingJobs, setMatchingJobs] = useState(false);
   const [applications, setApplications] = useState([]);
   const [applyingJobId, setApplyingJobId] = useState(null);
+  const [refreshingJobs, setRefreshingJobs] = useState(false);
+  const [lastUpdatedText, setLastUpdatedText] = useState("");
+
+  async function handleRefreshRecommendations() {
+    if (!userId) return;
+    setRefreshingJobs(true);
+    try {
+      const { matches, totalEvaluatedJobs } = await refreshCandidateRecommendations(userId);
+      setRecommendedJobs(matches || []);
+      setLastUpdatedText(`Updated just now · ${totalEvaluatedJobs} open jobs evaluated`);
+      toast.success("Job recommendations updated!");
+    } catch (err) {
+      console.error("Failed refreshing recommendations:", err);
+      toast.error("Failed to refresh recommendations. Please try again.");
+    } finally {
+      setRefreshingJobs(false);
+    }
+  }
 
   // Skills editor state
   const [extractedSkills, setExtractedSkills] = useState([]);
@@ -514,32 +532,11 @@ export default function Resume() {
                   applications={applications}
                   onApply={handleApplyJob}
                   applyingJobId={applyingJobId}
+                  onRefresh={handleRefreshRecommendations}
+                  refreshing={refreshingJobs}
+                  lastUpdatedText={lastUpdatedText}
                 />
               </ErrorBoundary>
-            </div>
-
-            {/* Resume Upload History Timeline */}
-            <div className="upload-history-card">
-              <h3>Upload & Parsing History Log</h3>
-              {uploadHistory.length > 0 ? (
-                <div className="history-list">
-                  {uploadHistory.map((item, index) => (
-                    <div className="history-item" key={item.id || index}>
-                      <div className="history-item-info">
-                        <h4>{item.file_name}</h4>
-                        <p>{formatFileSize(item.file_size)} • Uploaded {formatUploadDate(item.created_at)}</p>
-                      </div>
-                      <div className="history-item-actions">
-                        <span className={item.status === "Active" ? "history-action-badge" : "overview-status closed"} style={{ fontSize: "11px" }}>
-                          {item.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p style={{ color: "#667085", fontSize: "13px" }}>No previous upload history details recorded.</p>
-              )}
             </div>
           </div>
         )}

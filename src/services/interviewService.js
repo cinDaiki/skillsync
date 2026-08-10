@@ -69,7 +69,7 @@ export async function sendInterviewInvitation({
     .from("applications")
     .select("id, status, jobs(id, title, employer_id)")
     .eq("id", applicationId)
-    .single();
+    .maybeSingle();
 
   if (appErr || !appData) {
     return { data: null, error: new Error("Application not found.") };
@@ -177,14 +177,14 @@ export async function respondToInterview({
     .from("interviews")
     .select("*, jobs(title)")
     .eq("id", interviewId)
-    .single();
+    .maybeSingle();
 
   if (fetchErr) {
     const fallback = await supabase
       .from("interviews")
       .select("*")
       .eq("id", interviewId)
-      .single();
+      .maybeSingle();
     if (fallback.data) {
       interview = fallback.data;
       fetchErr = null;
@@ -301,14 +301,14 @@ export async function rescheduleInterviewByEmployer({
     .from("interviews")
     .select("*, jobs(title)")
     .eq("id", interviewId)
-    .single();
+    .maybeSingle();
 
   if (fetchErr) {
     const fallback = await supabase
       .from("interviews")
       .select("*")
       .eq("id", interviewId)
-      .single();
+      .maybeSingle();
     if (fallback.data) {
       interview = fallback.data;
       fetchErr = null;
@@ -397,14 +397,14 @@ export async function cancelInterview({ interviewId, userId, reason = "" }) {
     .from("interviews")
     .select("*, jobs(title)")
     .eq("id", interviewId)
-    .single();
+    .maybeSingle();
 
   if (fetchErr) {
     const fallback = await supabase
       .from("interviews")
       .select("*")
       .eq("id", interviewId)
-      .single();
+      .maybeSingle();
     if (fallback.data) {
       interview = fallback.data;
       fetchErr = null;
@@ -471,14 +471,14 @@ export async function completeInterview({ interviewId, employerId }) {
     .from("interviews")
     .select("*, jobs(title)")
     .eq("id", interviewId)
-    .single();
+    .maybeSingle();
 
   if (fetchErr) {
     const fallback = await supabase
       .from("interviews")
       .select("*")
       .eq("id", interviewId)
-      .single();
+      .maybeSingle();
     if (fallback.data) {
       interview = fallback.data;
       fetchErr = null;
@@ -601,10 +601,10 @@ export async function makeHiringDecision({
     .from("applications")
     .select("id, jobs(title, employer_id)")
     .eq("id", applicationId)
-    .single();
+    .maybeSingle();
 
   if (appErr) {
-    const fallback = await supabase.from("applications").select("*").eq("id", applicationId).single();
+    const fallback = await supabase.from("applications").select("*").eq("id", applicationId).maybeSingle();
     if (fallback.data) {
       appData = fallback.data;
       appErr = null;

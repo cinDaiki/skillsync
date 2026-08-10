@@ -5,6 +5,7 @@ import { supabase } from "../../services/supabase";
 import { applyForJobWithSnapshot } from "../../services/applicationService";
 import { triggerSimulationNotification } from "../../services/notificationService";
 import { useToast } from "../../contexts/ToastContext";
+import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
 import { parseJobRequirements } from "../../utils/jobRequirementsHelper";
 import "./JobMatches.css";
 
@@ -67,6 +68,13 @@ export default function JobMatches() {
         .eq("applicant_id", user.id)
         .maybeSingle();
       setHasResume(!!resumeRow);
+
+      if (resumeRow) {
+        // Trigger background refresh of candidate recommendations against latest open jobs
+        refreshCandidateRecommendations(user.id).catch((err) => {
+          console.warn("[Marketplace] Background recommendation refresh info:", err);
+        });
+      }
 
       // 2. Check identity verification status
       const { data: profileRow } = await supabase

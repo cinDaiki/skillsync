@@ -518,6 +518,20 @@ export default function Applications() {
                           </div>
                         )}
 
+                        {/* CANCELLED STATE */}
+                        {invStatus === "CANCELLED" && (
+                          <div className="cand-cancelled-status-box" style={{ background: "#fef2f2", border: "1px solid #fecaca", padding: "12px", borderRadius: "8px", color: "#991b1b", fontSize: "13px" }}>
+                            <p style={{ margin: 0 }}>⚫ This interview schedule was cancelled by the employer. If the employer decides to interview you, they will issue a new invitation.</p>
+                          </div>
+                        )}
+
+                        {/* DECLINED STATE */}
+                        {invStatus === "DECLINED" && (
+                          <div className="cand-declined-status-box" style={{ background: "#fef2f2", border: "1px solid #fecaca", padding: "12px", borderRadius: "8px", color: "#991b1b", fontSize: "13px" }}>
+                            <p style={{ margin: 0 }}>🔴 You declined this interview invitation.</p>
+                          </div>
+                        )}
+
                         {/* COMPLETED / DECISION PENDING STATE */}
                         {invStatus === "COMPLETED" && (
                           <div className="cand-completed-status-box">
