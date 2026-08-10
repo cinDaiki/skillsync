@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { parseJobRequirements } from '../../utils/jobRequirementsHelper';
+import { matchMicrocredentialsForMissingSkills } from '../../services/microcredentialService';
 
 /**
  * Match Score Badge with tier styling
@@ -506,6 +507,107 @@ export default function RecommendedJobs({
                     </div>
                   </div>
                 </div>
+
+                {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
+                {(() => {
+                  const microList = (selectedJob.microCredentials && selectedJob.microCredentials.length > 0)
+                    ? selectedJob.microCredentials
+                    : matchMicrocredentialsForMissingSkills(selectedJob.missingSkills || []);
+
+                  const matchedSkillsList = selectedJob.matchedSkills || [];
+                  const missingSkillsList = selectedJob.missingSkills || [];
+
+                  return (
+                    <div className="rec-modal-section" style={{ marginTop: "16px", background: "#f8fafc", padding: "14px 18px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+                      <h4 style={{ color: "#1e1b4b", margin: "0 0 10px 0" }}>🧠 Skill Gap Analysis & Microcredentials</h4>
+
+                      {/* Skills You Have vs Skills You're Missing */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "10px" }}>
+                        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "12px", borderRadius: "8px" }}>
+                          <strong style={{ fontSize: "12px", color: "#15803d", display: "block", marginBottom: "6px" }}>
+                            ✓ Skills You Have ({matchedSkillsList.length})
+                          </strong>
+                          {matchedSkillsList.length > 0 ? (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                              {matchedSkillsList.map(s => (
+                                <span key={s} style={{ background: "#dcfce7", color: "#166534", fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "12px" }}>
+                                  ✓ {s}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: "12px", color: "#64748b" }}>No direct required skill matches identified.</span>
+                          )}
+                        </div>
+
+                        <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", padding: "12px", borderRadius: "8px" }}>
+                          <strong style={{ fontSize: "12px", color: "#be123c", display: "block", marginBottom: "6px" }}>
+                            ⚠ Skills You're Missing ({missingSkillsList.length})
+                          </strong>
+                          {missingSkillsList.length > 0 ? (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                              {missingSkillsList.map(s => (
+                                <span key={s} style={{ background: "#ffe4e6", color: "#9f1239", fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "12px" }}>
+                                  ⚠ {s}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: "12px", color: "#15803d", fontWeight: "600" }}>✓ No skill gaps identified for this role!</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Recommended Microcredentials Cards */}
+                      {microList.length > 0 ? (
+                        <div style={{ marginTop: "14px" }}>
+                          <strong style={{ fontSize: "13px", color: "#1e1b4b", display: "block", marginBottom: "8px" }}>
+                            🎓 Recommended Learning Credentials to Bridge Skill Gaps:
+                          </strong>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                            {microList.map((mc, mIdx) => (
+                              <div key={mc.id || mIdx} style={{ background: "#ffffff", border: "1px solid #cbd5e1", padding: "12px 14px", borderRadius: "8px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+                                  <div style={{ flex: 1 }}>
+                                    <span style={{ fontSize: "11px", fontWeight: "700", color: "#6b21a8", background: "#f3e8ff", padding: "2px 8px", borderRadius: "4px", display: "inline-block", marginBottom: "4px" }}>
+                                      Skill Addressed: {mc.skill_name || mc.skill}
+                                    </span>
+                                    <h5 style={{ margin: "2px 0 4px 0", fontSize: "14px", color: "#0f172a" }}>
+                                      {mc.badge || "🎓"} {mc.title}
+                                    </h5>
+                                    <p style={{ margin: 0, fontSize: "12px", color: "#475569", lineHeight: "1.4" }}>
+                                      {mc.description}
+                                    </p>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "11px", color: "#64748b", marginTop: "6px" }}>
+                                      <span>🏛️ Provider: <strong>{mc.provider}</strong></span>
+                                      <span>📊 Level: <strong>{mc.level || 'Beginner'}</strong></span>
+                                      {mc.duration && <span>⏱️ Duration: <strong>{mc.duration}</strong></span>}
+                                    </div>
+                                  </div>
+                                  {mc.url && mc.url !== '#' && (
+                                    <a
+                                      href={mc.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="rec-job-btn primary"
+                                      style={{ fontSize: "11px", padding: "6px 12px", textDecoration: "none", whiteSpace: "nowrap", alignSelf: "center" }}
+                                    >
+                                      View Credential ↗
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : missingSkillsList.length > 0 ? (
+                        <p style={{ fontSize: "12px", color: "#64748b", fontStyle: "italic", marginTop: "12px", margin: "12px 0 0 0" }}>
+                          No registered microcredential currently available for the missing skill(s).
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })()}
 
               </div>
 

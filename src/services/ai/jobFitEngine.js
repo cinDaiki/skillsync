@@ -21,6 +21,7 @@
  */
 
 import { normalizeSkillName } from '../normalization.js';
+import { matchMicrocredentialsForMissingSkills } from '../microcredentialService.js';
 
 // ── Controlled Transferable Skills Dictionary ────────────────────────────────
 export const CONTROLLED_TRANSFERABLE_SKILLS = new Set([
@@ -348,13 +349,8 @@ export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalize
   const jobFitScore = Math.min(100, Math.max(0, Math.round(rawScore)));
   const tier = getJobFitTier(jobFitScore);
 
-  // Generate Targeted Microcredentials for Missing Skills
-  const recommendedMicrocredentials = skillsEval.missingSkills.slice(0, 4).map((skill, i) => ({
-    skill,
-    provider: ['Google', 'Microsoft', 'IBM', 'Coursera', 'LinkedIn Learning', 'AWS', 'Meta'][i % 7],
-    badge: `${skill.charAt(0).toUpperCase() + skill.slice(1)} Professional Certificate`,
-    link: `https://www.coursera.org/search?query=${encodeURIComponent(skill + ' professional certificate')}`
-  }));
+  // Generate Targeted Microcredentials for Missing Skills using Controlled Catalog
+  const recommendedMicrocredentials = matchMicrocredentialsForMissingSkills(skillsEval.missingSkills);
 
   // Build Explainable Strengths & Gaps
   const strengths = [];
