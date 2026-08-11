@@ -197,33 +197,73 @@ export const uploadCertificateFile = async (file, userId) => {
 }
 
 /**
- * Helper to extract object storage path from full URL or return plain relative path
+ * Helper to extract bucket and object storage path from full URL, signed URL, or relative path
  */
-export function extractVerificationStoragePath(filePathOrUrl) {
-  if (!filePathOrUrl) return null;
-  if (!filePathOrUrl.startsWith("http")) return filePathOrUrl; // Already a relative path
+export function extractVerificationStorageInfo(filePathOrUrl) {
+  if (!filePathOrUrl || typeof filePathOrUrl !== 'string') {
+    return { bucket: 'resumes', path: null };
+  }
 
-  const markers = [
+  const cleanUrl = filePathOrUrl.split('?')[0];
+
+  // 1. Employer verification bucket
+  const empMarkers = [
     '/storage/v1/object/public/employer_verification/',
     '/storage/v1/object/sign/employer_verification/',
     '/storage/v1/object/authenticated/employer_verification/',
-    '/storage/v1/object/public/company_branding/',
-    '/storage/v1/object/sign/company_branding/'
+    '/employer_verification/'
   ];
-
-  for (const marker of markers) {
-    const idx = filePathOrUrl.indexOf(marker);
+  for (const marker of empMarkers) {
+    const idx = cleanUrl.indexOf(marker);
     if (idx !== -1) {
-      return decodeURIComponent(filePathOrUrl.slice(idx + marker.length).split('?')[0]);
+      return {
+        bucket: 'employer_verification',
+        path: decodeURIComponent(cleanUrl.slice(idx + marker.length))
+      };
     }
   }
 
-  const fallback = filePathOrUrl.indexOf('/employer_verification/');
-  if (fallback !== -1) {
-    return decodeURIComponent(filePathOrUrl.slice(fallback + '/employer_verification/'.length).split('?')[0]);
+  // 2. Resumes bucket (includes candidate ID/selfie under verifications/ subfolder)
+  const resumeMarkers = [
+    '/storage/v1/object/public/resumes/',
+    '/storage/v1/object/sign/resumes/',
+    '/storage/v1/object/authenticated/resumes/',
+    '/resumes/'
+  ];
+  for (const marker of resumeMarkers) {
+    const idx = cleanUrl.indexOf(marker);
+    if (idx !== -1) {
+      return {
+        bucket: 'resumes',
+        path: decodeURIComponent(cleanUrl.slice(idx + marker.length))
+      };
+    }
   }
 
-  return filePathOrUrl;
+  // 3. Verifications subfolder marker
+  const verifIdx = cleanUrl.indexOf('/verifications/');
+  if (verifIdx !== -1) {
+    return {
+      bucket: 'resumes',
+      path: decodeURIComponent(cleanUrl.slice(verifIdx + 1))
+    };
+  }
+
+  // 4. Relative paths
+  if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+    if (cleanUrl.startsWith('verifications/')) {
+      return { bucket: 'resumes', path: cleanUrl };
+    }
+    return { bucket: 'employer_verification', path: cleanUrl };
+  }
+
+  // Fallback for unrecognized URLs
+  return { bucket: 'resumes', path: cleanUrl };
+}
+
+export function extractVerificationStoragePath(filePathOrUrl) {
+  const { path } = extractVerificationStorageInfo(filePathOrUrl);
+  return path || filePathOrUrl;
 }
 
 /**
@@ -232,25 +272,33 @@ export function extractVerificationStoragePath(filePathOrUrl) {
 export async function getPrivateDocumentSignedUrl(filePathOrUrl, expiresSec = 3600) {
   if (!filePathOrUrl) return { url: null, error: new Error('No document path specified') };
 
-  const storagePath = extractVerificationStoragePath(filePathOrUrl);
-  if (!storagePath) return { url: filePathOrUrl, error: null };
-
-  // Generate 1-hour authorized signed URL from private employer_verification bucket
-  const { data, error } = await supabase.storage
-    .from('employer_verification')
-    .createSignedUrl(storagePath, expiresSec);
-
-  if (error || !data?.signedUrl) {
-    // Attempt fallback from resumes/verifications bucket if legacy
-    const { data: resData } = await supabase.storage
-      .from('resumes')
-      .createSignedUrl(storagePath, expiresSec);
-    if (resData?.signedUrl) return { url: resData.signedUrl, error: null };
-
-    return { url: filePathOrUrl, error };
+  const { bucket, path } = extractVerificationStorageInfo(filePathOrUrl);
+  if (!path || path.startsWith('http://') || path.startsWith('https://')) {
+    // Could not parse clean storage path, return original URL safely
+    return { url: filePathOrUrl, error: null };
   }
 
-  return { url: data.signedUrl, error: null };
+  // 1. Attempt primary resolved bucket
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(path, expiresSec);
+
+  if (data?.signedUrl && !error) {
+    return { url: data.signedUrl, error: null };
+  }
+
+  // 2. Fallback bucket attempt if primary fails
+  const fallbackBucket = bucket === 'resumes' ? 'employer_verification' : 'resumes';
+  const { data: fallbackData } = await supabase.storage
+    .from(fallbackBucket)
+    .createSignedUrl(path, expiresSec);
+
+  if (fallbackData?.signedUrl) {
+    return { url: fallbackData.signedUrl, error: null };
+  }
+
+  // Return original URL if signed URL attempts fail
+  return { url: filePathOrUrl, error };
 }
 
 /**

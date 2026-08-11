@@ -48,6 +48,7 @@ export default function Resume() {
   const [applyingJobId, setApplyingJobId] = useState(null);
   const [refreshingJobs, setRefreshingJobs] = useState(false);
   const [lastUpdatedText, setLastUpdatedText] = useState("");
+  const [verificationStatus, setVerificationStatus] = useState("Pending Verification");
 
   async function handleRefreshRecommendations() {
     if (!userId) return;
@@ -111,15 +112,17 @@ export default function Resume() {
       localStorage.setItem(`skillsync_resume_history_${user.id}`, JSON.stringify(initialHistory));
     }
 
-    // Load Phase 8 Job Matches & Applications
+    // Load Phase 8 Job Matches & Applications & Profile Verification Status
     setLoadingJobs(true);
     try {
-      const [matches, appsRes] = await Promise.all([
+      const [matches, appsRes, profileRes] = await Promise.all([
         fetchSemanticMatchesForCandidate(user.id),
-        supabase.from("applications").select("job_id").eq("applicant_id", user.id)
+        supabase.from("applications").select("job_id").eq("applicant_id", user.id),
+        supabase.from("profiles").select("verification_status").eq("id", user.id).maybeSingle()
       ]);
       setRecommendedJobs(matches || []);
       setApplications((appsRes?.data || []).map(a => a.job_id));
+      setVerificationStatus(profileRes?.data?.verification_status || "Pending Verification");
     } catch (err) {
       console.warn("Failed loading job recommendations:", err);
     } finally {
@@ -529,6 +532,7 @@ export default function Resume() {
                   loading={loadingJobs}
                   matching={matchingJobs}
                   hasResume={!!resumeFile}
+                  verificationStatus={verificationStatus}
                   applications={applications}
                   onApply={handleApplyJob}
                   applyingJobId={applyingJobId}
