@@ -125,8 +125,14 @@ export default function ManageJobs() {
       .eq("id", jobId)
       .eq("employer_id", userId);
 
-    if (error && error.code === "42703") {
-      console.warn("[ManageJobs] Retrying job update without extended moderation tracking columns...");
+    const isColumnError = error && (
+      error.code === "PGRST204" ||
+      error.code === "42703" ||
+      (error.message && (error.message.includes("column") || error.message.includes("schema cache")))
+    );
+
+    if (isColumnError) {
+      console.warn("[ManageJobs] Retrying job update without un-migrated moderation columns...", error.message);
       const fallbackPayload = { ...payload };
       delete fallbackPayload.moderation_count;
       delete fallbackPayload.resubmitted_at;

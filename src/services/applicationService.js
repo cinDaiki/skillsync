@@ -142,7 +142,7 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
     .from("applications")
     .insert([payload])
     .select()
-    .single();
+    .maybeSingle();
 
   if (error?.message?.includes("applicant_snapshot")) {
     ({ data, error } = await supabase
@@ -153,7 +153,7 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
         status: "applied",
       }])
       .select()
-      .single());
+      .maybeSingle());
   }
 
   return { data, error };

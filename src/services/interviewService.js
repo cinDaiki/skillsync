@@ -103,7 +103,7 @@ export async function sendInterviewInvitation({
     .from("interviews")
     .insert([payload])
     .select()
-    .single();
+    .maybeSingle();
 
   if (interviewErr) {
     console.error("Failed to insert interview record:", interviewErr);
@@ -270,7 +270,7 @@ export async function respondToInterview({
     });
   }
 
-  const { data: updated } = await supabase.from("interviews").select("*").eq("id", interviewId).single();
+  const { data: updated } = await supabase.from("interviews").select("*").eq("id", interviewId).maybeSingle();
   return { data: updated, error: null };
 }
 
@@ -348,7 +348,7 @@ export async function rescheduleInterviewByEmployer({
     .update(updatedPayload)
     .eq("id", interviewId)
     .select()
-    .single();
+    .maybeSingle();
 
   if (updateErr) {
     return { data: null, error: updateErr };
@@ -432,7 +432,7 @@ export async function cancelInterview({ interviewId, userId, reason = "" }) {
     })
     .eq("id", interviewId)
     .select()
-    .single();
+    .maybeSingle();
 
   if (updateErr) {
     return { data: null, error: updateErr };
@@ -506,7 +506,7 @@ export async function completeInterview({ interviewId, employerId }) {
     })
     .eq("id", interviewId)
     .select()
-    .single();
+    .maybeSingle();
 
   if (updateErr) {
     return { data: null, error: updateErr };
@@ -622,15 +622,30 @@ export async function makeHiringDecision({
   const jobTitle = appData.jobs?.title || "Position";
   const newStatus = upperDecision === "HIRED" ? "hired" : "rejected";
 
-  const { data: updatedApp, error: updateErr } = await supabase
+  const appUpdatePayload = {
+    status: newStatus,
+    updated_at: new Date().toISOString()
+  };
+  if (upperDecision === "REJECTED" && rejectionReason) {
+    appUpdatePayload.reject_reason = rejectionReason;
+  }
+
+  let { data: updatedApp, error: updateErr } = await supabase
     .from("applications")
-    .update({
-      status: newStatus,
-      reject_reason: upperDecision === "REJECTED" ? rejectionReason : null,
-    })
+    .update(appUpdatePayload)
     .eq("id", applicationId)
     .select()
-    .single();
+    .maybeSingle();
+
+  if (updateErr && (updateErr.code === "PGRST204" || updateErr.code === "42703")) {
+    delete appUpdatePayload.reject_reason;
+    ({ data: updatedApp, error: updateErr } = await supabase
+      .from("applications")
+      .update(appUpdatePayload)
+      .eq("id", applicationId)
+      .select()
+      .maybeSingle());
+  }
 
   if (updateErr) {
     return { data: null, error: updateErr };
