@@ -28,7 +28,9 @@ const sidebarLinks = {
     { label: "Dashboard", icon: "⌂", path: "/employer/dashboard" },
     { label: "Manage Jobs", icon: "▣", path: "/employer/jobs" },
     { label: "Post Job", icon: "＋", path: "/employer/post-job" },
-    { label: "Applicants", icon: "👥", path: "/employer/applicants" },
+    { label: "Applicants Desk", icon: "👥", path: "/employer/applicants" },
+    { label: "Interview Center", icon: "📅", path: "/employer/interviews" },
+    { label: "Hiring Pipeline", icon: "🗂️", path: "/employer/hiring-pipeline" },
     { label: "Company Profile", icon: "▤", path: "/employer/company" },
   ],
 };

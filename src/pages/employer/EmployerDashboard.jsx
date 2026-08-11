@@ -171,7 +171,9 @@ export default function EmployerDashboard() {
       {/* Topbar actions */}
       <div className="recruiter-topbar-actions">
         <Link to="/employer/post-job" className="recruiter-action-btn">＋ Post New Job</Link>
-        <Link to="/employer/applicants" className="recruiter-action-btn">👥 View Applicants</Link>
+        <Link to="/employer/applicants" className="recruiter-action-btn">👥 Applicants Desk</Link>
+        <Link to="/employer/interviews" className="recruiter-action-btn">📅 Interview Center</Link>
+        <Link to="/employer/hiring-pipeline" className="recruiter-action-btn">🗂️ Hiring Pipeline</Link>
 
         <div className="recruiter-bell-container">
           <button type="button" className="recruiter-bell-btn" onClick={() => setShowBell(!showBell)}>
