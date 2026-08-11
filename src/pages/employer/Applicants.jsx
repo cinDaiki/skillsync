@@ -60,6 +60,7 @@ export default function Applicants() {
   const [filterStatus, setFilterStatus] = useState("Active Pipeline");
   const [filterMatchTier, setFilterMatchTier] = useState("All");
   const [filterInterviewStatus, setFilterInterviewStatus] = useState("All");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // Interview state: { [applicationId]: activeInterviewRecord }
   const [interviewsMap, setInterviewsMap] = useState({});
