@@ -783,25 +783,25 @@ export async function updateCandidateVerification(userId, status, reasonNote = "
     };
 
     if (isRejected && reasonNote) {
-      profileUpdates.rejection_reason = reasonNote;
+      profileUpdates.verification_reason = reasonNote;
     } else if (isApproved) {
-      profileUpdates.rejection_reason = null;
+      profileUpdates.verification_reason = null;
       profileUpdates.verification_date = new Date().toISOString();
     }
 
-    // Try direct table update on public.profiles
+    // Try direct table update on public.profiles using canonical verification_reason column
     let { error: tableError } = await supabase
       .from("profiles")
       .update(profileUpdates)
       .eq("id", userId);
 
     if (tableError && tableError.code === "42703") {
-      // rejection_reason column not yet added to table, fallback to basic update
+      // Extended schema columns (verification_reason / verification_date) not yet added to live table
+      console.warn("[AdminService] Retrying updateCandidateVerification without extended schema columns...");
       const basicUpdates = {
         verification_status: status,
         updated_at: new Date().toISOString()
       };
-      if (isApproved) basicUpdates.verification_date = new Date().toISOString();
       ({ error: tableError } = await supabase
         .from("profiles")
         .update(basicUpdates)

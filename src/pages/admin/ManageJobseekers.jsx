@@ -569,9 +569,9 @@ export default function ManageJobseekers() {
               <div><span>Location:</span> <strong>{verificationModal.address || verificationModal.location || "Not specified"}</strong></div>
             </div>
 
-            {verificationModal.rejection_reason && (
+            {(verificationModal.verification_reason || verificationModal.rejection_reason) && (
               <div style={{ marginBottom: "16px", padding: "12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", color: "#991b1b", fontSize: "13px" }}>
-                <strong>⚠️ Previous Rejection Reason:</strong> {verificationModal.rejection_reason}
+                <strong>⚠️ Previous Rejection Reason:</strong> {verificationModal.verification_reason || verificationModal.rejection_reason}
               </div>
             )}
 

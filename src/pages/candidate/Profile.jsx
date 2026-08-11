@@ -122,7 +122,7 @@ export default function Profile() {
       idImageUrl: data.id_image_url || "",
       selfieImageUrl: data.selfie_image_url || "",
       verificationDate: data.verification_date || null,
-      rejectionReason: data.rejection_reason || ""
+      verificationReason: data.verification_reason || data.rejection_reason || ""
     });
 
     setSkills(parseSkills(data.skills));
@@ -1337,8 +1337,8 @@ export default function Profile() {
                   "Rejected": {
                     bg: "#fee2e2", border: "#fca5a5", color: "#991b1b",
                     icon: "❌", label: "Verification Requires Attention",
-                    msg: profile.rejectionReason
-                      ? `Rejection Reason: "${profile.rejectionReason}". Please re-upload clear, valid documents below to resubmit for review.`
+                    msg: (profile.verificationReason || profile.rejectionReason)
+                      ? `Rejection Reason: "${profile.verificationReason || profile.rejectionReason}". Please re-upload clear, valid documents below to resubmit for review.`
                       : "Your documents could not be approved. Please re-upload a clear, valid ID and selfie to resubmit."
                   },
                   "Under Review": {
