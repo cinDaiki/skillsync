@@ -57,7 +57,7 @@ export async function fetchAdminProfiles() {
 /**
  * Server-side paginated query for Admin Jobseeker Management
  */
-export async function fetchAdminJobseekers({ search = "", status = "all", page = 1, pageSize = 10 } = {}) {
+export async function fetchAdminJobseekers({ search = "", status = "all", verificationStatus = "all", page = 1, pageSize = 10 } = {}) {
   try {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
@@ -77,6 +77,16 @@ export async function fetchAdminJobseekers({ search = "", status = "all", page =
       query = query.or("is_suspended.is.null,is_suspended.eq.false");
     } else if (status === "suspended") {
       query = query.eq("is_suspended", true);
+    }
+
+    if (verificationStatus === "under_review") {
+      query = query.eq("verification_status", "Under Review");
+    } else if (verificationStatus === "verified") {
+      query = query.in("verification_status", ["Verified", "Approved"]);
+    } else if (verificationStatus === "rejected") {
+      query = query.eq("verification_status", "Rejected");
+    } else if (verificationStatus === "pending") {
+      query = query.or("verification_status.is.null,verification_status.eq.Pending Verification,verification_status.eq.Pending");
     }
 
     const { data: profiles, count, error: profileErr } = await query.range(from, to);
@@ -753,6 +763,93 @@ export async function fetchAdminAuditLogs({ search = "", actionType = "all", pag
   } catch (err) {
     console.error("[AdminService] fetchAdminAuditLogs exception:", err);
     return { data: [], totalCount: 0, page: 1, totalPages: 0, error: err };
+  }
+}
+
+/**
+ * Approves or rejects candidate identity verification status with audit log & notifications
+ * Status options: 'Verified', 'Approved', 'Rejected', 'Under Review', 'Pending Verification'
+ */
+export async function updateCandidateVerification(userId, status, reasonNote = "") {
+  if (!userId) return { error: new Error("Candidate user ID is required") };
+
+  try {
+    const isApproved = status === "Verified" || status === "Approved";
+    const isRejected = status === "Rejected";
+
+    const profileUpdates = {
+      verification_status: status,
+      updated_at: new Date().toISOString()
+    };
+
+    if (isRejected && reasonNote) {
+      profileUpdates.rejection_reason = reasonNote;
+    } else if (isApproved) {
+      profileUpdates.rejection_reason = null;
+      profileUpdates.verification_date = new Date().toISOString();
+    }
+
+    // Try direct table update on public.profiles
+    let { error: tableError } = await supabase
+      .from("profiles")
+      .update(profileUpdates)
+      .eq("id", userId);
+
+    if (tableError && tableError.code === "42703") {
+      // rejection_reason column not yet added to table, fallback to basic update
+      const basicUpdates = {
+        verification_status: status,
+        updated_at: new Date().toISOString()
+      };
+      if (isApproved) basicUpdates.verification_date = new Date().toISOString();
+      ({ error: tableError } = await supabase
+        .from("profiles")
+        .update(basicUpdates)
+        .eq("id", userId));
+    }
+
+    if (tableError) {
+      console.error("[AdminService] updateCandidateVerification error:", tableError.message);
+      return { error: tableError };
+    }
+
+    // Send notifications to candidate
+    try {
+      const { addNotification } = await import("./notificationService.js");
+      if (isApproved) {
+        await addNotification(
+          userId,
+          "Identity Verification Approved",
+          "Your account identity has been verified by the administrator. You can now apply to all open jobs!",
+          "system"
+        );
+      } else if (isRejected) {
+        const msg = reasonNote
+          ? `Your identity verification request requires attention. Reason: ${reasonNote}`
+          : "Your identity verification request could not be approved. Please review your uploaded documents in your Profile and resubmit.";
+        await addNotification(
+          userId,
+          "Identity Verification Requires Attention",
+          msg,
+          "warning"
+        );
+      }
+    } catch (notifErr) {
+      console.warn("[AdminService] Notification trigger warning:", notifErr.message);
+    }
+
+    // Log audit trail
+    await logAdminAction({
+      action: isApproved ? "CANDIDATE_VERIFIED" : isRejected ? "CANDIDATE_REJECTED" : "CANDIDATE_STATUS_UPDATED",
+      targetType: "candidate",
+      targetId: userId,
+      reason: reasonNote
+    }).catch(() => {});
+
+    return { error: null };
+  } catch (err) {
+    console.error("[AdminService] updateCandidateVerification exception:", err);
+    return { error: err };
   }
 }
 

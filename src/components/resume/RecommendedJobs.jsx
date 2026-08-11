@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { parseJobRequirements } from '../../utils/jobRequirementsHelper';
 import { matchMicrocredentialsForMissingSkills } from '../../services/microcredentialService';
+import { useToast } from '../../contexts/ToastContext';
 
 /**
  * Match Score Badge with tier styling
@@ -33,6 +35,7 @@ export default function RecommendedJobs({
   loading = false,
   matching = false,
   hasResume = false,
+  verificationStatus = "Pending Verification",
   applications = [],
   onApply,
   applyingJobId = null,
@@ -41,9 +44,12 @@ export default function RecommendedJobs({
   evaluatedCount = 0,
   lastUpdatedText = ""
 }) {
+  const toast = useToast();
   const [selectedJob, setSelectedJob] = useState(null);
   const [confirmApplyJob, setConfirmApplyJob] = useState(null);
   const [refreshState, setRefreshState] = useState("default"); // "default" | "updating" | "updated"
+
+  const isVerified = verificationStatus === "Verified" || verificationStatus === "Approved";
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -104,12 +110,27 @@ export default function RecommendedJobs({
   };
 
   const handlePromptApply = (job) => {
+    if (!isVerified) {
+      if (verificationStatus === "Under Review") {
+        if (toast) toast.error("Your verification is under review. You can apply once the admin approves your identity.");
+      } else {
+        if (toast) toast.error("Your identity must be verified before you can apply. Please complete ID verification in your Profile.");
+      }
+      return;
+    }
     setConfirmApplyJob(job);
   };
 
-  const handleConfirmApply = () => {
+  const handleConfirmApply = async () => {
     if (confirmApplyJob && onApply) {
-      onApply(confirmApplyJob);
+      try {
+        const res = await onApply(confirmApplyJob);
+        if (res?.error && res.error.code === "IDENTITY_VERIFICATION_REQUIRED") {
+          if (toast) toast.error("Identity verification required to apply for jobs.");
+        }
+      } catch (err) {
+        if (toast) toast.error(err?.message || "Failed to submit application.");
+      }
     }
     setConfirmApplyJob(null);
     setSelectedJob(null);
@@ -369,10 +390,11 @@ export default function RecommendedJobs({
                     <button
                       type="button"
                       className="rec-job-btn primary"
-                      disabled={isApplied || isApplying}
+                      disabled={!isVerified || isApplied || isApplying}
                       onClick={() => handlePromptApply(job)}
+                      style={!isVerified ? { opacity: 0.65, cursor: "not-allowed", background: "#94a3b8" } : {}}
                     >
-                      {isApplied ? '✓ Applied' : isApplying ? 'Applying...' : 'Apply Now'}
+                      {isApplied ? '✓ Applied' : isApplying ? 'Applying...' : !isVerified ? '🔒 Verification Required' : 'Apply Now'}
                     </button>
                   </div>
                 </div>
@@ -611,6 +633,15 @@ export default function RecommendedJobs({
 
               </div>
 
+              {!isVerified && (
+                <div style={{ background: "#fffbeb", borderTop: "1px solid #fde68a", borderBottom: "1px solid #fde68a", padding: "10px 18px", color: "#92400e", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                  <span>🔒 <strong>Identity Verification Required:</strong> Your account must be verified before applying to jobs.</span>
+                  <Link to="/candidate/profile" style={{ color: "#b45309", fontWeight: "700", textDecoration: "underline" }}>
+                    Complete Verification →
+                  </Link>
+                </div>
+              )}
+
               <div className="rec-modal-footer">
                 <button type="button" className="rec-job-btn secondary" onClick={() => setSelectedJob(null)}>
                   Close
@@ -618,10 +649,11 @@ export default function RecommendedJobs({
                 <button
                   type="button"
                   className="rec-job-btn primary"
-                  disabled={applications.includes(selectedJob.id) || applyingJobId === selectedJob.id}
+                  disabled={!isVerified || applications.includes(selectedJob.id) || applyingJobId === selectedJob.id}
                   onClick={() => handlePromptApply(selectedJob)}
+                  style={!isVerified ? { opacity: 0.65, cursor: "not-allowed", background: "#94a3b8" } : {}}
                 >
-                  {applications.includes(selectedJob.id) ? '✓ Applied' : 'Apply Now'}
+                  {applications.includes(selectedJob.id) ? '✓ Applied' : !isVerified ? '🔒 Verification Required' : 'Apply Now'}
                 </button>
               </div>
             </div>

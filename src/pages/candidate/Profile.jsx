@@ -121,7 +121,8 @@ export default function Profile() {
       verificationStatus: data.verification_status || "Pending Verification",
       idImageUrl: data.id_image_url || "",
       selfieImageUrl: data.selfie_image_url || "",
-      verificationDate: data.verification_date || null
+      verificationDate: data.verification_date || null,
+      rejectionReason: data.rejection_reason || ""
     });
 
     setSkills(parseSkills(data.skills));
@@ -701,6 +702,18 @@ export default function Profile() {
         verification_date: newDate
       }).eq("id", activeId);
       
+      try {
+        const { addNotification } = await import("../../services/notificationService");
+        await addNotification(
+          activeId,
+          "Identity Verification Submitted",
+          `Your ${type === 'id' ? 'Government ID' : 'Selfie image'} has been uploaded and submitted for administrator review.`,
+          "system"
+        );
+      } catch (notifErr) {
+        console.warn("Failed sending upload notification:", notifErr);
+      }
+
       setMessage({ text: `${type === 'id' ? 'Valid ID' : 'Selfie image'} uploaded successfully!`, type: "success" });
     } catch (err) {
       setMessage({ text: `Failed to upload: ${err.message}`, type: "error" });
@@ -1323,8 +1336,10 @@ export default function Profile() {
                   },
                   "Rejected": {
                     bg: "#fee2e2", border: "#fca5a5", color: "#991b1b",
-                    icon: "❌", label: "Verification Rejected",
-                    msg: "Your documents were rejected. Please re-upload a clearer, valid ID and selfie."
+                    icon: "❌", label: "Verification Requires Attention",
+                    msg: profile.rejectionReason
+                      ? `Rejection Reason: "${profile.rejectionReason}". Please re-upload clear, valid documents below to resubmit for review.`
+                      : "Your documents could not be approved. Please re-upload a clear, valid ID and selfie to resubmit."
                   },
                   "Under Review": {
                     bg: "#fefce8", border: "#fde68a", color: "#92400e",
