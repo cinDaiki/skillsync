@@ -42,6 +42,7 @@ function getRelativeDateLabel(dateString) {
   const diffTime = target - today;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
+  if (diffDays < 0) return "📅 Past — Awaiting Completion";
   if (diffDays === 0) return "🔔 Today";
   if (diffDays === 1) return "📅 Tomorrow";
   if (diffDays > 1 && diffDays <= 7) return `📅 In ${diffDays} days`;
@@ -56,7 +57,7 @@ export default function Applicants() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [filterJob, setFilterJob] = useState("All");
-  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterStatus, setFilterStatus] = useState("Active Pipeline");
   const [filterMatchTier, setFilterMatchTier] = useState("All");
   const [filterInterviewStatus, setFilterInterviewStatus] = useState("All");
 
@@ -500,9 +501,29 @@ export default function Applicants() {
       const skills = (app.profiles?.skills || "").toLowerCase();
       const query = searchQuery.toLowerCase();
 
-      const matchesSearch = name.includes(query) || email.includes(query) || skills.includes(query);
+      const matchesSearch = !query || name.includes(query) || email.includes(query) || skills.includes(query);
       const matchesJob = filterJob === "All" || app.jobs?.title === filterJob;
-      const matchesStatus = filterStatus === "All" || app.status === filterStatus.toLowerCase();
+
+      let matchesStatus = true;
+      const appStatusLower = (app.status || "").toLowerCase();
+      if (filterStatus === "Active Pipeline") {
+        matchesStatus = !["hired", "rejected", "accepted", "withdrawn", "closed"].includes(appStatusLower);
+      } else if (filterStatus === "Applied") {
+        matchesStatus = appStatusLower === "applied" || appStatusLower === "pending";
+      } else if (filterStatus === "Reviewing") {
+        matchesStatus = appStatusLower === "reviewing" || appStatusLower === "under review";
+      } else if (filterStatus === "Shortlisted") {
+        matchesStatus = appStatusLower === "shortlisted";
+      } else if (filterStatus === "Interview Stage") {
+        matchesStatus = appStatusLower === "interview_scheduled" || appStatusLower === "interview_completed" || appStatusLower === "interview";
+      } else if (filterStatus === "Hired") {
+        matchesStatus = appStatusLower === "hired" || appStatusLower === "accepted";
+      } else if (filterStatus === "Rejected") {
+        matchesStatus = appStatusLower === "rejected";
+      } else if (filterStatus !== "All") {
+        matchesStatus = appStatusLower === filterStatus.toLowerCase();
+      }
+
       const matchesTier = filterMatchTier === "All" || tier === filterMatchTier;
 
       let matchesInv = true;
@@ -617,6 +638,15 @@ export default function Applicants() {
                           👤 View Applicant
                         </button>
 
+                        <button
+                          type="button"
+                          className="upcoming-action-btn complete-btn"
+                          style={{ background: "#166534", color: "#fff", border: "none" }}
+                          onClick={() => handleCompleteInterview(inv.id)}
+                        >
+                          ✓ Mark Completed
+                        </button>
+
                         {isOnline && inv.meeting_url && (
                           <a href={inv.meeting_url} target="_blank" rel="noreferrer" className="upcoming-join-btn">
                             🌐 Join Interview
@@ -659,13 +689,14 @@ export default function Applicants() {
           </select>
 
           <select className="applicants-filter-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+            <option value="Active Pipeline">⚡ Active Pipeline (Default)</option>
             <option value="All">All Pipeline Stages</option>
-            <option value="pending">Pending</option>
-            <option value="under review">Under Review</option>
-            <option value="shortlisted">Shortlisted</option>
-            <option value="interview">Interview Stage</option>
-            <option value="rejected">Rejected</option>
-            <option value="hired">Hired</option>
+            <option value="Applied">Applied / Pending</option>
+            <option value="Reviewing">Under Review</option>
+            <option value="Shortlisted">Shortlisted</option>
+            <option value="Interview Stage">Interview Stage</option>
+            <option value="Hired">🎉 Hired</option>
+            <option value="Rejected">Rejected</option>
           </select>
 
           <select className="applicants-filter-select" value={filterInterviewStatus} onChange={e => setFilterInterviewStatus(e.target.value)}>
@@ -700,11 +731,39 @@ export default function Applicants() {
           <div className="empty-state">
             <h3>Retrieving applicants...</h3>
           </div>
-        ) : filteredApplicants.length === 0 ? (
+        ) : applicants.length === 0 ? (
           <div className="empty-state">
             <span>👥</span>
-            <h3>No applicants found</h3>
-            <p>Try modifying your search queries or listing filters.</p>
+            <h3>No applicants yet</h3>
+            <p>Share your job posts to attract candidates and start receiving applications.</p>
+          </div>
+        ) : filteredApplicants.length === 0 ? (
+          <div className="empty-state">
+            <span>🔍</span>
+            <h3>No applicants match the selected filters</h3>
+            <p>Try clearing active search queries or adjusting your pipeline filters.</p>
+            <button
+              type="button"
+              style={{
+                marginTop: "12px",
+                padding: "8px 16px",
+                borderRadius: "8px",
+                background: "#4f46e5",
+                color: "#fff",
+                border: "none",
+                fontWeight: "700",
+                cursor: "pointer"
+              }}
+              onClick={() => {
+                setSearchQuery("");
+                setFilterJob("All");
+                setFilterStatus("Active Pipeline");
+                setFilterInterviewStatus("All");
+                setFilterMatchTier("All");
+              }}
+            >
+              🔄 Clear All Filters
+            </button>
           </div>
         ) : (
           <div className="applicants-list">

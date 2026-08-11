@@ -636,6 +636,21 @@ export async function makeHiringDecision({
     return { data: null, error: updateErr };
   }
 
+  // Cleanly resolve any active/upcoming interview sessions for this application
+  const resolvedInterviewStatus = upperDecision === "HIRED" ? "COMPLETED" : "CANCELLED";
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from("interviews")
+    .update({
+      status: resolvedInterviewStatus,
+      completed_at: upperDecision === "HIRED" ? nowIso : null,
+      cancelled_at: upperDecision === "REJECTED" ? nowIso : null,
+      updated_at: nowIso
+    })
+    .eq("application_id", applicationId)
+    .in("status", ["PENDING_CONFIRMATION", "CONFIRMED", "RESCHEDULE_REQUESTED"]);
+
   if (upperDecision === "HIRED") {
     await addNotification(
       candidateId,
@@ -782,7 +797,7 @@ export async function fetchUpcomingInterviews(employerId) {
 
   let { data, error } = await supabase
     .from("interviews")
-    .select("*, jobs(title, employment_type, location)")
+    .select("*, jobs(title, employment_type, location), applications(status)")
     .eq("employer_id", employerId)
     .in("status", ["PENDING_CONFIRMATION", "CONFIRMED"])
     .order("scheduled_date", { ascending: true });
@@ -794,8 +809,14 @@ export async function fetchUpcomingInterviews(employerId) {
       .eq("employer_id", employerId)
       .in("status", ["PENDING_CONFIRMATION", "CONFIRMED"])
       .order("scheduled_date", { ascending: true });
-    return { data: fallback.data || [], error: null };
+    data = fallback.data;
   }
 
-  return { data: data || [], error: null };
+  // Exclude interviews belonging to terminal application outcomes (hired or rejected)
+  const activeUpcoming = (data || []).filter(inv => {
+    const appStatus = (inv.applications?.status || "").toLowerCase();
+    return appStatus !== "hired" && appStatus !== "rejected" && appStatus !== "accepted" && appStatus !== "withdrawn";
+  });
+
+  return { data: activeUpcoming, error: null };
 }

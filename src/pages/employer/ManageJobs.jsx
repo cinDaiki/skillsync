@@ -119,11 +119,24 @@ export default function ManageJobs() {
     if (editForm.salary_range?.trim()) payload.salary_range = editForm.salary_range.trim();
     if (editForm.deadline) payload.deadline = editForm.deadline;
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from("jobs")
       .update(payload)
       .eq("id", jobId)
       .eq("employer_id", userId);
+
+    if (error && error.code === "42703") {
+      console.warn("[ManageJobs] Retrying job update without extended moderation tracking columns...");
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.moderation_count;
+      delete fallbackPayload.resubmitted_at;
+
+      ({ error } = await supabase
+        .from("jobs")
+        .update(fallbackPayload)
+        .eq("id", jobId)
+        .eq("employer_id", userId));
+    }
 
     setSaving(false);
 
