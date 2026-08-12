@@ -799,20 +799,61 @@ export async function fetchInterviewsForEmployer(employerId) {
 
   let { data, error } = await supabase
     .from("interviews")
-    .select("*, jobs(title, employment_type, location)")
+    .select("*, jobs(id, title, employment_type, location), applications(id, status, applicant_id, profiles(full_name, email))")
     .eq("employer_id", employerId)
     .order("created_at", { ascending: false });
 
-  if (error) {
+  if (error || !data) {
     const fallback = await supabase
       .from("interviews")
-      .select("*")
+      .select("*, jobs(id, title, employment_type, location)")
       .eq("employer_id", employerId)
       .order("created_at", { ascending: false });
-    return { data: fallback.data || [], error: null };
+    data = fallback.data || [];
   }
 
-  return { data: data || [], error: null };
+  const enriched = await Promise.all(
+    (data || []).map(async (inv) => {
+      let candidateName = inv.applications?.profiles?.full_name || inv.profiles?.full_name || inv.candidate_name;
+      let candidateEmail = inv.applications?.profiles?.email || inv.profiles?.email || inv.candidate_email;
+
+      if (!candidateName && inv.candidate_id) {
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("full_name, email")
+          .eq("id", inv.candidate_id)
+          .maybeSingle();
+        if (prof) {
+          candidateName = prof.full_name;
+          candidateEmail = prof.email;
+        }
+      }
+
+      const jobTitle = inv.jobs?.title || inv.job_title || "Position";
+
+      return {
+        ...inv,
+        interviewId: inv.id,
+        applicationId: inv.application_id,
+        applicantId: inv.candidate_id || inv.applications?.applicant_id,
+        candidate_name: candidateName || "Candidate",
+        candidate_email: candidateEmail || "",
+        job_title: jobTitle,
+        jobId: inv.job_id || inv.jobs?.id,
+        interviewStatus: inv.status,
+        applicationStatus: inv.applications?.status || "interview_scheduled",
+        scheduledDate: inv.scheduled_date,
+        scheduledTime: inv.scheduled_time,
+        interviewType: inv.interview_type,
+        address: inv.address,
+        meetingLink: inv.meeting_url,
+        instructions: inv.instructions,
+        completedAt: inv.completed_at
+      };
+    })
+  );
+
+  return { data: enriched, error: null };
 }
 
 /**

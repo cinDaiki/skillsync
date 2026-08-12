@@ -255,7 +255,7 @@ export default function InterviewCenter() {
                       <button
                         type="button"
                         className="ic-action-btn decision"
-                        onClick={() => navigate("/employer/hiring-decisions")}
+                        onClick={() => navigate(`/employer/hiring-decisions?application=${inv.application_id || inv.applicationId || ""}`)}
                       >
                         Proceed to Hiring Decision ➔
                       </button>

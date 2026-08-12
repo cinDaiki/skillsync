@@ -63,7 +63,9 @@ export function isInterviewStage(status) {
   return INTERVIEW_STAGE_STATUSES.includes(s);
 }
 
-export function isDecisionPending(status) {
+export function isDecisionPending(status, interviewStatus = "") {
+  if (isTerminalApplication(status)) return false;
+  if (interviewStatus && String(interviewStatus).toUpperCase().trim() === "COMPLETED") return true;
   if (!status) return false;
   const s = normalizeApplicationStatus(status);
   return s === "interview_completed";

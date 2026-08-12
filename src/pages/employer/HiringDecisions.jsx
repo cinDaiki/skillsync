@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
 import { fetchEmployerApplicants } from "../../services/applicationService";
@@ -13,6 +13,7 @@ import "./HiringDecisions.css";
 
 export default function HiringDecisions() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const toast = useToast();
   const { confirm } = useModal();
 
@@ -59,8 +60,8 @@ export default function HiringDecisions() {
     setLoading(false);
   }
 
-  // Filter candidates whose status is Decision Pending (interview_completed)
-  const pendingDecisionApplicants = applicants.filter(app => isDecisionPending(app.status));
+  // Filter candidates whose status is Decision Pending (interview_completed or linked completed interview)
+  const pendingDecisionApplicants = applicants.filter(app => isDecisionPending(app.status, interviewsMap[app.id]?.status));
 
   const jobsList = ["All", ...new Set(pendingDecisionApplicants.map(a => a.job_title || a.jobs?.title).filter(Boolean))];
 
@@ -167,9 +168,10 @@ export default function HiringDecisions() {
             const inv = interviewsMap[app.id];
             const candidateName = app.name || app.profiles?.full_name || "Candidate";
             const jobTitle = app.job_title || app.jobs?.title || "Position";
+            const isFocused = searchParams.get("application") === app.id;
 
             return (
-              <div key={app.id} className="hd-card">
+              <div key={app.id} id={`app-card-${app.id}`} className={`hd-card ${isFocused ? "highlighted-card" : ""}`} style={isFocused ? { border: "2px solid #8b18ff", boxShadow: "0 0 12px rgba(139, 24, 255, 0.3)" } : {}}>
                 <div>
                   <div className="hd-card-header">
                     <div>
