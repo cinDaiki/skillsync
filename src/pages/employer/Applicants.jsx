@@ -22,6 +22,7 @@ import { cosineSimilarity, fetchResumeEmbeddings, fetchJobEmbedding } from "../.
 import { generateCandidateRecommendation, getMatchTier } from "../../services/ai/recommendationService";
 import { calculateJobFit } from "../../services/ai/jobFitEngine";
 import {
+  isScreeningStatus,
   isActiveApplicant,
   isTerminalApplication,
   isInterviewStage,
