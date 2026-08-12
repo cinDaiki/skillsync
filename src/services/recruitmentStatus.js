@@ -3,23 +3,27 @@
  * Single Source of Truth for Application & Interview Statuses across Workspace
  */
 
-export const TERMINAL_APPLICATION_STATUSES = [
-  "hired",
-  "rejected",
-  "withdrawn",
-  "accepted",
-  "closed"
-];
-
 export const ACTIVE_APPLICATION_STATUSES = [
   "applied",
   "pending",
   "reviewing",
   "under review",
-  "shortlisted",
+  "shortlisted"
+];
+
+export const INTERVIEW_STAGE_STATUSES = [
   "interview_scheduled",
   "interview_completed",
-  "interview stage"
+  "interview stage",
+  "interview"
+];
+
+export const TERMINAL_APPLICATION_STATUSES = [
+  "hired",
+  "accepted",
+  "rejected",
+  "withdrawn",
+  "closed"
 ];
 
 export const ACTIVE_INTERVIEW_STATUSES = [
@@ -34,27 +38,53 @@ export const TERMINAL_INTERVIEW_STATUSES = [
   "DECLINED"
 ];
 
-export function isTerminalApplicationStatus(status) {
-  if (!status) return false;
-  return TERMINAL_APPLICATION_STATUSES.includes(String(status).toLowerCase().trim());
+export function normalizeApplicationStatus(status) {
+  if (!status) return "applied";
+  const s = String(status).toLowerCase().trim();
+  if (s === "pending" || s === "submitted") return "applied";
+  if (s === "under review" || s === "under_review") return "reviewing";
+  if (s === "interview stage" || s === "interview") return "interview_scheduled";
+  if (s === "accepted") return "hired";
+  return s;
 }
 
-export function isActiveApplicationStatus(status) {
+export function isTerminalApplication(status) {
+  if (!status) return false;
+  const s = normalizeApplicationStatus(status);
+  return TERMINAL_APPLICATION_STATUSES.includes(s);
+}
+
+export function isActiveApplicant(status) {
   if (!status) return true;
-  const s = String(status).toLowerCase().trim();
-  return !TERMINAL_APPLICATION_STATUSES.includes(s);
+  const s = normalizeApplicationStatus(status);
+  return !isTerminalApplication(s);
+}
+
+export function isInterviewStage(status) {
+  if (!status) return false;
+  const s = normalizeApplicationStatus(status);
+  return INTERVIEW_STAGE_STATUSES.includes(s);
+}
+
+export function isDecisionPending(status) {
+  if (!status) return false;
+  const s = normalizeApplicationStatus(status);
+  return s === "interview_completed" || s === "shortlisted" || s === "interview_scheduled";
+}
+
+export function isHired(status) {
+  if (!status) return false;
+  const s = normalizeApplicationStatus(status);
+  return s === "hired";
+}
+
+export function isRejected(status) {
+  if (!status) return false;
+  const s = normalizeApplicationStatus(status);
+  return s === "rejected";
 }
 
 export function isActiveInterviewStatus(status) {
   if (!status) return false;
   return ACTIVE_INTERVIEW_STATUSES.includes(String(status).toUpperCase().trim());
-}
-
-export function normalizeApplicationStatus(status) {
-  if (!status) return "applied";
-  const s = String(status).toLowerCase().trim();
-  if (s === "pending") return "applied";
-  if (s === "under review") return "reviewing";
-  if (s === "interview stage") return "interview_scheduled";
-  return s;
 }

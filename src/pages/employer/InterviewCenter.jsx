@@ -8,7 +8,7 @@ import {
   cancelInterview,
   makeHiringDecision
 } from "../../services/interviewService";
-import { isActiveInterviewStatus } from "../../services/recruitmentStatus";
+import { isActiveInterviewStatus, isTerminalApplication } from "../../services/recruitmentStatus";
 import "./InterviewCenter.css";
 
 export default function InterviewCenter() {
@@ -94,21 +94,22 @@ export default function InterviewCenter() {
 
   // Filter Logic
   const filteredInterviews = interviews.filter((inv) => {
-    const candidateName = (inv.candidate_name || "").toLowerCase();
-    const jobTitle = (inv.job_title || "").toLowerCase();
+    const candidateName = (inv.candidate_name || inv.profiles?.full_name || "").toLowerCase();
+    const jobTitle = (inv.job_title || inv.jobs?.title || "").toLowerCase();
     const query = searchQuery.toLowerCase().trim();
 
     const matchesSearch = !query || candidateName.includes(query) || jobTitle.includes(query);
 
     let matchesTab = true;
     const statusUpper = (inv.status || "").toUpperCase();
+    const isAppTerminal = isTerminalApplication(inv.applications?.status);
 
     if (filterTab === "Pending") {
-      matchesTab = statusUpper === "PENDING_CONFIRMATION" || statusUpper === "RESCHEDULE_REQUESTED";
+      matchesTab = !isAppTerminal && (statusUpper === "PENDING_CONFIRMATION" || statusUpper === "RESCHEDULE_REQUESTED");
     } else if (filterTab === "Confirmed") {
-      matchesTab = statusUpper === "CONFIRMED" && !isPastAwaitingCompletion(inv);
+      matchesTab = !isAppTerminal && statusUpper === "CONFIRMED" && !isPastAwaitingCompletion(inv);
     } else if (filterTab === "Past Awaiting") {
-      matchesTab = isPastAwaitingCompletion(inv);
+      matchesTab = !isAppTerminal && isPastAwaitingCompletion(inv);
     } else if (filterTab === "Completed") {
       matchesTab = statusUpper === "COMPLETED";
     } else if (filterTab === "Cancelled") {
