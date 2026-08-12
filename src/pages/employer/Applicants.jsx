@@ -498,13 +498,11 @@ export default function Applicants() {
 
   const filteredApplicants = applicants
     .filter(app => {
-      // STRICT REQUIREMENT: Applicants Desk MUST NOT contain terminal candidates (hired/rejected/withdrawn)
-      if (!isActiveApplicant(app.status)) return false;
+      // STRICT STAGE 1 REQUIREMENT: Applicants Desk contains screening candidates ONLY
+      if (!isScreeningStatus(app.status)) return false;
 
       const alignment = calculateAlignment(app);
       const tier = getMatchTierLocal(alignment.score);
-      const activeInv = interviewsMap[app.id] || (app.interview_schedule?.date ? { status: "CONFIRMED" } : null);
-      const invStatus = activeInv ? activeInv.status : "NONE";
 
       const name = (app.profiles?.full_name || app.displayName || "").toLowerCase();
       const email = (app.profiles?.email || app.displayEmail || "").toLowerCase();
@@ -520,8 +518,6 @@ export default function Applicants() {
         matchesStatus = appStatusNorm === "applied" || appStatusNorm === "reviewing";
       } else if (filterStatus === "Shortlisted") {
         matchesStatus = appStatusNorm === "shortlisted";
-      } else if (filterStatus === "Interview Stage") {
-        matchesStatus = isInterviewStage(app.status);
       }
 
       const matchesTier = filterMatchTier === "All" || tier === filterMatchTier;
@@ -679,28 +675,21 @@ export default function Applicants() {
               className={`app-tab-btn ${filterStatus === "Active Applications" || filterStatus === "All" ? "active" : ""}`}
               onClick={() => setFilterStatus("Active Applications")}
             >
-              ⚡ Active Applications ({applicants.filter(a => isActiveApplicant(a.status)).length})
+              ⚡ Screening Applicants ({applicants.filter(a => isScreeningStatus(a.status)).length})
             </button>
             <button
               type="button"
               className={`app-tab-btn ${filterStatus === "Needs Review" ? "active" : ""}`}
               onClick={() => setFilterStatus("Needs Review")}
             >
-              📋 Needs Review ({applicants.filter(a => isActiveApplicant(a.status) && (normalizeApplicationStatus(a.status) === "applied" || normalizeApplicationStatus(a.status) === "reviewing")).length})
+              📋 Needs Review ({applicants.filter(a => isScreeningStatus(a.status) && (normalizeApplicationStatus(a.status) === "applied" || normalizeApplicationStatus(a.status) === "reviewing")).length})
             </button>
             <button
               type="button"
               className={`app-tab-btn ${filterStatus === "Shortlisted" ? "active" : ""}`}
               onClick={() => setFilterStatus("Shortlisted")}
             >
-              ⭐ Shortlisted ({applicants.filter(a => isActiveApplicant(a.status) && normalizeApplicationStatus(a.status) === "shortlisted").length})
-            </button>
-            <button
-              type="button"
-              className={`app-tab-btn ${filterStatus === "Interview Stage" ? "active" : ""}`}
-              onClick={() => setFilterStatus("Interview Stage")}
-            >
-              📅 Interview Stage ({applicants.filter(a => isActiveApplicant(a.status) && isInterviewStage(a.status)).length})
+              ⭐ Shortlisted ({applicants.filter(a => isScreeningStatus(a.status) && normalizeApplicationStatus(a.status) === "shortlisted").length})
             </button>
           </div>
 

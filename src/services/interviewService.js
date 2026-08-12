@@ -122,7 +122,7 @@ export async function sendInterviewInvitation({
   await supabase
     .from("applications")
     .update({
-      status: "interview",
+      status: "interview_scheduled",
       interview_schedule: legacySchedule,
       interview_date: scheduledDate,
       interview_location: address || platform,

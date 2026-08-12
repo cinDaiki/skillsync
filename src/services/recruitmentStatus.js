@@ -66,7 +66,7 @@ export function isInterviewStage(status) {
 export function isDecisionPending(status) {
   if (!status) return false;
   const s = normalizeApplicationStatus(status);
-  return s === "interview_completed" || s === "shortlisted_awaiting_decision";
+  return s === "interview_completed";
 }
 
 export function isHired(status) {
