@@ -952,18 +952,16 @@ export default function Applicants() {
 
                   {/* Hiring Pipeline Stage */}
                   <div className="rac-stage-section">
-                    <div className="rac-stage-label">Current Hiring Pipeline Stage</div>
+                    <div className="rac-stage-label">Current Screening Stage</div>
                     <select
                       className="rac-stage-select"
                       value={app.status || "pending"}
                       onChange={(e) => handleStatusChange(app.id, e.target.value, app.displayName || "Applicant")}
                     >
-                      <option value="pending">Pending</option>
+                      <option value="pending">Applied / Pending</option>
                       <option value="under review">Under Review</option>
                       <option value="shortlisted">Shortlisted</option>
-                      <option value="interview">Interview Stage</option>
-                      <option value="rejected">Rejected</option>
-                      <option value="hired">Hired</option>
+                      <option value="rejected">Screening Rejected</option>
                     </select>
                   </div>
 
@@ -1505,7 +1503,6 @@ export default function Applicants() {
         <ResumeViewerModal
           applicant={selectedApplicant}
           onClose={closeResumeViewer}
-          onAccept={() => handleStatusChange(selectedApplicant.id, "hired", selectedApplicant.displayName || "Applicant")}
           onReject={() => handleStatusChange(selectedApplicant.id, "rejected", selectedApplicant.displayName || "Applicant")}
           onShortlist={() => handleStatusChange(selectedApplicant.id, "shortlisted", selectedApplicant.displayName || "Applicant")}
         />

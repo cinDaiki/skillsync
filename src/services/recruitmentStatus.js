@@ -3,7 +3,7 @@
  * Single Source of Truth for Application & Interview Statuses across Workspace
  */
 
-export const ACTIVE_APPLICATION_STATUSES = [
+export const SCREENING_STATUSES = [
   "applied",
   "pending",
   "reviewing",
@@ -13,9 +13,12 @@ export const ACTIVE_APPLICATION_STATUSES = [
 
 export const INTERVIEW_STAGE_STATUSES = [
   "interview_scheduled",
-  "interview_completed",
   "interview stage",
   "interview"
+];
+
+export const DECISION_PENDING_STATUSES = [
+  "interview_completed"
 ];
 
 export const TERMINAL_APPLICATION_STATUSES = [
@@ -48,16 +51,10 @@ export function normalizeApplicationStatus(status) {
   return s;
 }
 
-export function isTerminalApplication(status) {
-  if (!status) return false;
-  const s = normalizeApplicationStatus(status);
-  return TERMINAL_APPLICATION_STATUSES.includes(s);
-}
-
-export function isActiveApplicant(status) {
+export function isScreeningStatus(status) {
   if (!status) return true;
   const s = normalizeApplicationStatus(status);
-  return !isTerminalApplication(s);
+  return SCREENING_STATUSES.includes(s);
 }
 
 export function isInterviewStage(status) {
@@ -69,7 +66,7 @@ export function isInterviewStage(status) {
 export function isDecisionPending(status) {
   if (!status) return false;
   const s = normalizeApplicationStatus(status);
-  return s === "interview_completed" || s === "shortlisted" || s === "interview_scheduled";
+  return s === "interview_completed" || s === "shortlisted_awaiting_decision";
 }
 
 export function isHired(status) {
@@ -84,7 +81,30 @@ export function isRejected(status) {
   return s === "rejected";
 }
 
+export function isTerminalApplication(status) {
+  if (!status) return false;
+  const s = normalizeApplicationStatus(status);
+  return TERMINAL_APPLICATION_STATUSES.includes(s);
+}
+
+export function isActiveApplicant(status) {
+  if (!status) return true;
+  const s = normalizeApplicationStatus(status);
+  return !isTerminalApplication(s);
+}
+
 export function isActiveInterviewStatus(status) {
   if (!status) return false;
   return ACTIVE_INTERVIEW_STATUSES.includes(String(status).toUpperCase().trim());
+}
+
+export function deduplicateByApplicationId(list) {
+  if (!Array.isArray(list)) return [];
+  const map = new Map();
+  list.forEach(item => {
+    if (item && item.id && !map.has(item.id)) {
+      map.set(item.id, item);
+    }
+  });
+  return Array.from(map.values());
 }

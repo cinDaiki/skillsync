@@ -512,6 +512,17 @@ export async function completeInterview({ interviewId, employerId }) {
     return { data: null, error: updateErr };
   }
 
+  // Update application status to interview_completed so candidate moves to Hiring Decisions workspace
+  if (interview.application_id) {
+    await supabase
+      .from("applications")
+      .update({
+        status: "interview_completed",
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", interview.application_id);
+  }
+
   const jobTitle = interview.jobs?.title || "Job Position";
 
   await addNotification(

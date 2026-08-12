@@ -255,9 +255,9 @@ export default function InterviewCenter() {
                       <button
                         type="button"
                         className="ic-action-btn decision"
-                        onClick={() => setDecisionModalInfo(inv)}
+                        onClick={() => navigate("/employer/hiring-decisions")}
                       >
-                        🎯 Hiring Decision ➔
+                        Proceed to Hiring Decision ➔
                       </button>
                     )}
 

@@ -26,12 +26,13 @@ const sidebarLinks = {
 
   employer: [
     { label: "Dashboard", icon: "⌂", path: "/employer/dashboard" },
-    { label: "Manage Jobs", icon: "▣", path: "/employer/jobs" },
+    { label: "Manage Jobs", icon: "💼", path: "/employer/jobs" },
     { label: "Post Job", icon: "＋", path: "/employer/post-job" },
-    { label: "Applicants Desk", icon: "👥", path: "/employer/applicants" },
-    { label: "Interview Center", icon: "📅", path: "/employer/interviews" },
-    { label: "Hiring Pipeline", icon: "🗂️", path: "/employer/hiring-pipeline" },
-    { label: "Company Profile", icon: "▤", path: "/employer/company" },
+    { label: "Applicants", icon: "👥", path: "/employer/applicants" },
+    { label: "Interviews", icon: "📅", path: "/employer/interviews" },
+    { label: "Hiring Decisions", icon: "⚖️", path: "/employer/hiring-decisions" },
+    { label: "Hiring Records", icon: "📜", path: "/employer/hiring-records" },
+    { label: "Company Profile", icon: "🏢", path: "/employer/company" },
   ],
 };
 
