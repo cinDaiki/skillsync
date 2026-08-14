@@ -288,7 +288,7 @@ export async function fetchEmployerApplicants(employerId) {
   if (applicantIds.length > 0) {
     const { data: profilesData } = await supabase
       .from("profiles")
-      .select("id, full_name, email, contact_number, skills")
+      .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications")
       .in("id", applicantIds);
     (profilesData || []).forEach((p) => {
       profileMap[p.id] = p;
