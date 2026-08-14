@@ -127,6 +127,8 @@ export default function HiringDecisions() {
       toast.error("Failed recording hiring decision: " + error.message);
     } else {
       toast.success(decision === "HIRED" ? "🎉 Candidate officially hired!" : "Application updated to Rejected.");
+      // Optimistically remove from decision pending view
+      setApplicants(prev => prev.filter(item => item.id !== app.id));
       await loadDecisionData();
       navigate("/employer/hiring-records");
     }
