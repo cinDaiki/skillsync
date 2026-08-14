@@ -5,7 +5,6 @@ import { supabase } from "../../services/supabase";
 import { fetchEmployerApplicants } from "../../services/applicationService";
 import { fetchInterviewsForEmployer, makeHiringDecision } from "../../services/interviewService";
 import { isDecisionPending, deduplicateByApplicationId } from "../../services/recruitmentStatus";
-import AIMatchReport from "../../components/ai/AIMatchReport";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 import { useToast } from "../../contexts/ToastContext";
 import { useModal } from "../../contexts/ModalContext";
@@ -19,15 +18,15 @@ export default function HiringDecisions() {
 
   const [applicants, setApplicants] = useState([]);
   const [interviewsMap, setInterviewsMap] = useState({});
+  const [evaluationsMap, setEvaluationsMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedJob, setSelectedJob] = useState("All");
   const [currentUserId, setCurrentUserId] = useState(null);
 
-  // Modals
-  const [selectedApplicant, setSelectedApplicant] = useState(null);
-  const [showMatchModal, setShowMatchModal] = useState(false);
-  const [viewingResume, setViewingResume] = useState(null);
+  // Modals & Active Selections
+  const [selectedResumeApp, setSelectedResumeApp] = useState(null);
+  const [evaluationModalApp, setEvaluationModalApp] = useState(null);
   const [actionLoadingId, setActionLoadingId] = useState(null);
 
   useEffect(() => {
@@ -43,6 +42,10 @@ export default function HiringDecisions() {
     if (userId) {
       const { data: appsData } = await fetchEmployerApplicants(userId);
       const { data: invsData } = await fetchInterviewsForEmployer(userId);
+      const { data: evalsData } = await supabase
+        .from("interview_evaluations")
+        .select("*")
+        .eq("employer_id", userId);
 
       const invMap = {};
       if (invsData) {
@@ -53,7 +56,16 @@ export default function HiringDecisions() {
         });
       }
 
+      const evalMap = {};
+      if (evalsData) {
+        evalsData.forEach((ev) => {
+          if (ev.application_id) evalMap[ev.application_id] = ev;
+          if (ev.interview_id && !evalMap[ev.interview_id]) evalMap[ev.interview_id] = ev;
+        });
+      }
+
       setInterviewsMap(invMap);
+      setEvaluationsMap(evalMap);
       const uniqueApps = deduplicateByApplicationId(appsData || []);
       setApplicants(uniqueApps);
     }
@@ -128,17 +140,19 @@ export default function HiringDecisions() {
     >
       <div className="hiring-decisions-toolbar">
         <div className="decisions-job-selector-row">
-          <span style={{ fontSize: "14px", fontWeight: "700", color: "#334155" }}>Filter by Job Listing:</span>
-          {jobsList.map(job => (
-            <button
-              key={job}
-              type="button"
-              className={`job-pill-btn ${selectedJob === job ? "active" : ""}`}
-              onClick={() => setSelectedJob(job)}
-            >
-              {job === "All" ? `All Positions (${pendingDecisionApplicants.length})` : `${job} (${pendingDecisionApplicants.filter(a => (a.job_title || a.jobs?.title) === job).length})`}
-            </button>
-          ))}
+          <label>Filter Position:</label>
+          <div className="job-pill-group">
+            {jobsList.map(job => (
+              <button
+                key={job}
+                type="button"
+                className={`job-pill ${selectedJob === job ? "active" : ""}`}
+                onClick={() => setSelectedJob(job)}
+              >
+                {job === "All" ? `All Positions (${pendingDecisionApplicants.length})` : job}
+              </button>
+            ))}
+          </div>
         </div>
 
         <input
@@ -166,9 +180,16 @@ export default function HiringDecisions() {
         <div className="decisions-cards-grid">
           {filteredApplicants.map(app => {
             const inv = interviewsMap[app.id];
-            const candidateName = app.name || app.profiles?.full_name || "Candidate";
+            const ev = evaluationsMap[app.id] || evaluationsMap[inv?.id] || null;
+            const candidateName = app.name || app.profiles?.full_name || app.displayName || "Candidate";
+            const candidateEmail = app.email || app.profiles?.email || app.displayEmail || "";
             const jobTitle = app.job_title || app.jobs?.title || "Position";
             const isFocused = searchParams.get("application") === app.id;
+
+            const recNotes = ev?.evaluation_notes || app.recruiter_notes;
+            const techRating = ev?.technical_rating;
+            const commRating = ev?.communication_rating;
+            const recommendation = ev?.overall_recommendation;
 
             return (
               <div key={app.id} id={`app-card-${app.id}`} className={`hd-card ${isFocused ? "highlighted-card" : ""}`} style={isFocused ? { border: "2px solid #8b18ff", boxShadow: "0 0 12px rgba(139, 24, 255, 0.3)" } : {}}>
@@ -176,6 +197,7 @@ export default function HiringDecisions() {
                   <div className="hd-card-header">
                     <div>
                       <h4 className="hd-candidate-name">{candidateName}</h4>
+                      {candidateEmail && <p className="hd-candidate-email">✉️ {candidateEmail}</p>}
                       <p className="hd-job-title">💼 {jobTitle}</p>
                     </div>
                     <span className="hd-status-badge">⏳ Awaiting Decision</span>
@@ -189,22 +211,57 @@ export default function HiringDecisions() {
 
                     {inv && (
                       <div className="hd-detail-row">
-                        <span>Interview Date:</span>
-                        <strong>{inv.scheduled_date} ({inv.interview_type || "Walk-in"})</strong>
+                        <span>Interview Details:</span>
+                        <strong>{inv.scheduled_date || "Completed"} ({inv.interview_type || "Walk-in"})</strong>
                       </div>
                     )}
 
                     <div className="hd-detail-row">
-                      <span>ATS Criteria Match:</span>
+                      <span>ATS Match Score:</span>
                       <strong>{app.match_score ? `${app.match_score}%` : "Evaluated"}</strong>
                     </div>
                   </div>
 
-                  {app.recruiter_notes && (
-                    <div className="hd-recruiter-notes">
-                      <strong>Recruiter Evaluation Notes:</strong> {app.recruiter_notes}
+                  {/* PROMINENT INTERVIEWER EVALUATION SECTION */}
+                  <div className="hd-interviewer-evaluation-box" style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", margin: "14px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                      <h5 style={{ margin: 0, fontSize: "13px", fontWeight: "800", color: "#334155", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                        📝 Interviewer Evaluation
+                      </h5>
+                      {recommendation && (
+                        <span style={{ fontSize: "11px", fontWeight: "700", background: recommendation.includes("RECOMMEND") ? "#dcfce7" : "#fee2e2", color: recommendation.includes("RECOMMEND") ? "#166534" : "#991b1b", padding: "2px 8px", borderRadius: "12px" }}>
+                          {recommendation.replace("_", " ")}
+                        </span>
+                      )}
                     </div>
-                  )}
+
+                    {recNotes ? (
+                      <p style={{ margin: "4px 0 8px", fontSize: "13px", color: "#475569", fontStyle: "italic", lineHeight: "1.4" }}>
+                        "{recNotes}"
+                      </p>
+                    ) : (
+                      <p style={{ margin: "4px 0 8px", fontSize: "13px", color: "#94a3b8" }}>
+                        No written recruiter evaluation notes provided.
+                      </p>
+                    )}
+
+                    {(techRating || commRating) && (
+                      <div style={{ display: "flex", gap: "12px", fontSize: "12px", color: "#64748b", marginTop: "6px" }}>
+                        {techRating && <span>Technical: <strong>{"★".repeat(techRating)}{"☆".repeat(5-techRating)}</strong></span>}
+                        {commRating && <span>Communication: <strong>{"★".repeat(commRating)}{"☆".repeat(5-commRating)}</strong></span>}
+                      </div>
+                    )}
+
+                    {ev && (
+                      <button
+                        type="button"
+                        style={{ marginTop: "8px", background: "none", border: "none", color: "#8b18ff", fontSize: "12px", fontWeight: "700", cursor: "pointer", padding: 0 }}
+                        onClick={() => setEvaluationModalApp({ app, inv, ev })}
+                      >
+                        View Full Evaluation →
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="hd-card-actions">
@@ -212,23 +269,10 @@ export default function HiringDecisions() {
                     <button
                       type="button"
                       className="hd-sub-btn"
-                      onClick={() => {
-                        setSelectedApplicant(app);
-                        setShowMatchModal(true);
-                      }}
+                      onClick={() => setSelectedResumeApp(app)}
                     >
-                      🤖 AI Report
+                      📄 View Resume
                     </button>
-
-                    {(app.resume_url || app.resume?.file_url) && (
-                      <button
-                        type="button"
-                        className="hd-sub-btn"
-                        onClick={() => setViewingResume(app.resume_url || app.resume?.file_url)}
-                      >
-                        📄 Resume
-                      </button>
-                    )}
                   </div>
 
                   <div className="hd-final-decision-row">
@@ -257,27 +301,49 @@ export default function HiringDecisions() {
         </div>
       )}
 
-      {/* AI MATCH MODAL */}
-      {showMatchModal && selectedApplicant && (
-        <div className="modal-overlay">
-          <div className="modal-card wide-modal">
-            <AIMatchReport
-              applicant={selectedApplicant}
-              jobRequiredSkills={selectedApplicant.required_skills}
-              jobRequiredCerts={selectedApplicant.required_certifications}
-              onClose={() => setShowMatchModal(false)}
-              onViewResume={(resumeUrl) => setViewingResume(resumeUrl)}
-            />
+      {/* FULL EVALUATION MODAL */}
+      {evaluationModalApp && (
+        <div className="modal-backdrop">
+          <div className="modal-dialog">
+            <div className="modal-header">
+              <h3>📝 Full Interview Evaluation</h3>
+              <button type="button" className="modal-close-btn" onClick={() => setEvaluationModalApp(null)}>×</button>
+            </div>
+            <div className="modal-body-form" style={{ gap: "12px" }}>
+              <p style={{ margin: 0, fontSize: "14px", fontWeight: "700" }}>
+                Candidate: {evaluationModalApp.app.name || evaluationModalApp.app.profiles?.full_name || "Applicant"}
+              </p>
+              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
+                Position: {evaluationModalApp.app.job_title || evaluationModalApp.app.jobs?.title}
+              </p>
+              <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                <strong>Recommendation:</strong> {evaluationModalApp.ev.overall_recommendation || "Evaluated"}
+              </div>
+
+              {evaluationModalApp.ev.evaluation_notes && (
+                <div>
+                  <strong style={{ fontSize: "13px" }}>Recruiter Evaluation Notes:</strong>
+                  <p style={{ marginTop: "4px", fontSize: "13px", color: "#334155", background: "#fff", padding: "10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
+                    {evaluationModalApp.ev.evaluation_notes}
+                  </p>
+                </div>
+              )}
+
+              <div className="modal-footer-actions">
+                <button type="button" className="btn-secondary" onClick={() => setEvaluationModalApp(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* RESUME VIEWER MODAL */}
-      {viewingResume && (
+      {selectedResumeApp && (
         <ResumeViewerModal
-          resumeUrl={viewingResume}
-          candidateName={selectedApplicant?.name || selectedApplicant?.profiles?.full_name || "Candidate"}
-          onClose={() => setViewingResume(null)}
+          applicant={selectedResumeApp}
+          onClose={() => setSelectedResumeApp(null)}
         />
       )}
     </DashboardLayout>
