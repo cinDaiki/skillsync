@@ -218,6 +218,66 @@ export function enrichApplicationRecord(app) {
 }
 
 export async function fetchEmployerApplicants(employerId) {
+  // Step 1: Attempt direct relational fetch first to preserve full database fields (updated_at, reject_reason, match_score)
+  try {
+    const { data: jobs, error: jobsError } = await supabase
+      .from("jobs")
+      .select("id, title, employment_type, location, required_skills")
+      .eq("employer_id", employerId);
+
+    if (!jobsError && jobs && jobs.length > 0) {
+      const jobIds = jobs.map((j) => j.id);
+      const jobMap = Object.fromEntries(jobs.map((j) => [j.id, j]));
+
+      const { data: appsData, error: appsError } = await supabase
+        .from("applications")
+        .select("*")
+        .in("job_id", jobIds)
+        .order("created_at", { ascending: false });
+
+      if (!appsError && appsData) {
+        const apps = appsData;
+        const applicantIds = [...new Set(apps.map((a) => a.applicant_id).filter(Boolean))];
+        let profileMap = {};
+        let resumeMap = {};
+
+        if (applicantIds.length > 0) {
+          const { data: profilesData } = await supabase
+            .from("profiles")
+            .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications")
+            .in("id", applicantIds);
+          (profilesData || []).forEach((p) => {
+            profileMap[p.id] = p;
+          });
+
+          const { data: resumesData } = await supabase
+            .from("resumes")
+            .select("*")
+            .in("applicant_id", applicantIds);
+          (resumesData || []).forEach((r) => {
+            resumeMap[r.applicant_id] = r;
+          });
+        }
+
+        return {
+          data: apps.map((app) =>
+            enrichApplicationRecord({
+              ...app,
+              jobs: jobMap[app.job_id] || null,
+              profiles: profileMap[app.applicant_id] || null,
+              resume: resumeMap[app.applicant_id] || null,
+              applicant_email: profileMap[app.applicant_id]?.email || null,
+            })
+          ),
+          error: null,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("Direct fetchEmployerApplicants fell back to RPC:", err.message);
+  }
+
+  // Step 2: Fallback to secure RPC get_employer_applicants
   const { data: rpcData, error: rpcError } = await supabase.rpc(
     "get_employer_applicants"
   );
@@ -231,6 +291,10 @@ export async function fetchEmployerApplicants(employerId) {
           applicant_id: row.applicant_id,
           status: row.status,
           created_at: row.created_at,
+          updated_at: row.updated_at || null,
+          match_score: row.match_score || null,
+          recruiter_notes: row.recruiter_notes || null,
+          reject_reason: row.reject_reason || null,
           applicant_snapshot: row.applicant_snapshot,
           jobs: {
             title: row.job_title,
@@ -258,63 +322,7 @@ export async function fetchEmployerApplicants(employerId) {
     };
   }
 
-  const { data: jobs, error: jobsError } = await supabase
-    .from("jobs")
-    .select("id, title, employment_type, location")
-    .eq("employer_id", employerId);
-
-  if (jobsError || !jobs?.length) {
-    return { data: [], error: jobsError };
-  }
-
-  const jobIds = jobs.map((j) => j.id);
-  const jobMap = Object.fromEntries(jobs.map((j) => [j.id, j]));
-
-  const { data: appsData, error: appsError } = await supabase
-    .from("applications")
-    .select("*")
-    .in("job_id", jobIds)
-    .order("created_at", { ascending: false });
-
-  if (appsError) {
-    return { data: [], error: appsError };
-  }
-
-  const apps = appsData || [];
-  const applicantIds = [...new Set(apps.map((a) => a.applicant_id).filter(Boolean))];
-  let profileMap = {};
-  let resumeMap = {};
-
-  if (applicantIds.length > 0) {
-    const { data: profilesData } = await supabase
-      .from("profiles")
-      .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications")
-      .in("id", applicantIds);
-    (profilesData || []).forEach((p) => {
-      profileMap[p.id] = p;
-    });
-
-    const { data: resumesData } = await supabase
-      .from("resumes")
-      .select("*")
-      .in("applicant_id", applicantIds);
-    (resumesData || []).forEach((r) => {
-      resumeMap[r.applicant_id] = r;
-    });
-  }
-
-  return {
-    data: apps.map((app) =>
-      enrichApplicationRecord({
-        ...app,
-        jobs: jobMap[app.job_id] || null,
-        profiles: profileMap[app.applicant_id] || null,
-        resume: resumeMap[app.applicant_id] || null,
-        applicant_email: profileMap[app.applicant_id]?.email || null,
-      })
-    ),
-    error: null,
-  };
+  return { data: [], error: rpcError || null };
 }
 
 export function normalizeApplicantRecord(app) {

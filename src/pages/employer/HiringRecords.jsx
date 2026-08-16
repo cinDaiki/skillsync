@@ -422,12 +422,12 @@ export default function HiringRecords() {
                       <span style={{ fontSize: "12px", fontWeight: "700", color: "#334155", textTransform: "uppercase" }}>Recruiter Notes:</span>
                       {recommendation && (
                         <span style={{ fontSize: "11px", fontWeight: "700", background: recommendation.includes("RECOMMEND") ? "#dcfce7" : "#fee2e2", color: recommendation.includes("RECOMMEND") ? "#166534" : "#991b1b", padding: "2px 8px", borderRadius: "12px" }}>
-                          {recommendation.replace("_", " ")}
+                          {recommendation.replace(/_/g, " ")}
                         </span>
                       )}
                     </div>
-                    <p style={{ margin: 0, fontSize: "13px", color: "#475569", fontStyle: "italic" }}>
-                      "{evalNotes || "No written recruiter evaluation notes provided."}"
+                    <p style={{ margin: 0, fontSize: "13px", color: evalNotes ? "#475569" : "#94a3b8", fontStyle: evalNotes ? "italic" : "normal" }}>
+                      {evalNotes ? `"${evalNotes}"` : "No interview evaluation was recorded."}
                     </p>
 
                     {(techRating || commRating) && (
@@ -471,6 +471,15 @@ export default function HiringRecords() {
         const isAppHired = isHired(app.status);
         const isAppRejected = isRejected(app.status);
         const evalNotes = ev?.evaluation_notes || app.recruiter_notes || "";
+
+        const scheduledDateStr = inv?.scheduled_date ? `${inv.scheduled_date}T${inv.scheduled_time || "00:00:00"}` : null;
+        const isCompletionPredatingSchedule = Boolean(
+          inv?.completed_at &&
+          scheduledDateStr &&
+          !isNaN(new Date(inv.completed_at).getTime()) &&
+          !isNaN(new Date(scheduledDateStr).getTime()) &&
+          new Date(inv.completed_at).getTime() < new Date(scheduledDateStr).getTime()
+        );
 
         return (
           <div className="modal-backdrop">
@@ -530,12 +539,17 @@ export default function HiringRecords() {
                     <div className="hr-timeline-content">
                       <div className="hr-timeline-event-header">
                         <h4>4. Interview Completed</h4>
-                        <span className="hr-timeline-time">{inv.completed_at ? formatDateTime(inv.completed_at) : (inv.scheduled_date ? formatDate(inv.scheduled_date) : "Timestamp unavailable")}</span>
+                        <span className="hr-timeline-time">{inv.completed_at ? formatDateTime(inv.completed_at) : "Timestamp unavailable"}</span>
                       </div>
                       <p>
-                        Interview session successfully completed.
+                        Interview session completed.
                         {evalNotes ? ` Evaluator Notes: "${evalNotes}"` : ""}
                       </p>
+                      {isCompletionPredatingSchedule && (
+                        <div style={{ marginTop: "6px", fontSize: "11px", color: "#b45309", background: "#fef3c7", padding: "4px 8px", borderRadius: "4px" }}>
+                          ⚠️ Completion timestamp ({formatDateTime(inv.completed_at)}) predates scheduled interview ({inv.scheduled_date} {inv.scheduled_time || ""}) — legacy/test record.
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -576,6 +590,8 @@ export default function HiringRecords() {
       {selectedResumeApp && (
         <ResumeViewerModal
           applicant={selectedResumeApp}
+          readOnly={true}
+          context="hiring-records"
           onClose={() => setSelectedResumeApp(null)}
         />
       )}

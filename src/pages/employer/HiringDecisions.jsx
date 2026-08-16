@@ -345,6 +345,8 @@ export default function HiringDecisions() {
       {selectedResumeApp && (
         <ResumeViewerModal
           applicant={selectedResumeApp}
+          readOnly={true}
+          context="hiring-decisions"
           onClose={() => setSelectedResumeApp(null)}
         />
       )}
