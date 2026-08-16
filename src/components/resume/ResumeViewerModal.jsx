@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getResumeViewUrl, getCertificateSignedUrl } from "../../services/api";
+import { isTerminalApplication } from "../../services/recruitmentStatus";
 
 function getFileName(resume) {
   return resume?.file_name || resume?.name || "Resume";
@@ -34,7 +35,15 @@ function parseSkills(raw) {
   return [];
 }
 
-export default function ResumeViewerModal({ applicant, onClose, onAccept, onReject, onShortlist }) {
+export default function ResumeViewerModal({
+  applicant,
+  onClose,
+  onAccept,
+  onReject,
+  onShortlist,
+  readOnly = false,
+  context = "default"
+}) {
   const [viewUrl, setViewUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -43,11 +52,14 @@ export default function ResumeViewerModal({ applicant, onClose, onAccept, onReje
   const profile = applicant?.profiles;
   const displayName = applicant?.displayName || profile?.full_name || "Unnamed Applicant";
   const job = applicant?.jobs;
-  
-  // Skills extraction
+
+  const isTerminal = isTerminalApplication(applicant?.status);
+  const isArchiveMode = readOnly || context === "hiring-records" || isTerminal;
+
+  // Skills extraction for active screening mode
   const candidateSkills = parseSkills(profile?.skills);
   const jobSkills = parseSkills(job?.required_skills);
-  
+
   // Intersections
   const matchedSkills = jobSkills.filter(s => candidateSkills.includes(s));
   const missingSkills = jobSkills.filter(s => !candidateSkills.includes(s));
@@ -151,18 +163,30 @@ export default function ResumeViewerModal({ applicant, onClose, onAccept, onReje
         <div className="resume-viewer-body">
           <aside className="resume-viewer-sidebar" style={{ maxHeight: "calc(100vh - 120px)", overflowY: "auto" }}>
             <div className="resume-viewer-sidebar-section">
-              <h3>Hiring Analysis</h3>
+              <h3>{isArchiveMode ? "Application Overview" : "Hiring Analysis"}</h3>
               <dl>
                 <div>
                   <dt>Current Status</dt>
                   <dd style={{ textTransform: "capitalize", fontWeight: "bold" }}>{applicant.status || "Applied"}</dd>
                 </div>
-                <div>
-                  <dt>Job Skill Fit</dt>
-                  <dd style={{ color: matchPct >= 80 ? "#10b981" : matchPct >= 40 ? "#6d28d9" : "#d97706", fontWeight: "900" }}>
-                    🧠 {matchPct}% Alignment
-                  </dd>
-                </div>
+                {/* In archive mode, only show persisted application-time match score */}
+                {isArchiveMode ? (
+                  typeof applicant.match_score === "number" && applicant.match_score > 0 ? (
+                    <div>
+                      <dt>Application-time Match Score</dt>
+                      <dd style={{ fontWeight: "900", color: applicant.match_score >= 80 ? "#10b981" : applicant.match_score >= 50 ? "#6d28d9" : "#d97706" }}>
+                        🧠 {applicant.match_score}%
+                      </dd>
+                    </div>
+                  ) : null
+                ) : (
+                  <div>
+                    <dt>Job Skill Fit</dt>
+                    <dd style={{ color: matchPct >= 80 ? "#10b981" : matchPct >= 40 ? "#6d28d9" : "#d97706", fontWeight: "900" }}>
+                      🧠 {matchPct}% Alignment
+                    </dd>
+                  </div>
+                )}
                 {resume?.resume_score && (
                   <div>
                     <dt>Resume Score</dt>
@@ -180,8 +204,8 @@ export default function ResumeViewerModal({ applicant, onClose, onAccept, onReje
               </dl>
             </div>
 
-            {/* Side-by-side Skill Matching Comparison Table */}
-            {jobSkills.length > 0 && (
+            {/* Side-by-side Skill Matching Comparison Table (Active Screening only) */}
+            {!isArchiveMode && jobSkills.length > 0 && (
               <div className="resume-viewer-sidebar-section">
                 <h3>Skill Alignment Details</h3>
                 <div style={{ background: "#faf8ff", border: "1px solid #f1ebfa", borderRadius: "10px", padding: "10px" }}>
@@ -280,47 +304,53 @@ export default function ResumeViewerModal({ applicant, onClose, onAccept, onReje
               </div>
             )}
 
-            {/* Sidebar quick update workflow */}
-            <div className="resume-viewer-sidebar-actions" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {onShortlist && (
-                <button
-                  type="button"
-                  className="resume-viewer-btn secondary"
-                  onClick={() => {
-                    onShortlist(applicant.id);
-                    onClose();
-                  }}
-                  disabled={applicant.status === "shortlisted" || applicant.status === "hired" || applicant.status === "rejected"}
-                  style={{ width: "100%", justifyContent: "center" }}
-                >
-                  Shortlist Applicant
-                </button>
-              )}
-              <button
-                type="button"
-                className="resume-viewer-btn primary"
-                onClick={() => {
-                  onAccept?.(applicant.id);
-                  onClose();
-                }}
-                disabled={applicant.status === "hired" || applicant.status === "rejected"}
-                style={{ width: "100%", justifyContent: "center" }}
-              >
-                Hire Applicant
-              </button>
-              <button
-                type="button"
-                className="resume-viewer-btn danger"
-                onClick={() => {
-                  onReject?.(applicant.id);
-                  onClose();
-                }}
-                disabled={applicant.status === "hired" || applicant.status === "rejected"}
-                style={{ width: "100%", justifyContent: "center", background: "#fef2f2" }}
-              >
-                Reject Applicant
-              </button>
-            </div>
+            {/* Sidebar quick update workflow: HIDE in readOnly/archive mode and for terminal applications */}
+            {!isArchiveMode && (onShortlist || onAccept || onReject) && (
+              <div className="resume-viewer-sidebar-actions" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {typeof onShortlist === "function" && (
+                  <button
+                    type="button"
+                    className="resume-viewer-btn secondary"
+                    onClick={() => {
+                      onShortlist(applicant.id);
+                      onClose();
+                    }}
+                    disabled={applicant.status === "shortlisted" || isTerminal}
+                    style={{ width: "100%", justifyContent: "center" }}
+                  >
+                    Shortlist Applicant
+                  </button>
+                )}
+                {typeof onAccept === "function" && (
+                  <button
+                    type="button"
+                    className="resume-viewer-btn primary"
+                    onClick={() => {
+                      onAccept(applicant.id);
+                      onClose();
+                    }}
+                    disabled={isTerminal}
+                    style={{ width: "100%", justifyContent: "center" }}
+                  >
+                    Hire Applicant
+                  </button>
+                )}
+                {typeof onReject === "function" && (
+                  <button
+                    type="button"
+                    className="resume-viewer-btn danger"
+                    onClick={() => {
+                      onReject(applicant.id);
+                      onClose();
+                    }}
+                    disabled={isTerminal}
+                    style={{ width: "100%", justifyContent: "center", background: "#fef2f2" }}
+                  >
+                    Reject Applicant
+                  </button>
+                )}
+              </div>
+            )}
           </aside>
 
           <section className="resume-viewer-preview">

@@ -1,0 +1,436 @@
+.hiring-records-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+  background: #ffffff;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.hr-quick-tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hr-tab-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.hr-tab-btn:hover {
+  background: #e2e8f0;
+}
+
+.hr-tab-btn.active {
+  background: #58158f;
+  border-color: #58158f;
+  color: #ffffff;
+}
+
+.hr-tab-btn.active.hired {
+  background: #16a34a;
+  border-color: #16a34a;
+}
+
+.hr-tab-btn.active.rejected {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.hr-filter-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hr-search-input {
+  flex: 1;
+  min-width: 240px;
+  padding: 10px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.hr-job-select {
+  min-width: 200px;
+  padding: 10px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #ffffff;
+}
+
+.records-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.hr-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+.hr-card.hired {
+  border-left: 4px solid #16a34a;
+}
+
+.hr-card.rejected {
+  border-left: 4px solid #dc2626;
+}
+
+.hr-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.hr-candidate-name {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.hr-job-title {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.hr-badge-hired {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hr-badge-rejected {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hr-badge-closed {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hr-details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.hr-detail-item span {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.hr-detail-item strong {
+  color: #0f172a;
+}
+
+.hr-card-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.hr-btn-timeline {
+  flex: 1;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  text-align: center;
+}
+
+.hr-btn-timeline:hover {
+  background: #e2e8f0;
+}
+
+/* CANDIDATE DETAILS MODAL STYLES */
+.hr-details-modal {
+  max-width: 650px;
+  width: 90%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hr-details-header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hr-avatar-circle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8b18ff 0%, #58158f 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.hr-details-modal-body {
+  overflow-y: auto;
+  padding-right: 6px;
+  gap: 16px;
+}
+
+.hr-details-status-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.hr-details-status-banner.hired {
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.hr-details-status-banner.rejected {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+}
+
+.hr-details-status-banner.closed {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
+.hr-modal-section {
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.hr-section-title {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.hr-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  font-size: 13px;
+}
+
+.hr-info-grid span {
+  color: #64748b;
+}
+
+.hr-info-grid strong {
+  color: #0f172a;
+}
+
+.hr-bg-block span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.hr-details-sublist {
+  margin: 4px 0 0 16px;
+  padding: 0;
+  font-size: 13px;
+  color: #334155;
+}
+
+.hr-skills-pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.hr-skill-pill {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hr-btn-view-resume {
+  background: #8b18ff;
+  color: #ffffff;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.hr-btn-view-resume:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.hr-btn-view-resume:disabled {
+  background: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+/* VERTICAL RECRUITMENT TIMELINE MODAL STYLES */
+.hr-timeline-modal {
+  max-width: 600px;
+  width: 90%;
+  max-height: 90vh;
+}
+
+.hr-vertical-timeline {
+  position: relative;
+  margin-top: 16px;
+  padding-left: 24px;
+}
+
+.hr-vertical-timeline::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 11px;
+  width: 2px;
+  background: #cbd5e1;
+}
+
+.hr-timeline-item {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.hr-timeline-item:last-child {
+  margin-bottom: 0;
+}
+
+.hr-timeline-marker {
+  position: absolute;
+  left: -24px;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  border: 2px solid #cbd5e1;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  z-index: 1;
+}
+
+.hr-timeline-item.completed .hr-timeline-marker {
+  background: #8b18ff;
+  border-color: #8b18ff;
+  color: #ffffff;
+}
+
+.hr-timeline-item.hired .hr-timeline-marker {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+
+.hr-timeline-item.rejected .hr-timeline-marker {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+.hr-timeline-content {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.hr-timeline-event-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.hr-timeline-event-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.hr-timeline-time {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.hr-timeline-content p {
+  margin: 0;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.4;
+}

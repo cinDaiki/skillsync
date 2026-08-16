@@ -23,6 +23,10 @@ import EmployerDashboard from "./pages/employer/EmployerDashboard";
 import ManageJobs from "./pages/employer/ManageJobs";
 import PostJob from "./pages/employer/PostJob";
 import Applicants from "./pages/employer/Applicants";
+import InterviewCenter from "./pages/employer/InterviewCenter";
+import HiringDecisions from "./pages/employer/HiringDecisions";
+import HiringRecords from "./pages/employer/HiringRecords";
+import HiringPipeline from "./pages/employer/HiringPipeline";
 import CompanyProfile from "./pages/employer/CompanyProfile";
 
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -148,6 +152,42 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.EMPLOYER]}>
               <Applicants />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/employer/interviews"
+          element={
+            <RoleRoute allowedRoles={[ROLES.EMPLOYER]}>
+              <InterviewCenter />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/employer/hiring-decisions"
+          element={
+            <RoleRoute allowedRoles={[ROLES.EMPLOYER]}>
+              <HiringDecisions />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/employer/hiring-records"
+          element={
+            <RoleRoute allowedRoles={[ROLES.EMPLOYER]}>
+              <HiringRecords />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/employer/hiring-pipeline"
+          element={
+            <RoleRoute allowedRoles={[ROLES.EMPLOYER]}>
+              <HiringRecords />
             </RoleRoute>
           }
         />

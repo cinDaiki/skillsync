@@ -171,7 +171,9 @@ export default function EmployerDashboard() {
       {/* Topbar actions */}
       <div className="recruiter-topbar-actions">
         <Link to="/employer/post-job" className="recruiter-action-btn">＋ Post New Job</Link>
-        <Link to="/employer/applicants" className="recruiter-action-btn">👥 View Applicants</Link>
+        <Link to="/employer/applicants" className="recruiter-action-btn">👥 Applicants Desk</Link>
+        <Link to="/employer/interviews" className="recruiter-action-btn">📅 Interview Center</Link>
+        <Link to="/employer/hiring-pipeline" className="recruiter-action-btn">🗂️ Hiring Pipeline</Link>
 
         <div className="recruiter-bell-container">
           <button type="button" className="recruiter-bell-btn" onClick={() => setShowBell(!showBell)}>
@@ -266,34 +268,34 @@ export default function EmployerDashboard() {
             <p>Pending Review</p>
           </div>
         </div>
-        <div className="enterprise-stat-card">
+        <Link to="/employer/applicants" className="enterprise-stat-card" style={{ textDecoration: "none", color: "inherit" }}>
           <div className="enterprise-stat-icon orange">⭐</div>
           <div className="enterprise-stat-info">
             <h3>{shortlisted.length}</h3>
             <p>Shortlisted</p>
           </div>
-        </div>
-        <div className="enterprise-stat-card">
+        </Link>
+        <Link to="/employer/interviews" className="enterprise-stat-card" style={{ textDecoration: "none", color: "inherit" }}>
           <div className="enterprise-stat-icon green">📅</div>
           <div className="enterprise-stat-info">
             <h3>{interviews.length}</h3>
             <p>Interviews Scheduled</p>
           </div>
-        </div>
-        <div className="enterprise-stat-card">
+        </Link>
+        <Link to="/employer/hiring-records" className="enterprise-stat-card" style={{ textDecoration: "none", color: "inherit" }}>
           <div className="enterprise-stat-icon pink">✅</div>
           <div className="enterprise-stat-info">
             <h3>{hired.length}</h3>
-            <p>Hired</p>
+            <p>Hired Candidates</p>
           </div>
-        </div>
-        <div className="enterprise-stat-card">
+        </Link>
+        <Link to="/employer/hiring-decisions" className="enterprise-stat-card" style={{ textDecoration: "none", color: "inherit" }}>
           <div className="enterprise-stat-icon red">⏳</div>
           <div className="enterprise-stat-info">
-            <h3>{pending.length}</h3>
-            <p>Pending Review</p>
+            <h3>{applications.filter(a => (a.status || "").toLowerCase() === "interview_completed").length}</h3>
+            <p>Awaiting Decision</p>
           </div>
-        </div>
+        </Link>
       </div>
 
       {/* Analytics columns */}

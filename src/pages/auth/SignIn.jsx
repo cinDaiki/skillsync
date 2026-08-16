@@ -161,6 +161,7 @@ export default function SignIn() {
                 placeholder="you@example.com"
                 value={formData.email}
                 onChange={handleChange}
+                autoComplete="email"
                 required
               />
             </label>
@@ -176,6 +177,7 @@ export default function SignIn() {
                 placeholder="Enter password"
                 value={formData.password}
                 onChange={handleChange}
+                autoComplete="current-password"
                 required
               />
             </label>

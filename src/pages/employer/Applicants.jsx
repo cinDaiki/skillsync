@@ -21,6 +21,13 @@ import { supabase } from "../../services/supabase";
 import { cosineSimilarity, fetchResumeEmbeddings, fetchJobEmbedding } from "../../services/ai/vectorSearchService";
 import { generateCandidateRecommendation, getMatchTier } from "../../services/ai/recommendationService";
 import { calculateJobFit } from "../../services/ai/jobFitEngine";
+import {
+  isScreeningStatus,
+  isActiveApplicant,
+  isTerminalApplication,
+  isInterviewStage,
+  normalizeApplicationStatus
+} from "../../services/recruitmentStatus";
 import "./Applicants.css";
 
 function formatUploadDate(dateString) {
@@ -42,6 +49,7 @@ function getRelativeDateLabel(dateString) {
   const diffTime = target - today;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
+  if (diffDays < 0) return "📅 Past — Awaiting Completion";
   if (diffDays === 0) return "🔔 Today";
   if (diffDays === 1) return "📅 Tomorrow";
   if (diffDays > 1 && diffDays <= 7) return `📅 In ${diffDays} days`;
@@ -56,9 +64,10 @@ export default function Applicants() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [filterJob, setFilterJob] = useState("All");
-  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterStatus, setFilterStatus] = useState("Active Pipeline");
   const [filterMatchTier, setFilterMatchTier] = useState("All");
   const [filterInterviewStatus, setFilterInterviewStatus] = useState("All");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // Interview state: { [applicationId]: activeInterviewRecord }
   const [interviewsMap, setInterviewsMap] = useState({});
@@ -490,19 +499,28 @@ export default function Applicants() {
 
   const filteredApplicants = applicants
     .filter(app => {
+      // STRICT STAGE 1 REQUIREMENT: Applicants Desk contains screening candidates ONLY
+      if (!isScreeningStatus(app.status)) return false;
+
       const alignment = calculateAlignment(app);
       const tier = getMatchTierLocal(alignment.score);
-      const activeInv = interviewsMap[app.id] || (app.interview_schedule?.date ? { status: "CONFIRMED" } : null);
-      const invStatus = activeInv ? activeInv.status : "NONE";
 
       const name = (app.profiles?.full_name || app.displayName || "").toLowerCase();
       const email = (app.profiles?.email || app.displayEmail || "").toLowerCase();
       const skills = (app.profiles?.skills || "").toLowerCase();
-      const query = searchQuery.toLowerCase();
+      const query = searchQuery.toLowerCase().trim();
 
-      const matchesSearch = name.includes(query) || email.includes(query) || skills.includes(query);
+      const matchesSearch = !query || name.includes(query) || email.includes(query) || skills.includes(query);
       const matchesJob = filterJob === "All" || app.jobs?.title === filterJob;
-      const matchesStatus = filterStatus === "All" || app.status === filterStatus.toLowerCase();
+
+      let matchesStatus = true;
+      const appStatusNorm = normalizeApplicationStatus(app.status);
+      if (filterStatus === "Needs Review") {
+        matchesStatus = appStatusNorm === "applied" || appStatusNorm === "reviewing";
+      } else if (filterStatus === "Shortlisted") {
+        matchesStatus = appStatusNorm === "shortlisted";
+      }
+
       const matchesTier = filterMatchTier === "All" || tier === filterMatchTier;
 
       let matchesInv = true;
@@ -617,6 +635,15 @@ export default function Applicants() {
                           👤 View Applicant
                         </button>
 
+                        <button
+                          type="button"
+                          className="upcoming-action-btn complete-btn"
+                          style={{ background: "#166534", color: "#fff", border: "none" }}
+                          onClick={() => handleCompleteInterview(inv.id)}
+                        >
+                          ✓ Mark Completed
+                        </button>
+
                         {isOnline && inv.meeting_url && (
                           <a href={inv.meeting_url} target="_blank" rel="noreferrer" className="upcoming-join-btn">
                             🌐 Join Interview
@@ -641,70 +668,184 @@ export default function Applicants() {
           </div>
         )}
 
-        {/* FILTER TOOLBAR */}
-        <div className="applicants-controls">
-          <input
-            type="text"
-            className="applicants-search-input"
-            placeholder="🔍 Search applicant name, email, or skills…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-          />
+        {/* QUICK TABS & MAIN SEARCH TOOLBAR */}
+        <div className="applicants-tab-toolbar">
+          <div className="applicants-quick-tabs">
+            <button
+              type="button"
+              className={`app-tab-btn ${filterStatus === "Active Applications" || filterStatus === "All" ? "active" : ""}`}
+              onClick={() => setFilterStatus("Active Applications")}
+            >
+              ⚡ Screening Applicants ({applicants.filter(a => isScreeningStatus(a.status)).length})
+            </button>
+            <button
+              type="button"
+              className={`app-tab-btn ${filterStatus === "Needs Review" ? "active" : ""}`}
+              onClick={() => setFilterStatus("Needs Review")}
+            >
+              📋 Needs Review ({applicants.filter(a => isScreeningStatus(a.status) && (normalizeApplicationStatus(a.status) === "applied" || normalizeApplicationStatus(a.status) === "reviewing")).length})
+            </button>
+            <button
+              type="button"
+              className={`app-tab-btn ${filterStatus === "Shortlisted" ? "active" : ""}`}
+              onClick={() => setFilterStatus("Shortlisted")}
+            >
+              ⭐ Shortlisted ({applicants.filter(a => isScreeningStatus(a.status) && normalizeApplicationStatus(a.status) === "shortlisted").length})
+            </button>
+          </div>
 
-          <select className="applicants-filter-select" value={filterJob} onChange={e => setFilterJob(e.target.value)}>
-            <option value="All">All Job Posts</option>
-            {uniqueJobs.filter(j => j !== "All").map(j => (
-              <option key={j} value={j}>{j}</option>
-            ))}
-          </select>
+          <div className="applicants-search-row">
+            <input
+              type="text"
+              className="applicants-search-input"
+              placeholder="🔍 Search applicant name, email, or skills…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
 
-          <select className="applicants-filter-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-            <option value="All">All Pipeline Stages</option>
-            <option value="pending">Pending</option>
-            <option value="under review">Under Review</option>
-            <option value="shortlisted">Shortlisted</option>
-            <option value="interview">Interview Stage</option>
-            <option value="rejected">Rejected</option>
-            <option value="hired">Hired</option>
-          </select>
+            <button
+              type="button"
+              className={`applicants-advanced-toggle-btn ${showAdvancedFilters ? "active" : ""}`}
+              onClick={() => setShowAdvancedFilters(v => !v)}
+            >
+              ⚙️ {showAdvancedFilters ? "Hide Filters" : "Advanced Filters"}
+            </button>
 
-          <select className="applicants-filter-select" value={filterInterviewStatus} onChange={e => setFilterInterviewStatus(e.target.value)}>
-            <option value="All">All Interview Statuses</option>
-            <option value="No Interview">No Interview Scheduled</option>
-            <option value="Awaiting Confirmation">🟡 Awaiting Confirmation</option>
-            <option value="Confirmed">🟢 Confirmed</option>
-            <option value="Reschedule Requested">🔄 Reschedule Requested</option>
-            <option value="Declined">🔴 Candidate Declined</option>
-            <option value="Cancelled">⚫ Cancelled</option>
-            <option value="Completed">✓ Completed</option>
-          </select>
-
-          <select className="applicants-filter-select" value={filterMatchTier} onChange={e => setFilterMatchTier(e.target.value)}>
-            <option value="All">All Match Tiers</option>
-            <option value="High">High Matches (≥80%)</option>
-            <option value="Medium">Medium Matches (40-79%)</option>
-            <option value="Basic">Basic Matches (&lt;40%)</option>
-          </select>
-
-          <button
-            type="button"
-            className={`applicants-ai-sort-btn ${sortByAI ? "active" : ""}`}
-            onClick={() => setSortByAI(v => !v)}
-          >
-            🤖 {sortByAI ? "AI Ranked ✓" : "Sort by AI"}
-          </button>
+            <button
+              type="button"
+              className={`applicants-ai-sort-btn ${sortByAI ? "active" : ""}`}
+              onClick={() => setSortByAI(v => !v)}
+            >
+              🤖 {sortByAI ? "AI Ranked ✓" : "Sort by AI"}
+            </button>
+          </div>
         </div>
+
+        {/* EXPANDABLE ADVANCED FILTERS PANEL */}
+        {showAdvancedFilters && (
+          <div className="applicants-advanced-panel">
+            <select className="applicants-filter-select" value={filterJob} onChange={e => setFilterJob(e.target.value)}>
+              <option value="All">All Job Posts</option>
+              {uniqueJobs.filter(j => j !== "All").map(j => (
+                <option key={j} value={j}>{j}</option>
+              ))}
+            </select>
+
+            <select className="applicants-filter-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+              <option value="Active Applications">⚡ All Active Applications</option>
+              <option value="Needs Review">📋 Needs Review</option>
+              <option value="Shortlisted">⭐ Shortlisted</option>
+              <option value="Interview Stage">📅 Interview Stage</option>
+            </select>
+
+            <select className="applicants-filter-select" value={filterInterviewStatus} onChange={e => setFilterInterviewStatus(e.target.value)}>
+              <option value="All">All Interview Statuses</option>
+              <option value="No Interview">No Interview Scheduled</option>
+              <option value="Awaiting Confirmation">🟡 Awaiting Confirmation</option>
+              <option value="Confirmed">🟢 Confirmed</option>
+              <option value="Reschedule Requested">🔄 Reschedule Requested</option>
+              <option value="Declined">🔴 Candidate Declined</option>
+              <option value="Cancelled">⚫ Cancelled</option>
+              <option value="Completed">✓ Completed</option>
+            </select>
+
+            <select className="applicants-filter-select" value={filterMatchTier} onChange={e => setFilterMatchTier(e.target.value)}>
+              <option value="All">All Match Tiers</option>
+              <option value="High">High Matches (≥80%)</option>
+              <option value="Medium">Medium Matches (40-79%)</option>
+              <option value="Basic">Basic Matches (&lt;40%)</option>
+            </select>
+          </div>
+        )}
+
+        {/* ACTIVE FILTER CHIPS */}
+        {(filterJob !== "All" || filterMatchTier !== "All" || filterInterviewStatus !== "All" || searchQuery || filterStatus !== "Active Pipeline") && (
+          <div className="applicants-chips-row">
+            <span className="chip-label">Active Filters:</span>
+            {filterStatus !== "Active Pipeline" && (
+              <span className="filter-chip">
+                View: {filterStatus}
+                <button type="button" onClick={() => setFilterStatus("Active Pipeline")}>✕</button>
+              </span>
+            )}
+            {filterJob !== "All" && (
+              <span className="filter-chip">
+                Job: {filterJob}
+                <button type="button" onClick={() => setFilterJob("All")}>✕</button>
+              </span>
+            )}
+            {filterMatchTier !== "All" && (
+              <span className="filter-chip">
+                Match: {filterMatchTier}
+                <button type="button" onClick={() => setFilterMatchTier("All")}>✕</button>
+              </span>
+            )}
+            {filterInterviewStatus !== "All" && (
+              <span className="filter-chip">
+                Interview: {filterInterviewStatus}
+                <button type="button" onClick={() => setFilterInterviewStatus("All")}>✕</button>
+              </span>
+            )}
+            {searchQuery && (
+              <span className="filter-chip">
+                Query: "{searchQuery}"
+                <button type="button" onClick={() => setSearchQuery("")}>✕</button>
+              </span>
+            )}
+            <button
+              type="button"
+              className="clear-all-chips-btn"
+              onClick={() => {
+                setSearchQuery("");
+                setFilterJob("All");
+                setFilterStatus("Active Pipeline");
+                setFilterInterviewStatus("All");
+                setFilterMatchTier("All");
+              }}
+            >
+              Clear All Filters
+            </button>
+          </div>
+        )}
 
         {/* APPLICANTS LIST */}
         {loading ? (
           <div className="empty-state">
             <h3>Retrieving applicants...</h3>
           </div>
-        ) : filteredApplicants.length === 0 ? (
+        ) : applicants.length === 0 ? (
           <div className="empty-state">
             <span>👥</span>
-            <h3>No applicants found</h3>
-            <p>Try modifying your search queries or listing filters.</p>
+            <h3>No applicants yet</h3>
+            <p>Share your job posts to attract candidates and start receiving applications.</p>
+          </div>
+        ) : filteredApplicants.length === 0 ? (
+          <div className="empty-state">
+            <span>🔍</span>
+            <h3>No applicants match the selected filters</h3>
+            <p>Try clearing active search queries or adjusting your pipeline filters.</p>
+            <button
+              type="button"
+              style={{
+                marginTop: "12px",
+                padding: "8px 16px",
+                borderRadius: "8px",
+                background: "#4f46e5",
+                color: "#fff",
+                border: "none",
+                fontWeight: "700",
+                cursor: "pointer"
+              }}
+              onClick={() => {
+                setSearchQuery("");
+                setFilterJob("All");
+                setFilterStatus("Active Pipeline");
+                setFilterInterviewStatus("All");
+                setFilterMatchTier("All");
+              }}
+            >
+              🔄 Clear All Filters
+            </button>
           </div>
         ) : (
           <div className="applicants-list">
@@ -801,18 +942,16 @@ export default function Applicants() {
 
                   {/* Hiring Pipeline Stage */}
                   <div className="rac-stage-section">
-                    <div className="rac-stage-label">Current Hiring Pipeline Stage</div>
+                    <div className="rac-stage-label">Current Screening Stage</div>
                     <select
                       className="rac-stage-select"
                       value={app.status || "pending"}
                       onChange={(e) => handleStatusChange(app.id, e.target.value, app.displayName || "Applicant")}
                     >
-                      <option value="pending">Pending</option>
+                      <option value="pending">Applied / Pending</option>
                       <option value="under review">Under Review</option>
                       <option value="shortlisted">Shortlisted</option>
-                      <option value="interview">Interview Stage</option>
-                      <option value="rejected">Rejected</option>
-                      <option value="hired">Hired</option>
+                      <option value="rejected">Screening Rejected</option>
                     </select>
                   </div>
 
@@ -1354,7 +1493,6 @@ export default function Applicants() {
         <ResumeViewerModal
           applicant={selectedApplicant}
           onClose={closeResumeViewer}
-          onAccept={() => handleStatusChange(selectedApplicant.id, "hired", selectedApplicant.displayName || "Applicant")}
           onReject={() => handleStatusChange(selectedApplicant.id, "rejected", selectedApplicant.displayName || "Applicant")}
           onShortlist={() => handleStatusChange(selectedApplicant.id, "shortlisted", selectedApplicant.displayName || "Applicant")}
         />

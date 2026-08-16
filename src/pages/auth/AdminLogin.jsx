@@ -130,6 +130,7 @@ export default function AdminLogin() {
                   name="email"
                   type="email"
                   placeholder="admin@skillsync.com"
+                  autoComplete="email"
                   required
                 />
               </label>
@@ -140,6 +141,7 @@ export default function AdminLogin() {
                   name="password"
                   type="password"
                   placeholder="Enter admin password"
+                  autoComplete="current-password"
                   required
                 />
               </label>

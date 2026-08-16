@@ -1,4 +1,5 @@
 import { supabase } from "./supabase.js";
+import { addNotification } from "./notificationService.js";
 
 function isJobSeeker(role) {
   return role === "candidate" || role === "job_seeker";
@@ -70,7 +71,7 @@ export async function fetchAdminJobseekers({ search = "", status = "all", verifi
 
     if (search.trim()) {
       const term = `%${search.trim()}%`;
-      query = query.or(`full_name.ilike.${term},email.ilike.${term}`);
+      query = query.or(`full_name.ilike.${term},email.ilike.${term},address.ilike.${term}`);
     }
 
     if (status === "active") {
@@ -79,10 +80,10 @@ export async function fetchAdminJobseekers({ search = "", status = "all", verifi
       query = query.eq("is_suspended", true);
     }
 
-    if (verificationStatus === "under_review") {
-      query = query.eq("verification_status", "Under Review");
-    } else if (verificationStatus === "verified") {
+    if (verificationStatus === "verified") {
       query = query.in("verification_status", ["Verified", "Approved"]);
+    } else if (verificationStatus === "under_review") {
+      query = query.eq("verification_status", "Under Review");
     } else if (verificationStatus === "rejected") {
       query = query.eq("verification_status", "Rejected");
     } else if (verificationStatus === "pending") {
@@ -95,6 +96,20 @@ export async function fetchAdminJobseekers({ search = "", status = "all", verifi
       console.error("[AdminService] fetchAdminJobseekers error:", profileErr);
       return { data: [], totalCount: 0, page, totalPages: 0, error: profileErr };
     }
+
+    // Also fetch aggregate summary counts for summary cards
+    const { data: allProfiles } = await supabase
+      .from("profiles")
+      .select("id, is_suspended, verification_status")
+      .in("role", ["candidate", "job_seeker"]);
+
+    const summary = {
+      total: (allProfiles || []).length,
+      active: (allProfiles || []).filter(p => !p.is_suspended).length,
+      suspended: (allProfiles || []).filter(p => p.is_suspended).length,
+      verified: (allProfiles || []).filter(p => p.verification_status === "Verified" || p.verification_status === "Approved").length,
+      pending: (allProfiles || []).filter(p => !p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification" || p.verification_status === "Under Review").length,
+    };
 
     // Merge candidate_profiles table data if available
     let jobseekersList = profiles || [];
@@ -129,7 +144,7 @@ export async function fetchAdminJobseekers({ search = "", status = "all", verifi
     const totalCount = count || jobseekersList.length;
     const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
-    return { data: jobseekersList, totalCount, page, totalPages, error: null };
+    return { data: jobseekersList, totalCount, page, totalPages, summary, error: null };
   } catch (err) {
     console.error("[AdminService] fetchAdminJobseekers exception:", err);
     return { data: [], totalCount: 0, page: 1, totalPages: 0, error: err };
@@ -492,6 +507,193 @@ export async function updateUserProfile(userId, { fullName, email, contactNumber
 }
 
 /**
+ * Approves or Rejects a candidate's identity verification with reason and audit log
+ */
+export async function updateCandidateVerification(userId, status, reasonNote = "") {
+  if (!userId) return { error: new Error("Candidate user ID is required") };
+
+  try {
+    const isApproved = status === "Verified" || status === "Approved";
+    const isRejected = status === "Rejected";
+
+    const profileUpdates = {
+      verification_status: status,
+      updated_at: new Date().toISOString()
+    };
+
+    if (isRejected && reasonNote) {
+      profileUpdates.verification_reason = reasonNote;
+    } else if (isApproved) {
+      profileUpdates.verification_reason = null;
+      profileUpdates.verification_date = new Date().toISOString();
+    }
+
+    let { error: updateErr } = await supabase
+      .from("profiles")
+      .update(profileUpdates)
+      .eq("id", userId);
+
+    if (updateErr && updateErr.code === "42703") {
+      const basicUpdates = {
+        verification_status: status,
+        updated_at: new Date().toISOString()
+      };
+      ({ error: updateErr } = await supabase
+        .from("profiles")
+        .update(basicUpdates)
+        .eq("id", userId));
+    }
+
+    if (updateErr) {
+      console.error("[AdminService] updateCandidateVerification error:", updateErr.message);
+      return { error: updateErr };
+    }
+
+    // Send candidate notification
+    if (isApproved) {
+      await addNotification(
+        userId,
+        "✅ Identity Verified!",
+        "Your identity verification submission has been approved by our administration team. You can now apply for verified jobs across SkillSync.",
+        "verification"
+      ).catch(() => {});
+    } else if (isRejected) {
+      await addNotification(
+        userId,
+        "❌ Verification Update",
+        `Your identity verification was not approved.${reasonNote ? ` Reason: ${reasonNote}` : " Please review your documents and submit a clearer ID in your profile."}`,
+        "verification"
+      ).catch(() => {});
+    }
+
+    return { error: null };
+  } catch (err) {
+    console.error("[AdminService] updateCandidateVerification error:", err);
+    return { error: err };
+  } finally {
+    await logAdminAction({
+      action: (status === "Verified" || status === "Approved") ? "CANDIDATE_VERIFICATION_APPROVED" : "CANDIDATE_VERIFICATION_REJECTED",
+      targetType: "candidate",
+      targetId: userId,
+      reason: reasonNote || null,
+      metadata: { new_status: status }
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Suspends a candidate account with moderation reason and audit log
+ */
+export async function suspendCandidateAccount(userId, reasonNote = "") {
+  try {
+    const { error: rpcErr } = await supabase.rpc("admin_toggle_user_suspension", {
+      user_id: userId,
+      suspend_status: true,
+    });
+
+    if (rpcErr) {
+      const { error: tableErr } = await supabase
+        .from("profiles")
+        .update({ is_suspended: true, updated_at: new Date().toISOString() })
+        .eq("id", userId);
+      if (tableErr) return { error: tableErr };
+    }
+
+    await addNotification(
+      userId,
+      "🚫 Account Suspended",
+      `Your SkillSync candidate account has been suspended.${reasonNote ? ` Reason: ${reasonNote}` : " Please contact support for more information."}`,
+      "system"
+    ).catch(() => {});
+
+    return { error: null };
+  } catch (err) {
+    console.error("[AdminService] suspendCandidateAccount error:", err);
+    return { error: err };
+  } finally {
+    await logAdminAction({
+      action: "CANDIDATE_SUSPENDED",
+      targetType: "candidate",
+      targetId: userId,
+      reason: reasonNote || null
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Restores / Reactivates a suspended candidate account with audit log
+ */
+export async function restoreCandidateAccount(userId, reasonNote = "") {
+  try {
+    const { error: rpcErr } = await supabase.rpc("admin_toggle_user_suspension", {
+      user_id: userId,
+      suspend_status: false,
+    });
+
+    if (rpcErr) {
+      const { error: tableErr } = await supabase
+        .from("profiles")
+        .update({ is_suspended: false, updated_at: new Date().toISOString() })
+        .eq("id", userId);
+      if (tableErr) return { error: tableErr };
+    }
+
+    await addNotification(
+      userId,
+      "✓ Account Restored",
+      "Your SkillSync candidate account has been reactivated. You can now log in and continue your job search.",
+      "system"
+    ).catch(() => {});
+
+    return { error: null };
+  } catch (err) {
+    console.error("[AdminService] restoreCandidateAccount error:", err);
+    return { error: err };
+  } finally {
+    await logAdminAction({
+      action: "CANDIDATE_RESTORED",
+      targetType: "candidate",
+      targetId: userId,
+      reason: reasonNote || null
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Updates permitted administrative contact/identity fields for a candidate
+ */
+export async function updateCandidateAdministrativeDetails(userId, { fullName, contactNumber, address }, reasonNote = "") {
+  try {
+    const payload = {
+      full_name: (fullName || "").trim(),
+      contact_number: (contactNumber || "").trim(),
+      address: (address || "").trim(),
+      updated_at: new Date().toISOString()
+    };
+
+    const { error: tableErr } = await supabase
+      .from("profiles")
+      .update(payload)
+      .eq("id", userId);
+
+    if (tableErr) return { error: tableErr };
+
+    return { error: null };
+  } catch (err) {
+    console.error("[AdminService] updateCandidateAdministrativeDetails error:", err);
+    return { error: err };
+  } finally {
+    await logAdminAction({
+      action: "CANDIDATE_ADMIN_DETAILS_UPDATED",
+      targetType: "candidate",
+      targetId: userId,
+      reason: reasonNote || "Administrative profile correction",
+      metadata: { fullName, contactNumber, address }
+    }).catch(() => {});
+  }
+}
+
+/**
  * Updates employer verification status with admin reason and audit log
  */
 export async function updateEmployerVerification(userId, status, reasonNote = "") {
@@ -763,93 +965,6 @@ export async function fetchAdminAuditLogs({ search = "", actionType = "all", pag
   } catch (err) {
     console.error("[AdminService] fetchAdminAuditLogs exception:", err);
     return { data: [], totalCount: 0, page: 1, totalPages: 0, error: err };
-  }
-}
-
-/**
- * Approves or rejects candidate identity verification status with audit log & notifications
- * Status options: 'Verified', 'Approved', 'Rejected', 'Under Review', 'Pending Verification'
- */
-export async function updateCandidateVerification(userId, status, reasonNote = "") {
-  if (!userId) return { error: new Error("Candidate user ID is required") };
-
-  try {
-    const isApproved = status === "Verified" || status === "Approved";
-    const isRejected = status === "Rejected";
-
-    const profileUpdates = {
-      verification_status: status,
-      updated_at: new Date().toISOString()
-    };
-
-    if (isRejected && reasonNote) {
-      profileUpdates.verification_reason = reasonNote;
-    } else if (isApproved) {
-      profileUpdates.verification_reason = null;
-      profileUpdates.verification_date = new Date().toISOString();
-    }
-
-    // Try direct table update on public.profiles using canonical verification_reason column
-    let { error: tableError } = await supabase
-      .from("profiles")
-      .update(profileUpdates)
-      .eq("id", userId);
-
-    if (tableError && tableError.code === "42703") {
-      // Extended schema columns (verification_reason / verification_date) not yet added to live table
-      console.warn("[AdminService] Retrying updateCandidateVerification without extended schema columns...");
-      const basicUpdates = {
-        verification_status: status,
-        updated_at: new Date().toISOString()
-      };
-      ({ error: tableError } = await supabase
-        .from("profiles")
-        .update(basicUpdates)
-        .eq("id", userId));
-    }
-
-    if (tableError) {
-      console.error("[AdminService] updateCandidateVerification error:", tableError.message);
-      return { error: tableError };
-    }
-
-    // Send notifications to candidate
-    try {
-      const { addNotification } = await import("./notificationService.js");
-      if (isApproved) {
-        await addNotification(
-          userId,
-          "Identity Verification Approved",
-          "Your account identity has been verified by the administrator. You can now apply to all open jobs!",
-          "system"
-        );
-      } else if (isRejected) {
-        const msg = reasonNote
-          ? `Your identity verification request requires attention. Reason: ${reasonNote}`
-          : "Your identity verification request could not be approved. Please review your uploaded documents in your Profile and resubmit.";
-        await addNotification(
-          userId,
-          "Identity Verification Requires Attention",
-          msg,
-          "warning"
-        );
-      }
-    } catch (notifErr) {
-      console.warn("[AdminService] Notification trigger warning:", notifErr.message);
-    }
-
-    // Log audit trail
-    await logAdminAction({
-      action: isApproved ? "CANDIDATE_VERIFIED" : isRejected ? "CANDIDATE_REJECTED" : "CANDIDATE_STATUS_UPDATED",
-      targetType: "candidate",
-      targetId: userId,
-      reason: reasonNote
-    }).catch(() => {});
-
-    return { error: null };
-  } catch (err) {
-    console.error("[AdminService] updateCandidateVerification exception:", err);
-    return { error: err };
   }
 }
 

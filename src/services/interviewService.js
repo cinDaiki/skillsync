@@ -103,7 +103,7 @@ export async function sendInterviewInvitation({
     .from("interviews")
     .insert([payload])
     .select()
-    .single();
+    .maybeSingle();
 
   if (interviewErr) {
     console.error("Failed to insert interview record:", interviewErr);
@@ -122,7 +122,7 @@ export async function sendInterviewInvitation({
   await supabase
     .from("applications")
     .update({
-      status: "interview",
+      status: "interview_scheduled",
       interview_schedule: legacySchedule,
       interview_date: scheduledDate,
       interview_location: address || platform,
@@ -270,7 +270,7 @@ export async function respondToInterview({
     });
   }
 
-  const { data: updated } = await supabase.from("interviews").select("*").eq("id", interviewId).single();
+  const { data: updated } = await supabase.from("interviews").select("*").eq("id", interviewId).maybeSingle();
   return { data: updated, error: null };
 }
 
@@ -348,7 +348,7 @@ export async function rescheduleInterviewByEmployer({
     .update(updatedPayload)
     .eq("id", interviewId)
     .select()
-    .single();
+    .maybeSingle();
 
   if (updateErr) {
     return { data: null, error: updateErr };
@@ -432,7 +432,7 @@ export async function cancelInterview({ interviewId, userId, reason = "" }) {
     })
     .eq("id", interviewId)
     .select()
-    .single();
+    .maybeSingle();
 
   if (updateErr) {
     return { data: null, error: updateErr };
@@ -506,10 +506,21 @@ export async function completeInterview({ interviewId, employerId }) {
     })
     .eq("id", interviewId)
     .select()
-    .single();
+    .maybeSingle();
 
   if (updateErr) {
     return { data: null, error: updateErr };
+  }
+
+  // Update application status to interview_completed so candidate moves to Hiring Decisions workspace
+  if (interview.application_id) {
+    await supabase
+      .from("applications")
+      .update({
+        status: "interview_completed",
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", interview.application_id);
   }
 
   const jobTitle = interview.jobs?.title || "Job Position";
@@ -622,19 +633,49 @@ export async function makeHiringDecision({
   const jobTitle = appData.jobs?.title || "Position";
   const newStatus = upperDecision === "HIRED" ? "hired" : "rejected";
 
-  const { data: updatedApp, error: updateErr } = await supabase
+  const appUpdatePayload = {
+    status: newStatus,
+    updated_at: new Date().toISOString()
+  };
+  if (upperDecision === "REJECTED" && rejectionReason) {
+    appUpdatePayload.reject_reason = rejectionReason;
+  }
+
+  let { data: updatedApp, error: updateErr } = await supabase
     .from("applications")
-    .update({
-      status: newStatus,
-      reject_reason: upperDecision === "REJECTED" ? rejectionReason : null,
-    })
+    .update(appUpdatePayload)
     .eq("id", applicationId)
     .select()
-    .single();
+    .maybeSingle();
+
+  if (updateErr && (updateErr.code === "PGRST204" || updateErr.code === "42703")) {
+    delete appUpdatePayload.reject_reason;
+    ({ data: updatedApp, error: updateErr } = await supabase
+      .from("applications")
+      .update(appUpdatePayload)
+      .eq("id", applicationId)
+      .select()
+      .maybeSingle());
+  }
 
   if (updateErr) {
     return { data: null, error: updateErr };
   }
+
+  // Cleanly resolve any active/upcoming interview sessions for this application
+  const resolvedInterviewStatus = upperDecision === "HIRED" ? "COMPLETED" : "CANCELLED";
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from("interviews")
+    .update({
+      status: resolvedInterviewStatus,
+      completed_at: upperDecision === "HIRED" ? nowIso : null,
+      cancelled_at: upperDecision === "REJECTED" ? nowIso : null,
+      updated_at: nowIso
+    })
+    .eq("application_id", applicationId)
+    .in("status", ["PENDING_CONFIRMATION", "CONFIRMED", "RESCHEDULE_REQUESTED"]);
 
   if (upperDecision === "HIRED") {
     await addNotification(
@@ -756,22 +797,74 @@ export async function fetchInterviewsForCandidate(candidateId) {
 export async function fetchInterviewsForEmployer(employerId) {
   if (!employerId) return { data: [], error: null };
 
+  // Step 1: Fetch interviews with valid 1-level relations (jobs & applications)
   let { data, error } = await supabase
     .from("interviews")
-    .select("*, jobs(title, employment_type, location)")
+    .select("*, jobs(id, title, employment_type, location), applications(id, status, applicant_id, applicant_snapshot)")
     .eq("employer_id", employerId)
     .order("created_at", { ascending: false });
 
-  if (error) {
+  if (error || !data) {
     const fallback = await supabase
       .from("interviews")
-      .select("*")
+      .select("*, jobs(id, title, employment_type, location)")
       .eq("employer_id", employerId)
       .order("created_at", { ascending: false });
-    return { data: fallback.data || [], error: null };
+    data = fallback.data || [];
   }
 
-  return { data: data || [], error: null };
+  // Step 2: Collect unique applicant IDs and fetch candidate profiles separately
+  const applicantIds = Array.from(
+    new Set((data || []).flatMap(inv => [inv.candidate_id, inv.applications?.applicant_id]).filter(Boolean))
+  );
+
+  const profilesById = {};
+  if (applicantIds.length > 0) {
+    const { data: profilesData } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", applicantIds);
+
+    if (profilesData) {
+      profilesData.forEach(p => {
+        profilesById[p.id] = p;
+      });
+    }
+  }
+
+  const enriched = (data || []).map((inv) => {
+    const applicantId = inv.candidate_id || inv.applications?.applicant_id;
+    const prof = profilesById[applicantId] || {};
+    const candidateName = prof.full_name || inv.candidate_name || inv.applications?.applicant_snapshot?.full_name || "Candidate";
+    const candidateEmail = prof.email || inv.candidate_email || inv.applications?.applicant_snapshot?.email || "";
+    const jobTitle = inv.jobs?.title || inv.job_title || "Position";
+
+    return {
+      ...inv,
+      interviewId: inv.id,
+      applicationId: inv.application_id,
+      applicantId: applicantId,
+      candidate_name: candidateName,
+      candidate_email: candidateEmail,
+      job_title: jobTitle,
+      jobId: inv.job_id || inv.jobs?.id,
+      interviewStatus: inv.status,
+      applicationStatus: inv.applications?.status || "interview_scheduled",
+      scheduledDate: inv.scheduled_date,
+      scheduledTime: inv.scheduled_time,
+      interviewType: inv.interview_type,
+      address: inv.address,
+      meetingLink: inv.meeting_url,
+      instructions: inv.instructions,
+      completedAt: inv.completed_at
+    };
+  });
+
+  if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") {
+    console.log(`[InterviewService] fetchInterviewsForEmployer strategy=two-step count=${enriched.length}`);
+  }
+
+  return { data: enriched, error: null };
 }
 
 /**
@@ -782,7 +875,7 @@ export async function fetchUpcomingInterviews(employerId) {
 
   let { data, error } = await supabase
     .from("interviews")
-    .select("*, jobs(title, employment_type, location)")
+    .select("*, jobs(title, employment_type, location), applications(status)")
     .eq("employer_id", employerId)
     .in("status", ["PENDING_CONFIRMATION", "CONFIRMED"])
     .order("scheduled_date", { ascending: true });
@@ -794,8 +887,14 @@ export async function fetchUpcomingInterviews(employerId) {
       .eq("employer_id", employerId)
       .in("status", ["PENDING_CONFIRMATION", "CONFIRMED"])
       .order("scheduled_date", { ascending: true });
-    return { data: fallback.data || [], error: null };
+    data = fallback.data;
   }
 
-  return { data: data || [], error: null };
+  // Exclude interviews belonging to terminal application outcomes (hired or rejected)
+  const activeUpcoming = (data || []).filter(inv => {
+    const appStatus = (inv.applications?.status || "").toLowerCase();
+    return appStatus !== "hired" && appStatus !== "rejected" && appStatus !== "accepted" && appStatus !== "withdrawn";
+  });
+
+  return { data: activeUpcoming, error: null };
 }
