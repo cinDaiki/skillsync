@@ -46,18 +46,21 @@ export default function AdminAuditLogs() {
     let bg = "#f1f5f9";
     let color = "#475569";
 
-    if (act.includes("APPROVED")) {
+    if (act.includes("APPROVED") || act.includes("RESTORED")) {
       bg = "#dcfce7";
       color = "#15803d";
     } else if (act.includes("REJECTED")) {
       bg = "#fee2e2";
       color = "#b91c1c";
     } else if (act.includes("SUSPENDED")) {
-      bg = "#450a0a";
-      color = "#ffffff";
+      bg = "#fee2e2";
+      color = "#991b1b";
     } else if (act.includes("RESUBMITTED")) {
       bg = "#fef3c7";
       color = "#b45309";
+    } else if (act.includes("UPDATED")) {
+      bg = "#e0f2fe";
+      color = "#0369a1";
     }
 
     return (
