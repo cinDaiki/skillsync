@@ -82,12 +82,12 @@ export async function fetchAdminJobseekers({ search = "", status = "all", verifi
 
     if (verificationStatus === "verified") {
       query = query.in("verification_status", ["Verified", "Approved"]);
-    } else if (verificationStatus === "pending") {
-      query = query.in("verification_status", ["Pending", "Pending Verification"]);
     } else if (verificationStatus === "under_review") {
       query = query.eq("verification_status", "Under Review");
     } else if (verificationStatus === "rejected") {
       query = query.eq("verification_status", "Rejected");
+    } else if (verificationStatus === "pending") {
+      query = query.or("verification_status.is.null,verification_status.eq.Pending Verification,verification_status.eq.Pending");
     }
 
     const { data: profiles, count, error: profileErr } = await query.range(from, to);
@@ -510,39 +510,54 @@ export async function updateUserProfile(userId, { fullName, email, contactNumber
  * Approves or Rejects a candidate's identity verification with reason and audit log
  */
 export async function updateCandidateVerification(userId, status, reasonNote = "") {
+  if (!userId) return { error: new Error("Candidate user ID is required") };
+
   try {
+    const isApproved = status === "Verified" || status === "Approved";
+    const isRejected = status === "Rejected";
+
     const profileUpdates = {
       verification_status: status,
       updated_at: new Date().toISOString()
     };
-    if (reasonNote) profileUpdates.verification_reason = reasonNote;
 
-    const { error: updateErr } = await supabase
+    if (isRejected && reasonNote) {
+      profileUpdates.verification_reason = reasonNote;
+    } else if (isApproved) {
+      profileUpdates.verification_reason = null;
+      profileUpdates.verification_date = new Date().toISOString();
+    }
+
+    let { error: updateErr } = await supabase
       .from("profiles")
       .update(profileUpdates)
       .eq("id", userId);
 
+    if (updateErr && updateErr.code === "42703") {
+      const basicUpdates = {
+        verification_status: status,
+        updated_at: new Date().toISOString()
+      };
+      ({ error: updateErr } = await supabase
+        .from("profiles")
+        .update(basicUpdates)
+        .eq("id", userId));
+    }
+
     if (updateErr) {
-      if (updateErr.code === "42703") {
-        const { error: retryErr } = await supabase
-          .from("profiles")
-          .update({ verification_status: status, updated_at: new Date().toISOString() })
-          .eq("id", userId);
-        if (retryErr) return { error: retryErr };
-      } else {
-        return { error: updateErr };
-      }
+      console.error("[AdminService] updateCandidateVerification error:", updateErr.message);
+      return { error: updateErr };
     }
 
     // Send candidate notification
-    if (status === "Verified" || status === "Approved") {
+    if (isApproved) {
       await addNotification(
         userId,
         "✅ Identity Verified!",
         "Your identity verification submission has been approved by our administration team. You can now apply for verified jobs across SkillSync.",
         "verification"
       ).catch(() => {});
-    } else if (status === "Rejected") {
+    } else if (isRejected) {
       await addNotification(
         userId,
         "❌ Verification Update",

@@ -694,8 +694,8 @@ export default function ManageJobseekers() {
                   padding: "6px 12px",
                   borderRadius: "6px",
                   border: "1px solid #cbd5e1",
-                  background: page >= totalPages ? "#f1f5f9" : "#fff",
-                  cursor: page >= totalPages ? "not-allowed" : "pointer",
+                  background: page <= 1 ? "#f1f5f9" : "#fff",
+                  cursor: page <= 1 ? "not-allowed" : "pointer",
                 }}
               >
                 Next

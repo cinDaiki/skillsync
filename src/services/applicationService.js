@@ -129,11 +129,63 @@ export async function syncApplicantSnapshot(userId) {
   }
 }
 export async function applyForJobWithSnapshot(jobId, applicantId) {
-  const snapshot = await buildApplicantSnapshot(applicantId);
+  // Normalize arguments in case called as (applicantId, jobId) vs (jobId, applicantId)
+  let realJobId = jobId;
+  let realApplicantId = applicantId;
+
+  // If first arg looks like a user ID or second arg looks like job object/string, normalize
+  const { data: { user } } = await supabase.auth.getUser();
+  const currentUserId = user?.id || null;
+
+  if (realJobId === currentUserId && realApplicantId && realApplicantId !== currentUserId) {
+    // Inverted arguments detected
+    realJobId = applicantId;
+    realApplicantId = jobId;
+  }
+  if (!realApplicantId) {
+    realApplicantId = currentUserId;
+  }
+
+  // 1. Central Enforcement: Fetch candidate profile verification_status & is_suspended
+  if (realApplicantId) {
+    const { data: profile, error: profileErr } = await supabase
+      .from("profiles")
+      .select("verification_status, is_suspended")
+      .eq("id", realApplicantId)
+      .maybeSingle();
+
+    if (profileErr) {
+      console.warn("[ApplicationService] Profile fetch warning:", profileErr.message);
+    }
+
+    // Check account suspension
+    if (profile?.is_suspended) {
+      const err = new Error("ACCOUNT_SUSPENDED: Your account has been suspended by an administrator. Application locked.");
+      err.code = "ACCOUNT_SUSPENDED";
+      return { data: null, error: err };
+    }
+
+    // Check identity verification
+    const vStatus = profile?.verification_status || "Pending Verification";
+    const isVerified = vStatus === "Verified" || vStatus === "Approved";
+
+    if (!isVerified) {
+      const err = new Error(
+        vStatus === "Under Review"
+          ? "IDENTITY_VERIFICATION_REQUIRED: Your identity verification is under administrator review. You can apply once approved."
+          : "IDENTITY_VERIFICATION_REQUIRED: Your identity must be verified before applying to jobs. Please complete ID verification in your Profile."
+      );
+      err.code = "IDENTITY_VERIFICATION_REQUIRED";
+      err.verificationStatus = vStatus;
+      return { data: null, error: err };
+    }
+  }
+
+  const snapshot = await buildApplicantSnapshot(realApplicantId);
 
   const payload = {
-    job_id: jobId,
-    applicant_id: applicantId,
+    job_id: realJobId,
+    applicant_id: realApplicantId,
     status: "applied",
     applicant_snapshot: snapshot,
   };
@@ -148,8 +200,8 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
     ({ data, error } = await supabase
       .from("applications")
       .insert([{
-        job_id: jobId,
-        applicant_id: applicantId,
+        job_id: realJobId,
+        applicant_id: realApplicantId,
         status: "applied",
       }])
       .select()

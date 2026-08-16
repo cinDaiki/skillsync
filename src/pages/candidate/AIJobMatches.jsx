@@ -43,6 +43,7 @@ export default function AIJobMatches() {
   const [hasResume,    setHasResume]    = useState(false)
   const [hasEmbedding, setHasEmbedding] = useState(false)
   const [applying,     setApplying]     = useState(null)  // job_id being applied to
+  const [verificationStatus, setVerificationStatus] = useState("Pending Verification")
 
   // Filter / search
   const [search,       setSearch]       = useState('')
@@ -58,6 +59,14 @@ export default function AIJobMatches() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setLoading(false); return }
     setUserId(user.id)
+
+    // Load user profile verification status
+    const { data: profRow } = await supabase
+      .from('profiles')
+      .select('verification_status')
+      .eq('id', user.id)
+      .maybeSingle()
+    setVerificationStatus(profRow?.verification_status || 'Pending Verification')
 
     // Check resume + embedding existence
     const { data: resumeRow } = await supabase
@@ -96,9 +105,17 @@ export default function AIJobMatches() {
   // ── Apply ───────────────────────────────────────────────────────────────────
   async function handleApply(job) {
     if (!userId || applying) return
+    if (verificationStatus !== "Verified" && verificationStatus !== "Approved") {
+      if (verificationStatus === "Under Review") {
+        toast.error("Your verification is under review. You can apply once the admin approves your identity.")
+      } else {
+        toast.error("Your identity must be verified before applying to jobs. Please complete ID verification in your Profile.")
+      }
+      return
+    }
     setApplying(job.id)
     try {
-      const { error } = await applyForJobWithSnapshot(userId, job.id)
+      const { error } = await applyForJobWithSnapshot(job.id, userId)
       if (error) {
         toast.error(error.message || 'Failed to apply.')
         return
