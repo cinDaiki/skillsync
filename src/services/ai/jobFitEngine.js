@@ -408,3 +408,66 @@ export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalize
     recommendedMicrocredentials
   };
 }
+
+/**
+ * Canonical Skill Gap Analysis Engine
+ * Evaluates candidate skill evidence against job requirements and returns
+ * structured matched, missing, transferable skills, alignment status, and recommended microcredentials.
+ *
+ * @param {object} candidate - { skills, extracted_skills, ... }
+ * @param {object} job       - { required_skills, ... }
+ * @returns {{
+ *   requiredSkills: string[],
+ *   candidateSkills: string[],
+ *   matchedSkills: string[],
+ *   missingSkills: string[],
+ *   matchedTransferable: string[],
+ *   alignmentStatus: 'full_alignment' | 'partial_alignment' | 'skills_gap' | 'analysis_unavailable',
+ *   microcredentials: Array<object>
+ * }}
+ */
+export function analyzeJobSkillGap(candidate = {}, job = {}) {
+  const rawCandSkills = candidate?.skills || candidate?.extracted_skills || candidate?.candidateSkills || [];
+  const rawJobSkills = job?.required_skills || job?.requirements || job?.skills || job?.requiredSkills || '';
+
+  const candSkills = parseSkillList(rawCandSkills);
+  const reqSkills = parseSkillList(rawJobSkills);
+
+  // If no structured required skills exist
+  if (reqSkills.length === 0) {
+    return {
+      requiredSkills: [],
+      candidateSkills: candSkills,
+      matchedSkills: [],
+      missingSkills: [],
+      matchedTransferable: [],
+      alignmentStatus: 'analysis_unavailable',
+      microcredentials: []
+    };
+  }
+
+  const skillsEval = evaluateSkills(candSkills, rawJobSkills);
+  const matched = skillsEval.matchedSkills || [];
+  const missing = skillsEval.missingSkills || [];
+
+  let alignmentStatus = 'analysis_unavailable';
+  if (missing.length === 0) {
+    alignmentStatus = 'full_alignment';
+  } else if (matched.length > 0) {
+    alignmentStatus = 'partial_alignment';
+  } else {
+    alignmentStatus = 'skills_gap';
+  }
+
+  const microcredentials = matchMicrocredentialsForMissingSkills(missing);
+
+  return {
+    requiredSkills: reqSkills,
+    candidateSkills: candSkills,
+    matchedSkills: matched,
+    missingSkills: missing,
+    matchedTransferable: skillsEval.matchedTransferable || [],
+    alignmentStatus,
+    microcredentials
+  };
+}

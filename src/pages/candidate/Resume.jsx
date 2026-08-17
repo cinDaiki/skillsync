@@ -533,6 +533,7 @@ export default function Resume() {
                   matching={matchingJobs}
                   hasResume={!!resumeFile}
                   verificationStatus={verificationStatus}
+                  candidate={{ skills: extractedSkills }}
                   applications={applications}
                   onApply={handleApplyJob}
                   applyingJobId={applyingJobId}
