@@ -62,17 +62,38 @@ function parseSkillList(raw) {
         return normalizeSkillName(s.normalized || s.canonicalName || s.name || '');
       }
       return normalizeSkillName(s);
-    }).filter(Boolean);
+    }).filter(s => s && s.length > 1);
   }
   if (typeof raw === 'string') {
     try {
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) return parseSkillList(arr);
     } catch {
-      return raw.split(',').map(s => normalizeSkillName(s.trim())).filter(Boolean);
+      return raw.split(',').map(s => normalizeSkillName(s.trim())).filter(s => s && s.length > 1);
     }
   }
   return [];
+}
+
+/**
+ * Safe Skill Matcher
+ * Strictly compares normalized skills without false single-character / partial substring matches.
+ */
+export function isSkillMatch(candSkill, reqSkill) {
+  if (!candSkill || !reqSkill) return false;
+  const c = normalizeSkillName(candSkill).trim();
+  const r = normalizeSkillName(reqSkill).trim();
+  if (!c || !r) return false;
+  if (c === r) return true;
+
+  // Ignore 1-letter or 2-letter partial matches unless exact
+  if (c.length < 3 || r.length < 3) return false;
+
+  const cClean = c.replace(/[\s\-_]/g, '');
+  const rClean = r.replace(/[\s\-_]/g, '');
+  if (cClean === rClean) return true;
+
+  return false;
 }
 
 function parseCertList(raw) {
@@ -126,23 +147,17 @@ export function evaluateSkills(candidateSkillsRaw, jobRequiredSkillsRaw) {
 
   // Evaluate All Required Skills
   reqSkills.forEach(req => {
-    const isMatched = candSkills.some(c => c.includes(req) || req.includes(c));
+    const isMatched = candSkills.some(c => isSkillMatch(c, req));
     if (isMatched) {
       matchedRequired.push(req);
     } else {
       missingRequired.push(req);
     }
-
-    if (CONTROLLED_TRANSFERABLE_SKILLS.has(req)) {
-      transferableJobSkills.push(req);
-    } else {
-      explicitJobSkills.push(req);
-    }
   });
 
   // Evaluate Transferable Skills
   transferableJobSkills.forEach(trans => {
-    const isMatched = candSkills.some(c => c.includes(trans) || trans.includes(c));
+    const isMatched = candSkills.some(c => isSkillMatch(c, trans));
     if (isMatched && !matchedTransferable.includes(trans)) {
       matchedTransferable.push(trans);
     }
@@ -406,5 +421,102 @@ export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalize
     strengths,
     gaps,
     recommendedMicrocredentials
+  };
+}
+
+/**
+ * Canonical Candidate Skill Evidence Aggregator
+ * Safely extracts, parses, and normalizes candidate skill evidence from candidate_profiles, profiles, and resumes.
+ *
+ * @param {object} candidateProfile - Row from candidate_profiles or profiles
+ * @param {object} resume           - Row from resumes or { extracted_skills }
+ * @returns {string[]} Deduplicated, normalized array of candidate skills
+ */
+export function getCandidateSkillEvidence(candidateProfile = null, resume = null) {
+  const allRaw = [];
+
+  if (candidateProfile) {
+    if (candidateProfile.skills) allRaw.push(candidateProfile.skills);
+    if (candidateProfile.extracted_skills) allRaw.push(candidateProfile.extracted_skills);
+    if (candidateProfile.candidateSkills) allRaw.push(candidateProfile.candidateSkills);
+  }
+
+  if (resume) {
+    if (resume.extracted_skills) allRaw.push(resume.extracted_skills);
+    if (resume.skills) allRaw.push(resume.skills);
+  }
+
+  const combined = [];
+  allRaw.forEach(raw => {
+    const parsed = parseSkillList(raw);
+    parsed.forEach(s => {
+      if (s && typeof s === 'string' && s.length > 1 && !combined.includes(s)) {
+        combined.push(s);
+      }
+    });
+  });
+
+  return combined;
+}
+
+/**
+ * Canonical Skill Gap Analysis Engine
+ * Evaluates candidate skill evidence against job requirements and returns
+ * structured matched, missing, transferable skills, alignment status, and recommended microcredentials.
+ *
+ * @param {object} candidate - { skills, extracted_skills, ... }
+ * @param {object} job       - { required_skills, ... }
+ * @returns {{
+ *   requiredSkills: string[],
+ *   candidateSkills: string[],
+ *   matchedSkills: string[],
+ *   missingSkills: string[],
+ *   matchedTransferable: string[],
+ *   alignmentStatus: 'full_alignment' | 'partial_alignment' | 'skills_gap' | 'analysis_unavailable',
+ *   microcredentials: Array<object>
+ * }}
+ */
+export function analyzeJobSkillGap(candidate = {}, job = {}) {
+  const candSkills = getCandidateSkillEvidence(candidate);
+  const rawJobSkills = job?.required_skills || job?.requirements || job?.skills || job?.requiredSkills || '';
+
+  const reqSkills = parseSkillList(rawJobSkills);
+
+  // If no structured required skills exist
+  if (reqSkills.length === 0) {
+    return {
+      requiredSkills: [],
+      candidateSkills: candSkills,
+      matchedSkills: [],
+      missingSkills: [],
+      matchedTransferable: [],
+      alignmentStatus: 'analysis_unavailable',
+      microcredentials: []
+    };
+  }
+
+  const skillsEval = evaluateSkills(candSkills, rawJobSkills);
+  const matched = skillsEval.matchedSkills || [];
+  const missing = skillsEval.missingSkills || [];
+
+  let alignmentStatus = 'analysis_unavailable';
+  if (missing.length === 0) {
+    alignmentStatus = 'full_alignment';
+  } else if (matched.length > 0) {
+    alignmentStatus = 'partial_alignment';
+  } else {
+    alignmentStatus = 'skills_gap';
+  }
+
+  const microcredentials = matchMicrocredentialsForMissingSkills(missing);
+
+  return {
+    requiredSkills: reqSkills,
+    candidateSkills: candSkills,
+    matchedSkills: matched,
+    missingSkills: missing,
+    matchedTransferable: skillsEval.matchedTransferable || [],
+    alignmentStatus,
+    microcredentials
   };
 }

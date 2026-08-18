@@ -7,7 +7,8 @@ import { triggerSimulationNotification } from "../../services/notificationServic
 import { useToast } from "../../contexts/ToastContext";
 import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
 import { parseJobRequirements } from "../../utils/jobRequirementsHelper";
-import { matchMicrocredentialsForMissingSkills } from "../../services/microcredentialService";
+import SkillGapAnalysis from "../../components/candidate/SkillGapAnalysis";
+import { getCandidateSkillEvidence } from "../../services/ai/jobFitEngine";
 import "./JobMatches.css";
 
 function formatPostedDate(dateStr) {
@@ -36,6 +37,7 @@ export default function JobMatches() {
   // Candidate status
   const [hasResume, setHasResume] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState("Pending Verification");
+  const [candidateProfile, setCandidateProfile] = useState(null);
 
   // Filtering & Search
   const [searchTerm, setSearchTerm] = useState("");
@@ -62,13 +64,26 @@ export default function JobMatches() {
     if (user) {
       setUserId(user.id);
 
-      // 1. Check resume existence
+      // 1. Check resume existence & candidate skills
       const { data: resumeRow } = await supabase
         .from("resumes")
-        .select("id")
+        .select("id, extracted_skills")
         .eq("applicant_id", user.id)
         .maybeSingle();
       setHasResume(!!resumeRow);
+
+      const { data: candProfRow } = await supabase
+        .from("candidate_profiles")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const candidateSkills = getCandidateSkillEvidence(candProfRow, resumeRow);
+
+      setCandidateProfile({
+        ...(candProfRow || {}),
+        skills: candidateSkills
+      });
 
       if (resumeRow) {
         // Trigger background refresh of candidate recommendations against latest open jobs
@@ -567,180 +582,14 @@ export default function JobMatches() {
 
                 {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
                 {(() => {
-                  const microList = (selectedJob.microCredentials && selectedJob.microCredentials.length > 0)
-                    ? selectedJob.microCredentials
-                    : matchMicrocredentialsForMissingSkills(selectedJob.missingSkills || []);
-
-                  const matchedSkillsList = selectedJob.matchedSkills || [];
-                  const missingSkillsList = selectedJob.missingSkills || [];
-
-                  return (
-                    <div style={{ background: "#f8fafc", padding: "16px 20px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
-                      <h4 style={{ color: "#1e1b4b", margin: "0 0 12px 0", fontSize: "15px", fontWeight: "800", display: "flex", alignItems: "center", gap: "8px" }}>
-                        🧠 Skill Gap Analysis & Microcredentials
-                      </h4>
-
-                      {/* Skills You Have vs Skills You're Missing */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "8px" }}>
-                        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "12px", borderRadius: "8px" }}>
-                          <strong style={{ fontSize: "12px", color: "#15803d", display: "block", marginBottom: "6px" }}>
-                            ✓ Skills You Have ({matchedSkillsList.length})
-                          </strong>
-                          {matchedSkillsList.length > 0 ? (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                              {matchedSkillsList.map(s => (
-                                <span key={s} style={{ background: "#dcfce7", color: "#166534", fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "12px" }}>
-                                  ✓ {s}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: "12px", color: "#64748b" }}>No direct required skill matches identified.</span>
-                          )}
-                        </div>
-
-                        <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", padding: "12px", borderRadius: "8px" }}>
-                          <strong style={{ fontSize: "12px", color: "#be123c", display: "block", marginBottom: "6px" }}>
-                            ⚠ Skills You're Missing ({missingSkillsList.length})
-                          </strong>
-                          {missingSkillsList.length > 0 ? (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                              {missingSkillsList.map(s => (
-                                <span key={s} style={{ background: "#ffe4e6", color: "#9f1239", fontSize: "11px", fontWeight: "600", padding: "3px 8px", borderRadius: "12px" }}>
-                                  ⚠ {s}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <div style={{ color: "#15803d", fontSize: "12px", fontWeight: "600" }}>
-                              🎉 Your current skills cover the identified requirements for this role.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Zero Gap Notification */}
-                      {missingSkillsList.length === 0 && (
-                        <div style={{ marginTop: "14px", padding: "12px 16px", borderRadius: "8px", background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534", fontSize: "13px" }}>
-                          🎉 <strong>Full Skill Alignment:</strong> Your current skills cover all identified requirements for this role. No skill-gap microcredentials are currently recommended.
-                        </div>
-                      )}
-
-                      {/* Recommended Credentials Section */}
-                      {microList.length > 0 && (
-                        <div style={{ marginTop: "16px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                            <strong style={{ fontSize: "14px", color: "#1e1b4b" }}>
-                              🎓 Recommended Credentials to Close Skill Gaps
-                            </strong>
-                            <span style={{ fontSize: "11px", color: "#64748b", background: "#f1f5f9", padding: "3px 8px", borderRadius: "12px", fontWeight: "600" }}>
-                              {microList.length} verified program{microList.length > 1 ? "s" : ""}
-                            </span>
-                          </div>
-
-                          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                            {microList.map((mc, mIdx) => {
-                              const coveredGaps = mc.coveredSkills || (mc.skill_name ? [mc.skill_name] : []);
-                              const hasUrl = mc.url && mc.url !== '#' && mc.url.startsWith('http');
-                              const formatType = (mc.credentialType || "Course").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-
-                              let sourceBg = "#e0f2fe";
-                              let sourceColor = "#0369a1";
-                              let sourceBorder = "#bae6fd";
-                              if (mc.sourceType === "tesda") {
-                                sourceBg = "#fef3c7";
-                                sourceColor = "#92400e";
-                                sourceBorder = "#fde68a";
-                              } else if (mc.sourceType === "industry_provider") {
-                                sourceBg = "#f3e8ff";
-                                sourceColor = "#6b21a8";
-                                sourceBorder = "#e9d5ff";
-                              } else if (mc.sourceType === "open_badge") {
-                                sourceBg = "#dcfce7";
-                                sourceColor = "#166534";
-                                sourceBorder = "#bbf7d0";
-                              }
-
-                              return (
-                                <div key={mc.id || mIdx} style={{ background: "#ffffff", border: "1px solid #cbd5e1", padding: "14px 16px", borderRadius: "10px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap" }}>
-                                    <div style={{ flex: 1, minWidth: "260px" }}>
-                                      <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", marginBottom: "6px" }}>
-                                        <span style={{ fontSize: "11px", fontWeight: "700", background: sourceBg, color: sourceColor, border: `1px solid ${sourceBorder}`, padding: "2px 8px", borderRadius: "4px" }}>
-                                          🏛️ {mc.provider}
-                                        </span>
-                                        <span style={{ fontSize: "11px", fontWeight: "600", background: "#f1f5f9", color: "#475569", padding: "2px 8px", borderRadius: "4px" }}>
-                                          📋 {formatType}
-                                        </span>
-                                        {mc.level && (
-                                          <span style={{ fontSize: "11px", color: "#64748b", background: "#f8fafc", padding: "2px 6px", borderRadius: "4px" }}>
-                                            📊 {mc.level}
-                                          </span>
-                                        )}
-                                      </div>
-
-                                      <h5 style={{ margin: "2px 0 6px 0", fontSize: "14px", fontWeight: "700", color: "#0f172a" }}>
-                                        {mc.badge || "🎓"} {mc.title}
-                                      </h5>
-
-                                      <p style={{ margin: "0 0 8px 0", fontSize: "12px", color: "#475569", lineHeight: "1.4" }}>
-                                        {mc.description}
-                                      </p>
-
-                                      {coveredGaps.length > 0 && (
-                                        <div style={{ marginTop: "6px", background: "#faf5ff", border: "1px solid #f3e8ff", padding: "6px 10px", borderRadius: "6px" }}>
-                                          <span style={{ fontSize: "11px", fontWeight: "700", color: "#6b21a8", display: "block", marginBottom: "4px" }}>
-                                            🎯 Helps close ({coveredGaps.length} missing skill{coveredGaps.length > 1 ? "s" : ""}):
-                                          </span>
-                                          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                                            {coveredGaps.map(g => (
-                                              <span key={g} style={{ background: "#ede9fe", color: "#581c87", padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: "600" }}>
-                                                {g}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "11px", color: "#64748b", marginTop: "8px" }}>
-                                        {mc.duration && <span>⏱️ Duration: <strong>{mc.duration}</strong></span>}
-                                        {mc.issuer && mc.issuer !== mc.provider && <span>🏢 Issuer: <strong>{mc.issuer}</strong></span>}
-                                      </div>
-                                    </div>
-
-                                    <div style={{ alignSelf: "center" }}>
-                                      {hasUrl ? (
-                                        <a
-                                          href={mc.url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="job-apply-primary"
-                                          style={{ fontSize: "12px", padding: "8px 14px", textDecoration: "none", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "4px", fontWeight: "700" }}
-                                        >
-                                          View Credential ↗
-                                        </a>
-                                      ) : (
-                                        <span style={{ fontSize: "11px", color: "#94a3b8", fontStyle: "italic" }}>
-                                          Official credential link currently unavailable.
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Missing skills with zero credential matches */}
-                      {missingSkillsList.length > 0 && microList.length === 0 && (
-                        <p style={{ fontSize: "12px", color: "#64748b", fontStyle: "italic", marginTop: "12px", margin: "12px 0 0 0" }}>
-                          No verified credential recommendation is currently available for this skill.
-                        </p>
-                      )}
-                    </div>
-                  );
+                  console.log('[SkillGapInput]', {
+                    surface: 'marketplace',
+                    candidateId: userId,
+                    candidateSkills: candidateProfile?.skills || [],
+                    jobId: selectedJob?.id,
+                    jobRequiredSkills: selectedJob?.required_skills || ''
+                  });
+                  return <SkillGapAnalysis job={selectedJob} candidate={candidateProfile} />;
                 })()}
 
               </div>
