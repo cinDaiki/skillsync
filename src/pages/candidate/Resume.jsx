@@ -14,6 +14,7 @@ import { applyForJobWithSnapshot }                 from "../../services/applicat
 import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
 import { useToast }                                from "../../contexts/ToastContext";
 import ErrorBoundary                               from "../../components/guards/ErrorBoundary.jsx";
+import { getCandidateSkillEvidence }               from "../../services/ai/jobFitEngine";
 import "./Resume.css";
 
 // Lazy-loaded sub-components for Phase 6 modular UI
@@ -86,13 +87,15 @@ export default function Resume() {
     if (!user) return;
     setUserId(user.id);
 
-    const { data } = await getResume(user.id);
-    if (data) {
-      setResumeFile(data);
-      const skillsList = data.extracted_skills
-        ? data.extracted_skills.split(",").map(s => s.trim()).filter(Boolean)
-        : [];
-      setExtractedSkills(skillsList);
+    const [{ data }, { data: candProfRow }] = await Promise.all([
+      getResume(user.id),
+      supabase.from("candidate_profiles").select("*").eq("user_id", user.id).maybeSingle()
+    ]);
+
+    if (data || candProfRow) {
+      if (data) setResumeFile(data);
+      const candidateSkills = getCandidateSkillEvidence(candProfRow, data);
+      setExtractedSkills(candidateSkills);
     }
 
     // Load simulated upload history from localStorage

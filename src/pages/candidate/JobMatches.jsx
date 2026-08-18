@@ -8,6 +8,7 @@ import { useToast } from "../../contexts/ToastContext";
 import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
 import { parseJobRequirements } from "../../utils/jobRequirementsHelper";
 import SkillGapAnalysis from "../../components/candidate/SkillGapAnalysis";
+import { getCandidateSkillEvidence } from "../../services/ai/jobFitEngine";
 import "./JobMatches.css";
 
 function formatPostedDate(dateStr) {
@@ -77,14 +78,11 @@ export default function JobMatches() {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      const combinedSkills = [
-        ...(candProfRow?.skills || []),
-        ...(resumeRow?.extracted_skills ? resumeRow.extracted_skills.split(",").map(s => s.trim()).filter(Boolean) : [])
-      ];
+      const candidateSkills = getCandidateSkillEvidence(candProfRow, resumeRow);
 
       setCandidateProfile({
         ...(candProfRow || {}),
-        skills: Array.from(new Set(combinedSkills))
+        skills: candidateSkills
       });
 
       if (resumeRow) {
@@ -583,7 +581,16 @@ export default function JobMatches() {
                 </div>
 
                 {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
-                <SkillGapAnalysis job={selectedJob} candidate={candidateProfile} />
+                {(() => {
+                  console.log('[SkillGapInput]', {
+                    surface: 'marketplace',
+                    candidateId: userId,
+                    candidateSkills: candidateProfile?.skills || [],
+                    jobId: selectedJob?.id,
+                    jobRequiredSkills: selectedJob?.required_skills || ''
+                  });
+                  return <SkillGapAnalysis job={selectedJob} candidate={candidateProfile} />;
+                })()}
 
               </div>
 

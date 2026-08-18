@@ -532,7 +532,15 @@ export default function RecommendedJobs({
                 </div>
 
                 {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
-                <SkillGapAnalysis job={selectedJob} candidate={candidate} />
+                {(() => {
+                  console.log('[SkillGapInput]', {
+                    surface: 'recommended',
+                    candidateSkills: candidate?.skills || [],
+                    jobId: selectedJob?.id,
+                    jobRequiredSkills: selectedJob?.required_skills || ''
+                  });
+                  return <SkillGapAnalysis job={selectedJob} candidate={candidate} />;
+                })()}
 
               </div>
 
