@@ -1,6 +1,7 @@
 import { supabase } from "./supabase.js";
 import { addNotification } from "./notificationService.js";
 import { logAdminAction } from "./adminService.js";
+import { isEmployerSuspended } from "./jobAvailability.js";
 
 /**
  * SkillSync — Interview Invitation, Candidate Confirmation & Hiring Workflow Service Layer
@@ -203,6 +204,25 @@ export async function respondToInterview({
   const currentStatus = interview.status;
   if (currentStatus === "CANCELLED" || currentStatus === "COMPLETED" || currentStatus === "DECLINED") {
     return { data: null, error: new Error(`Cannot respond to an interview with status: ${currentStatus}`) };
+  }
+
+  // Phase 1.5 Safety Gate: Check whether employer is suspended
+  if (interview.employer_id) {
+    const { data: employerProfile, error: empErr } = await supabase
+      .from("profiles")
+      .select("id, is_suspended, verification_status")
+      .eq("id", interview.employer_id)
+      .maybeSingle();
+
+    if (empErr) {
+      console.warn("[InterviewService] Employer profile fetch warning:", empErr.message);
+    }
+
+    if (isEmployerSuspended(employerProfile)) {
+      const err = new Error("Interview actions are temporarily unavailable while this recruitment process is paused.");
+      err.code = "EMPLOYER_SUSPENDED";
+      return { data: null, error: err };
+    }
   }
 
   const { error: rpcErr } = await supabase.rpc("candidate_respond_interview", {

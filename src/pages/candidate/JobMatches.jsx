@@ -9,6 +9,7 @@ import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } fro
 import { parseJobRequirements } from "../../utils/jobRequirementsHelper";
 import SkillGapAnalysis from "../../components/candidate/SkillGapAnalysis";
 import { getCandidateSkillEvidence } from "../../services/ai/jobFitEngine";
+import { isEmployerSuspended, fetchSuspendedEmployerIds, filterAvailableJobs } from "../../services/jobAvailability";
 import "./JobMatches.css";
 
 function formatPostedDate(dateStr) {
@@ -128,29 +129,35 @@ export default function JobMatches() {
 
       let profMap = new Map();
       let empProfMap = new Map();
+      let suspendedEmployerSet = new Set();
 
       if (empIds.length > 0) {
-        const { data: profs } = await supabase
-          .from("profiles")
-          .select("id, full_name, email, verification_status, is_suspended")
-          .in("id", empIds);
-
-        const { data: empProfs } = await supabase
-          .from("employer_profiles")
-          .select("id, company_name, location, industry, website, company_logo_url, verification_status")
-          .in("id", empIds);
+        const [{ data: profs }, { data: empProfs }, suspendedSet] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("id, full_name, email, verification_status, is_suspended")
+            .in("id", empIds),
+          supabase
+            .from("employer_profiles")
+            .select("id, company_name, location, industry, website, company_logo_url, verification_status")
+            .in("id", empIds),
+          fetchSuspendedEmployerIds(supabase, empIds)
+        ]);
 
         profMap = new Map((profs || []).map((p) => [p.id, p]));
         empProfMap = new Map((empProfs || []).map((ep) => [ep.id, ep]));
+        suspendedEmployerSet = suspendedSet;
       }
 
-      // Filter strictly for open jobs from Approved or Verified employers
-      const validJobs = rawJobs
+      // Filter strictly for open jobs from non-suspended, Approved or Verified employers
+      const availableJobs = filterAvailableJobs(rawJobs, suspendedEmployerSet);
+
+      const validJobs = availableJobs
         .filter((j) => {
           const p = profMap.get(j.employer_id);
           const ep = empProfMap.get(j.employer_id);
 
-          if (p?.is_suspended) return false;
+          if (isEmployerSuspended(p)) return false;
 
           const verificationStatus = ep?.verification_status || p?.verification_status || "Approved";
           return verificationStatus === "Approved" || verificationStatus === "Verified";

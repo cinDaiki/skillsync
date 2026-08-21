@@ -2,6 +2,7 @@ import { supabase } from "./supabase.js";
 import { normalizeSkillName, normalizeDegree } from "./normalization.js";
 import { SEMANTIC_MATCHING_CONFIG } from "./ai/semanticMatchingConfig.js";
 import { calculateJobFit } from "./ai/jobFitEngine.js";
+import { fetchSuspendedEmployerIds, filterAvailableJobs } from "./jobAvailability.js";
 
 /**
  * Normalizes an array or CSV string of skills into an array of lowercase strings
@@ -102,11 +103,19 @@ export async function runMatchingForCandidate(userId) {
       return;
     }
 
-    console.log("Jobs Found", jobs.length);
+    const employerIds = jobs.map((j) => j.employer_id).filter(Boolean);
+    const suspendedSet = await fetchSuspendedEmployerIds(supabase, employerIds);
+    const availableJobs = filterAvailableJobs(jobs, suspendedSet);
+    if (availableJobs.length === 0) {
+      console.log("No open jobs from non-suspended employers found.");
+      return;
+    }
+
+    console.log("Jobs Found", availableJobs.length);
 
     const upserts = [];
 
-    for (const job of jobs) {
+    for (const job of availableJobs) {
       try {
         const matchResult = calculateMatch(profile, job);
         upserts.push({

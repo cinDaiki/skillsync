@@ -191,6 +191,28 @@ export default function ApplicationDetailModal({
           </div>
 
           {/* 3. Stage Status Narrative / Banner */}
+          {application.isEmployerSuspended && !stageInfo.isTerminal && (
+            <div
+              className="employer-paused-modal-banner"
+              style={{
+                margin: "0 0 16px",
+                padding: "12px 16px",
+                background: "#fffbeb",
+                borderRadius: "12px",
+                border: "1px solid #fde68a",
+                color: "#92400e",
+                fontSize: "13px",
+              }}
+            >
+              <div style={{ fontWeight: "700", display: "flex", alignItems: "center", gap: "6px", color: "#78350f" }}>
+                <span>⚠️</span> Employer Temporarily Unavailable
+              </div>
+              <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#b45309" }}>
+                This recruitment process is temporarily paused. Your application and interview records are preserved.
+              </p>
+            </div>
+          )}
+
           {stageInfo.isHired && (
             <div className="cand-decision-banner hired">
               <h4>🎉 Congratulations! You Have Been Selected</h4>
@@ -286,34 +308,51 @@ export default function ApplicationDetailModal({
 
                 {/* Candidate Action Buttons for Pending Confirmation */}
                 {invStatus === "PENDING_CONFIRMATION" && (
-                  <div className="cand-inv-action-toolbar">
-                    <p className="toolbar-notice">
-                      ⚠️ An employer has proposed an interview schedule. Please confirm whether you can attend.
-                    </p>
-                    <div className="toolbar-btns">
-                      <button
-                        type="button"
-                        className="cand-btn accept"
-                        onClick={() => onAcceptInterview(interview)}
-                      >
-                        ✓ Confirm Attendance
-                      </button>
-                      <button
-                        type="button"
-                        className="cand-btn reschedule"
-                        onClick={() => onOpenResponseModal(interview, "RESCHEDULE")}
-                      >
-                        🔄 Request New Time
-                      </button>
-                      <button
-                        type="button"
-                        className="cand-btn decline"
-                        onClick={() => onOpenResponseModal(interview, "DECLINE")}
-                      >
-                        ✕ Decline
-                      </button>
+                  application.isEmployerSuspended ? (
+                    <div
+                      className="cand-inv-paused-box"
+                      style={{
+                        marginTop: "14px",
+                        padding: "10px 14px",
+                        background: "#f1f5f9",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        color: "#475569",
+                        fontSize: "13px",
+                      }}
+                    >
+                      🔒 Interview actions are temporarily unavailable while this recruitment process is paused.
                     </div>
-                  </div>
+                  ) : (
+                    <div className="cand-inv-action-toolbar">
+                      <p className="toolbar-notice">
+                        ⚠️ An employer has proposed an interview schedule. Please confirm whether you can attend.
+                      </p>
+                      <div className="toolbar-btns">
+                        <button
+                          type="button"
+                          className="cand-btn accept"
+                          onClick={() => onAcceptInterview(interview)}
+                        >
+                          ✓ Confirm Attendance
+                        </button>
+                        <button
+                          type="button"
+                          className="cand-btn reschedule"
+                          onClick={() => onOpenResponseModal(interview, "RESCHEDULE")}
+                        >
+                          🔄 Request New Time
+                        </button>
+                        <button
+                          type="button"
+                          className="cand-btn decline"
+                          onClick={() => onOpenResponseModal(interview, "DECLINE")}
+                        >
+                          ✕ Decline
+                        </button>
+                      </div>
+                    </div>
+                  )
                 )}
 
                 {/* Confirmed State */}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../../services/supabase";
+import { fetchSuspendedEmployerIds, filterAvailableJobs } from "../../services/jobAvailability";
 import "./BrowseJobs.css";
 
 export default function BrowseJobs() {
@@ -75,7 +76,11 @@ export default function BrowseJobs() {
         );
         setJobs([]);
       } else {
-        setJobs(data || []);
+        const rawJobs = data || [];
+        const employerIds = rawJobs.map((j) => j.employer_id).filter(Boolean);
+        const suspendedSet = await fetchSuspendedEmployerIds(supabase, employerIds);
+        const availableJobs = filterAvailableJobs(rawJobs, suspendedSet);
+        setJobs(availableJobs);
       }
 
       setLoading(false);

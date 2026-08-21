@@ -8,6 +8,7 @@ import {
   markAllAsRead, 
   clearAllNotifications 
 } from "../../services/notificationService";
+import { fetchSuspendedEmployerIds, filterAvailableJobs } from "../../services/jobAvailability";
 import "./CandidateDashboard.css";
 
 export default function CandidateDashboard() {
@@ -54,7 +55,11 @@ export default function CandidateDashboard() {
       .from("jobs")
       .select("*")
       .eq("status", "open");
-    setJobs(jobsData || []);
+    const rawJobs = jobsData || [];
+    const employerIds = rawJobs.map((j) => j.employer_id).filter(Boolean);
+    const suspendedSet = await fetchSuspendedEmployerIds(supabase, employerIds);
+    const availableJobs = filterAvailableJobs(rawJobs, suspendedSet);
+    setJobs(availableJobs);
 
     // 4. Fetch Applications
     const { data: appsData, error: appsError } = await supabase

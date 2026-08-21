@@ -16,6 +16,7 @@ import { normalizeSkillName }           from '../normalization.js'
 import { SEMANTIC_MATCHING_CONFIG }    from './semanticMatchingConfig.js'
 import { calculateJobFit }             from './jobFitEngine.js'
 import { ensureOpenJobEmbeddings }     from './embeddingService.js'
+import { fetchSuspendedEmployerIds, filterAvailableJobs } from '../jobAvailability.js'
 
 /**
  * In-memory request deduplication maps.
@@ -126,6 +127,13 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
         jobs = openJobs || []
       }
 
+      // Filter out open jobs from suspended employers
+      if (jobs && jobs.length > 0) {
+        const employerIds = jobs.map(j => j.employer_id).filter(Boolean);
+        const suspendedSet = await fetchSuspendedEmployerIds(supabase, employerIds);
+        jobs = filterAvailableJobs(jobs, suspendedSet);
+      }
+
       const tFetchStart = performance.now();
       const { data: candidateProfile } = await supabase
         .from('candidate_profiles')
@@ -135,7 +143,7 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
       const dFetch = performance.now() - tFetchStart;
 
       if (!jobs || !jobs.length) {
-        console.log('[SemanticMatching] Job details not found.')
+        console.log('[SemanticMatching] Job details not found or all employers suspended.')
         return
       }
 
@@ -258,8 +266,12 @@ export async function fetchSemanticMatchesForCandidate(userId) {
     return []
   }
 
-  return (data || [])
-    .filter(m => m.jobs?.status === 'open')
+  const rawMatches = (data || []).filter(m => m.jobs?.status === 'open');
+  const employerIds = rawMatches.map(m => m.jobs?.employer_id).filter(Boolean);
+  const suspendedSet = await fetchSuspendedEmployerIds(supabase, employerIds);
+
+  return rawMatches
+    .filter(m => !suspendedSet.has(m.jobs?.employer_id))
     .map((m, idx) => ({
       ...m.jobs,
       rank:            idx + 1,
