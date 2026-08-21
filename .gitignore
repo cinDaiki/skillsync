@@ -22,6 +22,8 @@ Thumbs.db
 # Scratch / local tooling
 scratch/
 .tools/
+supabase/.temp/
+supabase/.branches/
 
 # Secrets
 *.pem

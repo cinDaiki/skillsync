@@ -1,5 +1,6 @@
 import { supabase } from "./supabase.js";
 import { getResume } from "./api.js";
+import { isEmployerSuspended, fetchSuspendedEmployerIds } from "./jobAvailability.js";
 
 function withTimeout(promise, ms = 6000) {
   return Promise.race([
@@ -181,8 +182,76 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
     }
   }
 
+  // Final Safety Gate: Validate Job Existence & Employer Suspension
+  if (!realJobId) {
+    const err = new Error("INVALID_JOB: Job ID is required.");
+    err.code = "INVALID_JOB";
+    return { data: null, error: err };
+  }
+
+  // Fetch job record. (Note: Database RLS hides open jobs belonging to suspended employers, returning jobData: null)
+  const { data: jobData, error: jobErr } = await supabase
+    .from("jobs")
+    .select("id, employer_id, status")
+    .eq("id", realJobId)
+    .maybeSingle();
+
+  if (jobErr) {
+    console.warn("[ApplicationService] Job fetch warning:", jobErr.message);
+  }
+
+  // If job is missing, closed, hidden by RLS, or missing employer_id:
+  if (!jobData || jobData.status !== "open" || !jobData.employer_id) {
+    const err = new Error("This position is temporarily unavailable for applications.");
+    err.code = "EMPLOYER_SUSPENDED";
+    return { data: null, error: err };
+  }
+
+  // Authoritative check on employer profile and suspension status
+  const [{ data: employerProfile, error: empErr }, suspendedSet] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, is_suspended, verification_status")
+      .eq("id", jobData.employer_id)
+      .maybeSingle(),
+    fetchSuspendedEmployerIds(supabase, [jobData.employer_id])
+  ]);
+
+  if (empErr) {
+    console.warn("[ApplicationService] Employer profile fetch warning:", empErr.message);
+  }
+
+  if (isEmployerSuspended(employerProfile) || suspendedSet.has(jobData.employer_id)) {
+    const err = new Error("This position is temporarily unavailable for applications.");
+    err.code = "EMPLOYER_SUSPENDED";
+    return { data: null, error: err };
+  }
+
   const snapshot = await buildApplicantSnapshot(realApplicantId);
 
+  // 1. Try secure RPC submission (atomic database safety gate)
+  const { data: rpcData, error: rpcError } = await supabase.rpc("submit_job_application", {
+    p_job_id: realJobId,
+    p_applicant_id: realApplicantId,
+    p_applicant_snapshot: snapshot
+  });
+
+  if (!rpcError && rpcData) {
+    return { data: rpcData, error: null };
+  }
+
+  if (rpcError && !rpcError.message?.includes("function") && !rpcError.message?.includes("does not exist") && !rpcError.message?.includes("not found")) {
+    const isSuspended = rpcError.message?.includes("EMPLOYER_SUSPENDED") || rpcError.message?.includes("ACCOUNT_SUSPENDED");
+    const err = new Error(
+      isSuspended || rpcError.message?.includes("JOB_UNAVAILABLE")
+        ? "This position is temporarily unavailable for applications."
+        : rpcError.message
+    );
+    err.code = isSuspended ? "EMPLOYER_SUSPENDED" : "APPLICATION_FAILED";
+    return { data: null, error: err };
+  }
+
+  // 2. Direct table insert fallback (if RPC is not yet deployed)
   const payload = {
     job_id: realJobId,
     applicant_id: realApplicantId,

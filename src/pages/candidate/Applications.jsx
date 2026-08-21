@@ -12,6 +12,7 @@ import {
   deduplicateByApplicationId,
   isTerminalApplication,
 } from "../../services/recruitmentStatus";
+import { fetchSuspendedEmployerIds } from "../../services/jobAvailability";
 import "./Applications.css";
 
 function formatDate(dateString) {
@@ -79,14 +80,20 @@ export default function Applications() {
 
       const employerIds = [...new Set((jobsData || []).map((j) => j.employer_id).filter(Boolean))];
       let empMap = {};
+      let suspendedSet = new Set();
       if (employerIds.length > 0) {
-        const { data: empProfiles } = await supabase
-          .from("employer_profiles")
-          .select("id, company_name, company_logo_url")
-          .in("id", employerIds);
+        const [{ data: empProfiles }, suspendedEmployerSet] = await Promise.all([
+          supabase
+            .from("employer_profiles")
+            .select("id, company_name, company_logo_url")
+            .in("id", employerIds),
+          fetchSuspendedEmployerIds(supabase, employerIds)
+        ]);
+
         (empProfiles || []).forEach((ep) => {
           empMap[ep.id] = ep;
         });
+        suspendedSet = suspendedEmployerSet;
       }
 
       (jobsData || []).forEach((j) => {
@@ -94,6 +101,7 @@ export default function Applications() {
           ...j,
           company_name: empMap[j.employer_id]?.company_name || "Employer Company",
           company_logo_url: empMap[j.employer_id]?.company_logo_url || null,
+          is_employer_suspended: suspendedSet.has(j.employer_id),
         };
       });
     }
@@ -101,6 +109,7 @@ export default function Applications() {
     const enriched = dedupedApps.map((app) => ({
       ...app,
       jobs: jobMap[app.job_id] || null,
+      isEmployerSuspended: Boolean(jobMap[app.job_id]?.is_employer_suspended),
     }));
 
     setApplications(enriched);
@@ -376,6 +385,33 @@ export default function Applications() {
                   {/* Short Status Message */}
                   {!stageInfo.actionIndicator && (
                     <p className="app-card-status-text">{stageInfo.statusMessage}</p>
+                  )}
+
+                  {/* Recruitment Paused Notice */}
+                  {app.isEmployerSuspended && (
+                    <div
+                      className="employer-paused-banner"
+                      style={{
+                        margin: "12px 0 6px",
+                        padding: "10px 14px",
+                        background: "#fffbeb",
+                        border: "1px solid #fde68a",
+                        borderRadius: "10px",
+                        color: "#92400e",
+                        fontSize: "13px",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: "8px",
+                      }}
+                    >
+                      <span style={{ fontSize: "15px", lineHeight: 1.2 }}>⚠️</span>
+                      <div>
+                        <strong style={{ display: "block", color: "#78350f" }}>Employer Temporarily Unavailable</strong>
+                        <span style={{ fontSize: "12px", color: "#b45309" }}>
+                          This recruitment process is temporarily paused. Your application and interview records are preserved.
+                        </span>
+                      </div>
+                    </div>
                   )}
 
                   {/* Actions Toolbar */}

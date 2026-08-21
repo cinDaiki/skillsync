@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { applyForJobWithSnapshot } from './applicationService'
 
 // Get all open jobs
 export const getJobs = async () => {
@@ -27,16 +28,9 @@ export const createJob = async (jobData) => {
   return { data, error }
 }
 
-// Apply for a job (job seeker)
+// Apply for a job (job seeker) - routed through canonical guarded application service
 export const applyForJob = async (jobId, applicantId) => {
-  const { data, error } = await supabase
-    .from('applications')
-    .insert([{
-      job_id: jobId,
-      applicant_id: applicantId,
-      status: 'applied'
-    }])
-  return { data, error }
+  return applyForJobWithSnapshot(jobId, applicantId)
 }
 
 // Get applications by applicant
