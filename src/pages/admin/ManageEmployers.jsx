@@ -9,6 +9,7 @@ import {
   updateEmployerVerification,
   suspendEmployerAccount,
   restoreEmployerAccount,
+  SUSPENSION_REASON_OPTIONS,
 } from "../../services/adminService";
 
 export default function ManageEmployers() {
@@ -25,6 +26,8 @@ export default function ManageEmployers() {
 
   // Modals state
   const [actionModal, setActionModal] = useState(null); // { employer, targetStatus }
+  const [suspendReason, setSuspendReason] = useState("policy_violation");
+  const [suspendNotes, setSuspendNotes] = useState("");
   const [restoreModalEmployer, setRestoreModalEmployer] = useState(null); // employer object
   const [viewDetailsModal, setViewDetailsModal] = useState(null); // employer object
   const [companyJobsModal, setCompanyJobsModal] = useState(null); // { employer, jobs: [], loading: boolean }
@@ -75,13 +78,16 @@ export default function ManageEmployers() {
     }
   }
 
-  async function executeStatusUpdate(userId, newStatus, reason) {
+  async function executeStatusUpdate(userId, newStatus) {
     setSubmitting(true);
     let res;
     if (newStatus === "Suspended") {
-      res = await suspendEmployerAccount(userId, reason);
+      res = await suspendEmployerAccount(userId, {
+        reasonCode: suspendReason,
+        internalNote: suspendNotes,
+      });
     } else {
-      res = await updateEmployerVerification(userId, newStatus, reason);
+      res = await updateEmployerVerification(userId, newStatus, reasonInput.trim());
     }
     setSubmitting(false);
 
@@ -92,8 +98,10 @@ export default function ManageEmployers() {
 
     if (newStatus === "Suspended") {
       toast.success("🚫 Employer account suspended.");
+      setSuspendNotes("");
     } else {
       toast.success(`Employer status updated to "${newStatus}".`);
+      setReasonInput("");
     }
     setActionModal(null);
     loadEmployers();
@@ -446,35 +454,76 @@ export default function ManageEmployers() {
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15, 23, 42, 0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
           <div style={{ background: "#fff", borderRadius: "16px", padding: "24px", maxWidth: "500px", width: "90%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
             <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
-              {actionModal.targetStatus === "Rejected" ? "Reject Employer Account" : "Suspend Employer Account"}
+              {actionModal.targetStatus === "Rejected" ? "❌ Reject Employer Verification" : "🚫 Suspend Employer Account"}
             </h3>
             <p style={{ color: "#64748b", fontSize: "14px", marginTop: "6px" }}>
-              Provide a reason note for updating status of <strong>{actionModal.employer.company_name}</strong>:
+              {actionModal.targetStatus === "Rejected"
+                ? `Provide feedback for rejecting ${actionModal.employer.company_name}:`
+                : `Suspend ${actionModal.employer.company_name}. This will hide open jobs and pause recruitment workflows while keeping data intact.`}
             </p>
 
-            <textarea
-              rows={3}
-              value={reasonInput}
-              onChange={(e) => setReasonInput(e.target.value)}
-              placeholder="Enter reason for rejection or suspension..."
-              style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #cbd5e1", marginTop: "12px", fontSize: "14px", outline: "none" }}
-            />
+            {actionModal.targetStatus === "Suspended" ? (
+              <>
+                <div style={{ marginTop: "12px", marginBottom: "12px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                    Suspension Reason (Public / User-Facing Category): *
+                  </label>
+                  <select
+                    value={suspendReason}
+                    onChange={(e) => setSuspendReason(e.target.value)}
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", background: "#fff" }}
+                  >
+                    {SUSPENSION_REASON_OPTIONS.map((opt) => (
+                      <option key={opt.code} value={opt.code}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: "14px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                    Internal Moderation Note (Admin Only — Private):
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={suspendNotes}
+                    onChange={(e) => setSuspendNotes(e.target.value)}
+                    placeholder="Optional internal administrative notes (never visible to employer)..."
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", boxSizing: "border-box" }}
+                  />
+                </div>
+              </>
+            ) : (
+              <div style={{ marginTop: "12px", marginBottom: "14px" }}>
+                <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                  Rejection Reason (Required Feedback to Employer): *
+                </label>
+                <textarea
+                  rows={3}
+                  value={reasonInput}
+                  onChange={(e) => setReasonInput(e.target.value)}
+                  placeholder="e.g. Business permit document is blurry or illegible. Please upload a clear valid copy."
+                  style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                />
+              </div>
+            )}
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "16px" }}>
               <button
                 type="button"
-                onClick={() => setActionModal(null)}
+                onClick={() => { setActionModal(null); setReasonInput(""); setSuspendNotes(""); }}
                 style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={submitting}
-                onClick={() => executeStatusUpdate(actionModal.employer.id, actionModal.targetStatus, reasonInput)}
-                style={{ background: "#dc2626", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
+                disabled={submitting || (actionModal.targetStatus === "Rejected" && !reasonInput.trim())}
+                onClick={() => executeStatusUpdate(actionModal.employer.id, actionModal.targetStatus)}
+                style={{ background: "#dc2626", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: (submitting || (actionModal.targetStatus === "Rejected" && !reasonInput.trim())) ? "not-allowed" : "pointer" }}
               >
-                Confirm {actionModal.targetStatus}
+                {submitting ? "Updating..." : `Confirm ${actionModal.targetStatus}`}
               </button>
             </div>
           </div>
