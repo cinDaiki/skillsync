@@ -586,20 +586,10 @@ export default function Applicants() {
       subtitle="Verify candidate skills alignment, manage interview invitations, and progress hiring decisions."
     >
       <section className="dashboard-panel">
-        <div className="panel-header">
-          <div>
+        <div className="panel-header emp-desk-header">
+          <div className="panel-header-content">
             <h2>Review Applications & Interview Pipelines</h2>
             <p>Compare criteria, invite candidates to Online or Walk-in interviews, and record evaluation notes.</p>
-          </div>
-          <div className="emp-interview-indicators">
-            <span className="emp-indicator-chip">
-              📅 Upcoming Interviews: <strong>{upcomingInterviews.length}</strong>
-            </span>
-            {todayCount > 0 && (
-              <span className="emp-indicator-chip today">
-                🔔 <strong>{todayCount} Interview Today</strong>
-              </span>
-            )}
           </div>
         </div>
 
