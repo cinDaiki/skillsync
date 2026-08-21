@@ -215,14 +215,14 @@ export default function EmployerDashboard() {
       </div>
 
       {/* ── EMPLOYER VERIFICATION STATUS BANNER ── */}
-      <div style={{ margin: "0 0 20px 0", padding: "16px 20px", background: isVerifiedEmployer ? "#f0fdf4" : employerProfile?.verification_status === "Rejected" ? "#fef2f2" : employerProfile?.verification_status === "Suspended" ? "#450a0a" : "#fffbeb", border: isVerifiedEmployer ? "1px solid #bbf7d0" : employerProfile?.verification_status === "Rejected" ? "1px solid #fca5a5" : employerProfile?.verification_status === "Suspended" ? "1px solid #991b1b" : "1px solid #fde68a", borderRadius: "12px", color: employerProfile?.verification_status === "Suspended" ? "#fff" : "#1e293b", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
+      <div style={{ margin: "0 0 20px 0", padding: "16px 20px", background: isVerifiedEmployer ? "#f0fdf4" : employerProfile?.verification_status === "Rejected" ? "#fef2f2" : "#fffbeb", border: isVerifiedEmployer ? "1px solid #bbf7d0" : employerProfile?.verification_status === "Rejected" ? "1px solid #fca5a5" : "1px solid #fde68a", borderRadius: "12px", color: "#1e293b", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
             <span style={{ fontSize: "20px" }}>
-              {isVerifiedEmployer ? "🛡️" : employerProfile?.verification_status === "Rejected" ? "❌" : employerProfile?.verification_status === "Suspended" ? "🚫" : "⏳"}
+              {isVerifiedEmployer ? "🛡️" : employerProfile?.verification_status === "Rejected" ? "❌" : "⏳"}
             </span>
-            <strong style={{ fontSize: "16px", color: isVerifiedEmployer ? "#166534" : employerProfile?.verification_status === "Suspended" ? "#fff" : "#92400e" }}>
-              {isVerifiedEmployer ? "✓ Verified Employer Account" : employerProfile?.verification_status === "Rejected" ? "Verification Status: Rejected" : employerProfile?.verification_status === "Suspended" ? "Account Suspended" : "Verification Status: Pending Administrator Review"}
+            <strong style={{ fontSize: "16px", color: isVerifiedEmployer ? "#166534" : "#92400e" }}>
+              {isVerifiedEmployer ? "✓ Verified Employer Account" : employerProfile?.verification_status === "Rejected" ? "Verification Status: Rejected" : "Verification Status: Pending Administrator Review"}
             </strong>
           </div>
           <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.4" }}>
@@ -230,8 +230,6 @@ export default function EmployerDashboard() {
               <>Your business identity has been verified. You may create and manage job postings.</>
             ) : employerProfile?.verification_status === "Rejected" ? (
               <>Reason: {employerProfile?.verification_reason || "Verification documents did not meet guidelines."} Please update your verification documents in Company Profile.</>
-            ) : employerProfile?.verification_status === "Suspended" ? (
-              <>Reason: {employerProfile?.verification_reason || "Account suspended due to policy violation."} Posting privileges are disabled.</>
             ) : (
               <>Your account is awaiting administrator review. You cannot publish jobs until approved.</>
             )}

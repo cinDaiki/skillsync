@@ -1,0 +1,119 @@
+/* AccountSuspended.css - Phase 1 Account Suspension Warning Styles */
+.suspended-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(circle at top right, #fdf2f8, #f8f9fc 60%);
+  box-sizing: border-box;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.suspended-card {
+  background: #ffffff;
+  border: 1px solid #fee2e2;
+  border-radius: 24px;
+  padding: 42px 36px;
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(220, 38, 38, 0.08), 0 4px 16px rgba(16, 24, 40, 0.04);
+  box-sizing: border-box;
+  animation: suspendedFadeIn 0.3s ease-out;
+}
+
+@keyframes suspendedFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.suspended-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin: 0 auto 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  background: #fef2f2;
+  border: 2px solid #fecaca;
+  border-radius: 50%;
+}
+
+.suspended-title {
+  margin: 0 0 16px;
+  font-size: 24px;
+  font-weight: 900;
+  color: #991b1b;
+  letter-spacing: -0.5px;
+}
+
+.suspended-message {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 30px;
+}
+
+.suspended-message p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: #475569;
+}
+
+.suspended-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.suspended-signout-btn {
+  padding: 12px 36px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(135deg, #dc2626, #991b1b);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.25);
+  transition: all 0.2s ease;
+  min-width: 140px;
+}
+
+.suspended-signout-btn:hover {
+  background: linear-gradient(135deg, #b91c1c, #7f1d1d);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.35);
+}
+
+.suspended-signout-btn:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 480px) {
+  .suspended-card {
+    padding: 30px 20px;
+    border-radius: 20px;
+  }
+
+  .suspended-title {
+    font-size: 21px;
+  }
+
+  .suspended-message p {
+    font-size: 13.5px;
+  }
+
+  .suspended-signout-btn {
+    width: 100%;
+  }
+}

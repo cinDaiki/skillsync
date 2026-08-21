@@ -34,6 +34,11 @@ export default function RoleRoute({ allowedRoles, children }) {
         const role = normalizeRole(
           fakeProfile?.role || session.user?.user_metadata?.role
         );
+        const isSuspended = Boolean(
+          fakeProfile?.is_suspended === true ||
+          fakeProfile?.verification_status?.toLowerCase() === "suspended" ||
+          session.user?.user_metadata?.is_suspended === true
+        );
 
         // Preserve any profile_picture_url already in localStorage
         const existingUser = (() => {
@@ -42,11 +47,17 @@ export default function RoleRoute({ allowedRoles, children }) {
 
         setCurrentUser({
           ...existingUser,
-          id:        session.user.id,
-          email:     fakeProfile?.email || session.user.email,
+          id:           session.user.id,
+          email:        fakeProfile?.email || session.user.email,
           role,
-          full_name: fakeProfile?.full_name || session.user?.user_metadata?.full_name || "",
+          full_name:    fakeProfile?.full_name || session.user?.user_metadata?.full_name || "",
+          is_suspended: isSuspended,
         });
+
+        if (isSuspended && role !== "admin") {
+          setStatus("suspended");
+          return;
+        }
 
         if (roleIsAllowed(role, allowedRoles)) {
           setStatus("allowed");
@@ -65,12 +76,16 @@ export default function RoleRoute({ allowedRoles, children }) {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("role, full_name, email, profile_picture_url")
+        .select("role, full_name, email, profile_picture_url, is_suspended, verification_status")
         .eq("id", session.user.id)
         .maybeSingle();
 
       const role = normalizeRole(
         profile?.role || session.user?.user_metadata?.role
+      );
+      const isSuspended = Boolean(
+        profile?.is_suspended === true ||
+        profile?.verification_status?.toLowerCase() === "suspended"
       );
 
       setCurrentUser({
@@ -79,7 +94,13 @@ export default function RoleRoute({ allowedRoles, children }) {
         role,
         full_name:           profile?.full_name || session.user?.user_metadata?.full_name || "",
         profile_picture_url: profile?.profile_picture_url || "",
+        is_suspended:        isSuspended,
       });
+
+      if (isSuspended && role !== "admin") {
+        setStatus("suspended");
+        return;
+      }
 
       if (roleIsAllowed(role, allowedRoles)) {
         setStatus("allowed");
@@ -123,6 +144,7 @@ export default function RoleRoute({ allowedRoles, children }) {
   }
 
   if (status === "unauthenticated") return <Navigate to="/sign-in" replace />;
+  if (status === "suspended") return <Navigate to="/account-suspended" replace />;
   if (status === "unauthorized") return <Navigate to="/unauthorized" replace />;
   return children;
 }
