@@ -42,6 +42,7 @@ import AdminProfile from "./pages/admin/AdminProfile";
 
 import Unauthorized from "./pages/errors/Unauthorized";
 import NotFound from "./pages/errors/NotFound";
+import AccountSuspended from "./pages/errors/AccountSuspended";
 
 import RoleRoute from "./components/guards/RoleRoute";
 import { ROLES } from "./utils/roles";
@@ -301,7 +302,8 @@ function App() {
           }
         />
 
-        {/* Error pages */}
+        {/* Error & Notice pages */}
+        <Route path="/account-suspended" element={<AccountSuspended />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

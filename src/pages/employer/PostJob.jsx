@@ -205,20 +205,18 @@ export default function PostJob() {
 
         {/* ── EMPLOYER VERIFICATION WARNING BANNER ── */}
         {!checkingVerification && !isVerifiedEmployer && (
-          <div style={{ margin: "16px 0", padding: "16px 20px", background: employerProfile?.verification_status === "Rejected" ? "#fef2f2" : employerProfile?.verification_status === "Suspended" ? "#450a0a" : "#fffbeb", border: employerProfile?.verification_status === "Rejected" ? "1px solid #fca5a5" : employerProfile?.verification_status === "Suspended" ? "1px solid #991b1b" : "1px solid #fde68a", borderRadius: "10px", color: employerProfile?.verification_status === "Suspended" ? "#fff" : "#1e293b" }}>
+          <div style={{ margin: "16px 0", padding: "16px 20px", background: employerProfile?.verification_status === "Rejected" ? "#fef2f2" : "#fffbeb", border: employerProfile?.verification_status === "Rejected" ? "1px solid #fca5a5" : "1px solid #fde68a", borderRadius: "10px", color: "#1e293b" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
               <span style={{ fontSize: "20px" }}>
-                {employerProfile?.verification_status === "Rejected" ? "❌" : employerProfile?.verification_status === "Suspended" ? "🚫" : "⏳"}
+                {employerProfile?.verification_status === "Rejected" ? "❌" : "⏳"}
               </span>
-              <strong style={{ fontSize: "15px", color: employerProfile?.verification_status === "Suspended" ? "#fff" : "#92400e" }}>
-                {employerProfile?.verification_status === "Rejected" ? "Employer Account Verification Rejected" : employerProfile?.verification_status === "Suspended" ? "Employer Account Suspended" : "Verification Status: Pending Administrator Review"}
+              <strong style={{ fontSize: "15px", color: "#92400e" }}>
+                {employerProfile?.verification_status === "Rejected" ? "Employer Account Verification Rejected" : "Verification Status: Pending Administrator Review"}
               </strong>
             </div>
             <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.5" }}>
               {employerProfile?.verification_status === "Rejected" ? (
                 <>Reason: {employerProfile?.verification_reason || "Verification documents did not meet platform guidelines."} Please update your verification documents in your Company Profile.</>
-              ) : employerProfile?.verification_status === "Suspended" ? (
-                <>Reason: {employerProfile?.verification_reason || "Account suspended due to policy violation."} Your job posting privileges are currently disabled.</>
               ) : (
                 <>Your employer account is awaiting administrator verification. You cannot publish jobs until your account is approved.</>
               )}

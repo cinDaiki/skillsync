@@ -191,7 +191,9 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
 
     if (status !== "All") {
       if (status === "Approved") {
-        query = query.in("verification_status", ["Approved", "Verified"]);
+        query = query.in("verification_status", ["Approved", "Verified"]).or("is_suspended.is.null,is_suspended.eq.false");
+      } else if (status === "Suspended") {
+        query = query.or("is_suspended.eq.true,verification_status.eq.Suspended");
       } else {
         query = query.eq("verification_status", status);
       }
@@ -660,6 +662,102 @@ export async function restoreCandidateAccount(userId, reasonNote = "") {
 }
 
 /**
+ * Suspends an employer account with moderation reason and audit log
+ */
+export async function suspendEmployerAccount(userId, reasonNote = "") {
+  try {
+    const { error: rpcErr } = await supabase.rpc("admin_toggle_user_suspension", {
+      user_id: userId,
+      suspend_status: true,
+    });
+
+    if (rpcErr) {
+      const { error: tableErr } = await supabase
+        .from("profiles")
+        .update({ is_suspended: true, updated_at: new Date().toISOString() })
+        .eq("id", userId);
+      if (tableErr) return { error: tableErr };
+    }
+
+    await addNotification(
+      userId,
+      "🚫 Account Suspended",
+      `Your SkillSync employer account has been suspended.${reasonNote ? ` Reason: ${reasonNote}` : " Please contact support for more information."}`,
+      "system"
+    ).catch(() => {});
+
+    return { error: null };
+  } catch (err) {
+    console.error("[AdminService] suspendEmployerAccount error:", err);
+    return { error: err };
+  } finally {
+    await logAdminAction({
+      action: "EMPLOYER_SUSPENDED",
+      targetType: "employer",
+      targetId: userId,
+      reason: reasonNote || null
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Restores / Reactivates a suspended employer account with audit log
+ */
+export async function restoreEmployerAccount(userId, reasonNote = "") {
+  try {
+    const { error: rpcErr } = await supabase.rpc("admin_toggle_user_suspension", {
+      user_id: userId,
+      suspend_status: false,
+    });
+
+    if (rpcErr) {
+      const { error: tableErr } = await supabase
+        .from("profiles")
+        .update({ is_suspended: false, updated_at: new Date().toISOString() })
+        .eq("id", userId);
+      if (tableErr) return { error: tableErr };
+    }
+
+    // If verification_status was legacy 'Suspended', restore to 'Approved'
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("verification_status")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profile?.verification_status === "Suspended") {
+      await supabase
+        .from("profiles")
+        .update({ verification_status: "Approved", updated_at: new Date().toISOString() })
+        .eq("id", userId);
+      await supabase
+        .from("employer_profiles")
+        .update({ verification_status: "Approved", updated_at: new Date().toISOString() })
+        .eq("id", userId);
+    }
+
+    await addNotification(
+      userId,
+      "✓ Account Restored",
+      "Your SkillSync employer account has been reactivated. You can now access your employer dashboard.",
+      "system"
+    ).catch(() => {});
+
+    return { error: null };
+  } catch (err) {
+    console.error("[AdminService] restoreEmployerAccount error:", err);
+    return { error: err };
+  } finally {
+    await logAdminAction({
+      action: "EMPLOYER_RESTORED",
+      targetType: "employer",
+      targetId: userId,
+      reason: reasonNote || "Account reactivated by administrator"
+    }).catch(() => {});
+  }
+}
+
+/**
  * Updates permitted administrative contact/identity fields for a candidate
  */
 export async function updateCandidateAdministrativeDetails(userId, { fullName, contactNumber, address }, reasonNote = "") {
@@ -706,8 +804,16 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
       reason_note: reasonNote || null,
     });
 
+    const isSuspensionStatus = status === "Suspended";
+
     if (!rpcError) {
       console.log(`[AdminService] Diagnostic: RPC admin_update_employer_verification succeeded for ${userId}`);
+      // Synchronize canonical is_suspended on profiles
+      await supabase
+        .from("profiles")
+        .update({ is_suspended: isSuspensionStatus, updated_at: new Date().toISOString() })
+        .eq("id", userId)
+        .catch(() => {});
       return { error: null };
     }
 
@@ -722,6 +828,7 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
     // Direct table fallback for authenticated admin user
     const profileUpdates = {
       verification_status: status,
+      is_suspended: isSuspensionStatus,
       updated_at: new Date().toISOString()
     };
     if (reasonNote) profileUpdates.verification_reason = reasonNote;
@@ -747,7 +854,7 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
         console.warn("[AdminService] Retrying profiles update without verification_reason column...");
         const { error: retryErr } = await supabase
           .from("profiles")
-          .update({ verification_status: status, updated_at: new Date().toISOString() })
+          .update({ verification_status: status, is_suspended: isSuspensionStatus, updated_at: new Date().toISOString() })
           .eq("id", userId);
 
         if (retryErr && !retryErr.message?.includes("fetch failed")) {

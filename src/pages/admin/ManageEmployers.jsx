@@ -7,6 +7,8 @@ import {
   fetchEmployerJobs,
   displayUserName,
   updateEmployerVerification,
+  suspendEmployerAccount,
+  restoreEmployerAccount,
 } from "../../services/adminService";
 
 export default function ManageEmployers() {
@@ -23,6 +25,7 @@ export default function ManageEmployers() {
 
   // Modals state
   const [actionModal, setActionModal] = useState(null); // { employer, targetStatus }
+  const [restoreModalEmployer, setRestoreModalEmployer] = useState(null); // employer object
   const [viewDetailsModal, setViewDetailsModal] = useState(null); // employer object
   const [companyJobsModal, setCompanyJobsModal] = useState(null); // { employer, jobs: [], loading: boolean }
   const [reasonInput, setReasonInput] = useState("");
@@ -74,16 +77,41 @@ export default function ManageEmployers() {
 
   async function executeStatusUpdate(userId, newStatus, reason) {
     setSubmitting(true);
-    const { error } = await updateEmployerVerification(userId, newStatus, reason);
+    let res;
+    if (newStatus === "Suspended") {
+      res = await suspendEmployerAccount(userId, reason);
+    } else {
+      res = await updateEmployerVerification(userId, newStatus, reason);
+    }
     setSubmitting(false);
 
-    if (error) {
-      toast.error("Failed to update verification status: " + error.message);
+    if (res.error) {
+      toast.error("Failed to update employer status: " + res.error.message);
       return;
     }
 
-    toast.success(`Employer status updated to "${newStatus}".`);
+    if (newStatus === "Suspended") {
+      toast.success("🚫 Employer account suspended.");
+    } else {
+      toast.success(`Employer status updated to "${newStatus}".`);
+    }
     setActionModal(null);
+    loadEmployers();
+  }
+
+  async function handleConfirmRestore() {
+    if (!restoreModalEmployer) return;
+    setSubmitting(true);
+    const { error } = await restoreEmployerAccount(restoreModalEmployer.id, "Account reactivated by administrator");
+    setSubmitting(false);
+
+    if (error) {
+      toast.error(`Failed to restore employer: ${error.message}`);
+      return;
+    }
+
+    toast.success("✅ Employer account restored successfully.");
+    setRestoreModalEmployer(null);
     loadEmployers();
   }
 
@@ -213,6 +241,7 @@ export default function ManageEmployers() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {employers.map((employer) => {
+              const isSuspended = Boolean(employer.is_suspended || employer.verification_status === "Suspended");
               const status = employer.verification_status || "Pending";
               const isApproved = status === "Approved" || status === "Verified";
               const docCount = [employer.id_image_url, employer.selfie_image_url, employer.business_permit_url, employer.sec_registration_url].filter(Boolean).length;
@@ -241,11 +270,12 @@ export default function ManageEmployers() {
                             borderRadius: "12px",
                             fontSize: "12px",
                             fontWeight: "700",
-                            background: isApproved ? "#dcfce7" : status === "Rejected" ? "#fee2e2" : status === "Suspended" ? "#fef2f2" : "#fef3c7",
-                            color: isApproved ? "#15803d" : status === "Rejected" ? "#dc2626" : status === "Suspended" ? "#991b1b" : "#b45309",
+                            background: isSuspended ? "#fee2e2" : isApproved ? "#dcfce7" : status === "Rejected" ? "#fee2e2" : "#fef3c7",
+                            color: isSuspended ? "#991b1b" : isApproved ? "#15803d" : status === "Rejected" ? "#dc2626" : "#b45309",
+                            border: `1px solid ${isSuspended ? "#fca5a5" : isApproved ? "#bbf7d0" : status === "Rejected" ? "#fca5a5" : "#fde68a"}`
                           }}
                         >
-                          {isApproved ? "✓ Approved" : status === "Rejected" ? "❌ Rejected" : status === "Suspended" ? "🚫 Suspended" : "⏳ Pending Verification"}
+                          {isSuspended ? "🔴 Suspended" : isApproved ? "✓ Approved" : status === "Rejected" ? "❌ Rejected" : "⏳ Pending Verification"}
                         </span>
                       </div>
 
@@ -310,7 +340,7 @@ export default function ManageEmployers() {
                       onClick={() => setViewDetailsModal(employer)}
                       style={{ background: "#f1f5f9", color: "#1e293b", border: "1px solid #cbd5e1", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
                     >
-                      👁 View Company Details
+                      👁 View Details
                     </button>
 
                     <button
@@ -321,7 +351,7 @@ export default function ManageEmployers() {
                       💼 View Company Jobs ({stats.total})
                     </button>
 
-                    {!isApproved && (
+                    {!isSuspended && !isApproved && (
                       <button
                         type="button"
                         onClick={() => handlePromptAction(employer, "Approved")}
@@ -331,7 +361,7 @@ export default function ManageEmployers() {
                       </button>
                     )}
 
-                    {status !== "Rejected" && (
+                    {!isSuspended && status !== "Rejected" && (
                       <button
                         type="button"
                         onClick={() => handlePromptAction(employer, "Rejected")}
@@ -341,13 +371,21 @@ export default function ManageEmployers() {
                       </button>
                     )}
 
-                    {status !== "Suspended" && (
+                    {isSuspended ? (
+                      <button
+                        type="button"
+                        onClick={() => setRestoreModalEmployer(employer)}
+                        style={{ background: "#16a34a", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
+                      >
+                        ✓ Restore Account
+                      </button>
+                    ) : (
                       <button
                         type="button"
                         onClick={() => handlePromptAction(employer, "Suspended")}
                         style={{ background: "#475569", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
                       >
-                        🚫 Suspend
+                        🚫 Suspend Account
                       </button>
                     )}
                   </div>
@@ -437,6 +475,41 @@ export default function ManageEmployers() {
                 style={{ background: "#dc2626", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
               >
                 Confirm {actionModal.targetStatus}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restore Employer Account Confirmation Modal */}
+      {restoreModalEmployer && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15, 23, 42, 0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
+          <div style={{ background: "#fff", borderRadius: "16px", padding: "24px", maxWidth: "480px", width: "90%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
+            <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+              Restore Employer Account?
+            </h3>
+            <p style={{ color: "#475569", fontSize: "14px", marginTop: "8px", lineHeight: "1.5" }}>
+              This employer (<strong>{restoreModalEmployer.company_name}</strong>) will regain access to SkillSync.
+            </p>
+            <p style={{ color: "#64748b", fontSize: "13px", marginTop: "4px" }}>
+              Existing jobs, applications, interviews, and hiring records will remain unchanged.
+            </p>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px" }}>
+              <button
+                type="button"
+                onClick={() => setRestoreModalEmployer(null)}
+                style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleConfirmRestore}
+                style={{ background: "#16a34a", color: "#fff", border: "none", padding: "8px 18px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
+              >
+                {submitting ? "Restoring..." : "Restore Account"}
               </button>
             </div>
           </div>

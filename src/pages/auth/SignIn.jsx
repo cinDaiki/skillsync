@@ -64,23 +64,34 @@ export default function SignIn() {
 
       // DEV MODE: user object already has role/full_name — skip Supabase profile query
       let role;
+      let isSuspended = false;
       if (isDevMode()) {
         role = resolveRole(data.user?.role, data.user?.user_metadata?.role);
+        isSuspended = Boolean(
+          data.user?.is_suspended ||
+          data.user?.user_metadata?.is_suspended ||
+          data.user?.verification_status?.toLowerCase() === "suspended"
+        );
         setCurrentUser({
-          id:        data.user.id,
-          email:     data.user.email,
+          id:           data.user.id,
+          email:        data.user.email,
           role,
-          full_name: data.user?.full_name || data.user?.user_metadata?.full_name || "",
+          full_name:    data.user?.full_name || data.user?.user_metadata?.full_name || "",
+          is_suspended: isSuspended,
         });
       } else {
-        // PRODUCTION: fetch role from profiles table
+        // PRODUCTION: fetch role, verification_status, and is_suspended from profiles table
         const { data: profile } = await supabase
           .from("profiles")
-          .select("role, full_name, email, profile_picture_url")
+          .select("role, full_name, email, profile_picture_url, is_suspended, verification_status")
           .eq("id", data.user.id)
           .maybeSingle();
 
         role = resolveRole(profile?.role, data.user?.user_metadata?.role);
+        isSuspended = Boolean(
+          profile?.is_suspended === true ||
+          profile?.verification_status?.toLowerCase() === "suspended"
+        );
 
         setCurrentUser({
           id:                  data.user.id,
@@ -88,7 +99,13 @@ export default function SignIn() {
           role,
           full_name:           profile?.full_name || data.user?.user_metadata?.full_name || "",
           profile_picture_url: profile?.profile_picture_url || "",
+          is_suspended:        isSuspended,
         });
+      }
+
+      if (isSuspended && role !== "admin") {
+        navigate("/account-suspended");
+        return;
       }
 
       if (redirectTo) {
