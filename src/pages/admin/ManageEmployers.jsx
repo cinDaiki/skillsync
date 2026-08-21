@@ -184,7 +184,7 @@ export default function ManageEmployers() {
           />
 
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            {["All", "Pending", "Approved", "Rejected", "Suspended"].map((st) => (
+            {["All", "Pending", "Approved", "Rejected"].map((st) => (
               <button
                 key={st}
                 type="button"
