@@ -6,7 +6,8 @@ import {
   suspendCandidateAccount,
   restoreCandidateAccount,
   updateCandidateAdministrativeDetails,
-  displayUserName
+  displayUserName,
+  SUSPENSION_REASON_OPTIONS,
 } from "../../services/adminService";
 import { getPrivateDocumentSignedUrl } from "../../services/api";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
@@ -31,7 +32,7 @@ export default function ManageJobseekers() {
   const [showRejectInput, setShowRejectInput] = useState(false);
 
   const [suspendModalCandidate, setSuspendModalCandidate] = useState(null);
-  const [suspendReason, setSuspendReason] = useState("Policy violation");
+  const [suspendReason, setSuspendReason] = useState("policy_violation");
   const [suspendNotes, setSuspendNotes] = useState("");
 
   const [restoreModalCandidate, setRestoreModalCandidate] = useState(null);
@@ -169,9 +170,11 @@ export default function ManageJobseekers() {
   // --- SUSPENSION HANDLERS ---
   const handleConfirmSuspend = async () => {
     if (!suspendModalCandidate) return;
-    const fullReason = `${suspendReason}${suspendNotes ? `: ${suspendNotes}` : ""}`;
     setActionLoading(true);
-    const { error } = await suspendCandidateAccount(suspendModalCandidate.id, fullReason);
+    const { error } = await suspendCandidateAccount(suspendModalCandidate.id, {
+      reasonCode: suspendReason,
+      internalNote: suspendNotes,
+    });
     setActionLoading(false);
 
     if (error) {
@@ -181,6 +184,7 @@ export default function ManageJobseekers() {
 
     showToast("🚫 Candidate account suspended.");
     setSuspendModalCandidate(null);
+    setSuspendNotes("");
     if (selectedCandidate?.id === suspendModalCandidate.id) {
       setSelectedCandidate(prev => ({ ...prev, is_suspended: true }));
     }
@@ -988,33 +992,37 @@ export default function ManageJobseekers() {
               </p>
 
               <div style={{ marginBottom: "14px" }}>
-                <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>Suspension Reason:</label>
+                <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                  Suspension Reason (Public / User-Facing Category): *
+                </label>
                 <select
                   value={suspendReason}
                   onChange={(e) => setSuspendReason(e.target.value)}
                   style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", background: "#fff" }}
                 >
-                  <option value="Policy violation">Policy violation</option>
-                  <option value="Fraudulent information">Fraudulent information</option>
-                  <option value="Verification issue">Verification issue</option>
-                  <option value="Abusive behavior">Abusive behavior</option>
-                  <option value="Other administrative reason">Other administrative reason</option>
+                  {SUSPENSION_REASON_OPTIONS.map((opt) => (
+                    <option key={opt.code} value={opt.code}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div style={{ marginBottom: "20px" }}>
-                <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>Additional Notes:</label>
+                <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                  Internal Moderation Note (Admin Only — Private):
+                </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={suspendNotes}
                   onChange={(e) => setSuspendNotes(e.target.value)}
-                  placeholder="Optional internal moderation notes..."
+                  placeholder="Optional internal administrative notes (never visible to candidate)..."
                   style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", boxSizing: "border-box" }}
                 />
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-                <button type="button" onClick={() => setSuspendModalCandidate(null)} style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>
+                <button type="button" onClick={() => { setSuspendModalCandidate(null); setSuspendNotes(""); }} style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>
                   Cancel
                 </button>
                 <button type="button" onClick={handleConfirmSuspend} disabled={actionLoading} style={{ background: "#dc2626", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "700", cursor: "pointer" }}>

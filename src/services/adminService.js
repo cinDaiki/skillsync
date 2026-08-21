@@ -321,6 +321,60 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
 }
 
 /**
+ * Controlled reason codes for administrative account suspensions
+ */
+export const SUSPENSION_REASON_CODES = {
+  POLICY_VIOLATION: "policy_violation",
+  SUSPICIOUS_ACTIVITY: "suspicious_activity",
+  VERIFICATION_ISSUE: "verification_issue",
+  ABUSIVE_BEHAVIOR: "abusive_behavior",
+  FRAUDULENT_ACTIVITY: "fraudulent_activity",
+  TERMS_VIOLATION: "terms_violation",
+  OTHER: "other",
+};
+
+export const SUSPENSION_REASON_OPTIONS = [
+  { code: "policy_violation", label: "Policy Violation" },
+  { code: "suspicious_activity", label: "Suspicious Activity" },
+  { code: "verification_issue", label: "Verification Issue" },
+  { code: "abusive_behavior", label: "Abusive Behavior" },
+  { code: "fraudulent_activity", label: "Fraudulent Activity" },
+  { code: "terms_violation", label: "Terms of Service Violation" },
+  { code: "other", label: "Other / Administrative" },
+];
+
+export const VALID_SUSPENSION_REASON_CODES = new Set(
+  SUSPENSION_REASON_OPTIONS.map((o) => o.code)
+);
+
+export function getPublicSuspensionMessage(reasonCode) {
+  switch (reasonCode) {
+    case "policy_violation":
+      return "Your account was suspended because of a SkillSync policy violation.";
+    case "suspicious_activity":
+      return "Your account was suspended due to unusual account activity.";
+    case "verification_issue":
+      return "Your account was suspended because of an account verification issue.";
+    case "abusive_behavior":
+      return "Your account was suspended due to violations regarding inappropriate or abusive conduct.";
+    case "fraudulent_activity":
+      return "Your account was suspended due to concerns regarding account information or activity.";
+    case "terms_violation":
+      return "Your account was suspended for violating the SkillSync Terms of Service.";
+    case "other":
+    default:
+      return "Your SkillSync account has been suspended by an administrator.";
+  }
+}
+
+export function getSuspensionReasonLabel(reasonCode) {
+  const match = SUSPENSION_REASON_OPTIONS.find((o) => o.code === reasonCode);
+  if (match) return match.label;
+  if (!reasonCode) return "Administrative suspension";
+  return reasonCode;
+}
+
+/**
  * Server-side / unified query for Admin Suspended Accounts Page
  * Returns all suspended Jobseekers and Employers with global summary counts.
  */
@@ -350,7 +404,30 @@ export async function fetchSuspendedAccounts({ search = "", roleFilter = "all", 
       employers: allSuspended.filter((p) => normalizeAdminRole(p.role) === "Employer").length,
     };
 
-    // 4. Merge Employer Profiles & Job Stats for suspended employers
+    // 4. Load latest SUSPENSION audit events for suspended accounts (admin-only moderation notes)
+    const suspendedIds = allSuspended.map((p) => p.id);
+    let auditMap = new Map();
+    if (suspendedIds.length > 0) {
+      try {
+        const { data: auditLogs } = await supabase
+          .from("admin_audit_logs")
+          .select("target_id, action, reason, metadata, created_at, admin_id")
+          .in("target_id", suspendedIds)
+          .in("action", ["CANDIDATE_SUSPENDED", "EMPLOYER_SUSPENDED"])
+          .order("created_at", { ascending: false });
+
+        (auditLogs || []).forEach((log) => {
+          // Keep only the latest suspension event for each target_id
+          if (!auditMap.has(log.target_id)) {
+            auditMap.set(log.target_id, log);
+          }
+        });
+      } catch (auditErr) {
+        console.warn("[AdminService] Failed to load suspension audit logs:", auditErr?.message);
+      }
+    }
+
+    // 5. Merge Employer Profiles & Job Stats for suspended employers
     const empIds = allSuspended.filter((p) => normalizeAdminRole(p.role) === "Employer").map((p) => p.id);
     let employerProfileMap = new Map();
     let jobsMap = new Map();
@@ -377,6 +454,14 @@ export async function fetchSuspendedAccounts({ search = "", roleFilter = "all", 
     // Merge detailed attributes
     let enrichedList = allSuspended.map((p) => {
       const normRole = normalizeAdminRole(p.role);
+      const latestAudit = auditMap.get(p.id);
+
+      // Resolve reason code
+      const reasonCode = p.suspension_reason_code || latestAudit?.metadata?.reason_code || (VALID_SUSPENSION_REASON_CODES.has(latestAudit?.reason) ? latestAudit.reason : null);
+      const reasonLabel = getSuspensionReasonLabel(reasonCode);
+      const suspendedAt = p.suspended_at || latestAudit?.metadata?.suspended_at || latestAudit?.created_at || null;
+      const internalAdminNote = latestAudit?.metadata?.internal_note || (!VALID_SUSPENSION_REASON_CODES.has(latestAudit?.reason) && latestAudit?.reason ? latestAudit.reason : null) || null;
+
       if (normRole === "Employer") {
         const ep = employerProfileMap.get(p.id);
         const stats = jobsMap.get(p.id) || { total: 0, open: 0, pending: 0, closed: 0 };
@@ -388,8 +473,12 @@ export async function fetchSuspendedAccounts({ search = "", roleFilter = "all", 
           location: ep?.location || p.location || "Not specified",
           website: ep?.website || "",
           contact_number: ep?.contact_number || p.contact_number || "",
-          verification_status: ep?.verification_status || p.verification_status || "Suspended",
+          verification_status: ep?.verification_status || p.verification_status || "Pending",
           verification_reason: p.verification_reason || "",
+          suspension_reason_code: reasonCode,
+          suspension_reason_label: reasonLabel,
+          suspended_at: suspendedAt,
+          internal_admin_note: internalAdminNote,
           job_stats: stats,
         };
       }
@@ -398,17 +487,21 @@ export async function fetchSuspendedAccounts({ search = "", roleFilter = "all", 
         normalizedRole: "Jobseeker",
         verification_status: p.verification_status || "Pending",
         verification_reason: p.verification_reason || "",
+        suspension_reason_code: reasonCode,
+        suspension_reason_label: reasonLabel,
+        suspended_at: suspendedAt,
+        internal_admin_note: internalAdminNote,
       };
     });
 
-    // 5. Apply Tab / Role Filter
+    // 6. Apply Tab / Role Filter
     if (roleFilter === "jobseekers") {
       enrichedList = enrichedList.filter((p) => p.normalizedRole === "Jobseeker");
     } else if (roleFilter === "employers") {
       enrichedList = enrichedList.filter((p) => p.normalizedRole === "Employer");
     }
 
-    // 6. Apply Search Filter
+    // 7. Apply Search Filter
     if (search && search.trim()) {
       const term = search.trim().toLowerCase();
       enrichedList = enrichedList.filter((p) =>
@@ -419,7 +512,7 @@ export async function fetchSuspendedAccounts({ search = "", roleFilter = "all", 
       );
     }
 
-    // 7. Paginate
+    // 8. Paginate
     const totalCount = enrichedList.length;
     const totalPages = Math.ceil(totalCount / pageSize) || 1;
     const from = (page - 1) * pageSize;
@@ -757,27 +850,59 @@ export async function updateCandidateVerification(userId, status, reasonNote = "
 }
 
 /**
- * Suspends a candidate account with moderation reason and audit log
+ * Suspends a candidate account with controlled reason code, timestamp, and audit log
  */
-export async function suspendCandidateAccount(userId, reasonNote = "") {
-  try {
-    const { error: rpcErr } = await supabase.rpc("admin_toggle_user_suspension", {
-      user_id: userId,
-      suspend_status: true,
-    });
+export async function suspendCandidateAccount(userId, reasonParam = "other") {
+  if (!userId) return { error: new Error("Candidate user ID is required") };
 
-    if (rpcErr) {
-      const { error: tableErr } = await supabase
+  let reasonCode = "other";
+  let internalNote = "";
+
+  if (typeof reasonParam === "object" && reasonParam !== null) {
+    reasonCode = reasonParam.reasonCode || "other";
+    internalNote = reasonParam.internalNote || "";
+  } else if (typeof reasonParam === "string" && reasonParam.trim()) {
+    if (VALID_SUSPENSION_REASON_CODES.has(reasonParam.trim())) {
+      reasonCode = reasonParam.trim();
+    } else {
+      reasonCode = "other";
+      internalNote = reasonParam.trim();
+    }
+  }
+
+  const validCode = VALID_SUSPENSION_REASON_CODES.has(reasonCode) ? reasonCode : "other";
+  const trimmedNote = (internalNote || "").trim();
+  const nowIso = new Date().toISOString();
+
+  try {
+    const profileUpdates = {
+      is_suspended: true,
+      suspension_reason_code: validCode,
+      suspended_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    let { error: updateErr } = await supabase
+      .from("profiles")
+      .update(profileUpdates)
+      .eq("id", userId);
+
+    if (updateErr && updateErr.code === "42703") {
+      ({ error: updateErr } = await supabase
         .from("profiles")
-        .update({ is_suspended: true, updated_at: new Date().toISOString() })
-        .eq("id", userId);
-      if (tableErr) return { error: tableErr };
+        .update({ is_suspended: true, updated_at: nowIso })
+        .eq("id", userId));
+    }
+
+    if (updateErr) {
+      console.error("[AdminService] suspendCandidateAccount error:", updateErr);
+      return { error: updateErr };
     }
 
     await addNotification(
       userId,
       "🚫 Account Suspended",
-      `Your SkillSync candidate account has been suspended.${reasonNote ? ` Reason: ${reasonNote}` : " Please contact support for more information."}`,
+      `Your SkillSync candidate account has been suspended: ${getPublicSuspensionMessage(validCode)} Please contact support for more information.`,
       "system"
     ).catch(() => {});
 
@@ -790,7 +915,12 @@ export async function suspendCandidateAccount(userId, reasonNote = "") {
       action: "CANDIDATE_SUSPENDED",
       targetType: "candidate",
       targetId: userId,
-      reason: reasonNote || null
+      reason: validCode,
+      metadata: {
+        reason_code: validCode,
+        internal_note: trimmedNote || null,
+        suspended_at: nowIso,
+      },
     }).catch(() => {});
   }
 }
@@ -799,18 +929,47 @@ export async function suspendCandidateAccount(userId, reasonNote = "") {
  * Restores / Reactivates a suspended candidate account with audit log
  */
 export async function restoreCandidateAccount(userId, reasonNote = "") {
-  try {
-    const { error: rpcErr } = await supabase.rpc("admin_toggle_user_suspension", {
-      user_id: userId,
-      suspend_status: false,
-    });
+  if (!userId) return { error: new Error("Candidate user ID is required") };
+  const nowIso = new Date().toISOString();
 
-    if (rpcErr) {
-      const { error: tableErr } = await supabase
+  try {
+    const profileUpdates = {
+      is_suspended: false,
+      suspension_reason_code: null,
+      suspended_at: null,
+      updated_at: nowIso,
+    };
+
+    let { error: updateErr } = await supabase
+      .from("profiles")
+      .update(profileUpdates)
+      .eq("id", userId);
+
+    if (updateErr && updateErr.code === "42703") {
+      ({ error: updateErr } = await supabase
         .from("profiles")
-        .update({ is_suspended: false, updated_at: new Date().toISOString() })
-        .eq("id", userId);
-      if (tableErr) return { error: tableErr };
+        .update({ is_suspended: false, updated_at: nowIso })
+        .eq("id", userId));
+    }
+
+    if (updateErr) {
+      console.error("[AdminService] restoreCandidateAccount error:", updateErr);
+      return { error: updateErr };
+    }
+
+    // Legacy recovery: If verification_status was legacy 'Suspended', recover to 'Pending Verification'
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("verification_status")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profile?.verification_status === "Suspended") {
+      await supabase
+        .from("profiles")
+        .update({ verification_status: "Pending Verification", updated_at: nowIso })
+        .eq("id", userId)
+        .catch(() => {});
     }
 
     await addNotification(
@@ -829,33 +988,66 @@ export async function restoreCandidateAccount(userId, reasonNote = "") {
       action: "CANDIDATE_RESTORED",
       targetType: "candidate",
       targetId: userId,
-      reason: reasonNote || null
+      reason: reasonNote || "Account reactivated by administrator",
+      metadata: { restored_at: nowIso },
     }).catch(() => {});
   }
 }
 
 /**
- * Suspends an employer account with moderation reason and audit log
+ * Suspends an employer account with controlled reason code, timestamp, and audit log
  */
-export async function suspendEmployerAccount(userId, reasonNote = "") {
-  try {
-    const { error: rpcErr } = await supabase.rpc("admin_toggle_user_suspension", {
-      user_id: userId,
-      suspend_status: true,
-    });
+export async function suspendEmployerAccount(userId, reasonParam = "other") {
+  if (!userId) return { error: new Error("Employer user ID is required") };
 
-    if (rpcErr) {
-      const { error: tableErr } = await supabase
+  let reasonCode = "other";
+  let internalNote = "";
+
+  if (typeof reasonParam === "object" && reasonParam !== null) {
+    reasonCode = reasonParam.reasonCode || "other";
+    internalNote = reasonParam.internalNote || "";
+  } else if (typeof reasonParam === "string" && reasonParam.trim()) {
+    if (VALID_SUSPENSION_REASON_CODES.has(reasonParam.trim())) {
+      reasonCode = reasonParam.trim();
+    } else {
+      reasonCode = "other";
+      internalNote = reasonParam.trim();
+    }
+  }
+
+  const validCode = VALID_SUSPENSION_REASON_CODES.has(reasonCode) ? reasonCode : "other";
+  const trimmedNote = (internalNote || "").trim();
+  const nowIso = new Date().toISOString();
+
+  try {
+    const profileUpdates = {
+      is_suspended: true,
+      suspension_reason_code: validCode,
+      suspended_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    let { error: updateErr } = await supabase
+      .from("profiles")
+      .update(profileUpdates)
+      .eq("id", userId);
+
+    if (updateErr && updateErr.code === "42703") {
+      ({ error: updateErr } = await supabase
         .from("profiles")
-        .update({ is_suspended: true, updated_at: new Date().toISOString() })
-        .eq("id", userId);
-      if (tableErr) return { error: tableErr };
+        .update({ is_suspended: true, updated_at: nowIso })
+        .eq("id", userId));
+    }
+
+    if (updateErr) {
+      console.error("[AdminService] suspendEmployerAccount error:", updateErr);
+      return { error: updateErr };
     }
 
     await addNotification(
       userId,
       "🚫 Account Suspended",
-      `Your SkillSync employer account has been suspended.${reasonNote ? ` Reason: ${reasonNote}` : " Please contact support for more information."}`,
+      `Your SkillSync employer account has been suspended: ${getPublicSuspensionMessage(validCode)} Please contact support for more information.`,
       "system"
     ).catch(() => {});
 
@@ -868,7 +1060,12 @@ export async function suspendEmployerAccount(userId, reasonNote = "") {
       action: "EMPLOYER_SUSPENDED",
       targetType: "employer",
       targetId: userId,
-      reason: reasonNote || null
+      reason: validCode,
+      metadata: {
+        reason_code: validCode,
+        internal_note: trimmedNote || null,
+        suspended_at: nowIso,
+      },
     }).catch(() => {});
   }
 }
@@ -877,18 +1074,32 @@ export async function suspendEmployerAccount(userId, reasonNote = "") {
  * Restores / Reactivates a suspended employer account with audit log
  */
 export async function restoreEmployerAccount(userId, reasonNote = "") {
-  try {
-    const { error: rpcErr } = await supabase.rpc("admin_toggle_user_suspension", {
-      user_id: userId,
-      suspend_status: false,
-    });
+  if (!userId) return { error: new Error("Employer user ID is required") };
+  const nowIso = new Date().toISOString();
 
-    if (rpcErr) {
-      const { error: tableErr } = await supabase
+  try {
+    const profileUpdates = {
+      is_suspended: false,
+      suspension_reason_code: null,
+      suspended_at: null,
+      updated_at: nowIso,
+    };
+
+    let { error: updateErr } = await supabase
+      .from("profiles")
+      .update(profileUpdates)
+      .eq("id", userId);
+
+    if (updateErr && updateErr.code === "42703") {
+      ({ error: updateErr } = await supabase
         .from("profiles")
-        .update({ is_suspended: false, updated_at: new Date().toISOString() })
-        .eq("id", userId);
-      if (tableErr) return { error: tableErr };
+        .update({ is_suspended: false, updated_at: nowIso })
+        .eq("id", userId));
+    }
+
+    if (updateErr) {
+      console.error("[AdminService] restoreEmployerAccount error:", updateErr);
+      return { error: updateErr };
     }
 
     // If verification_status was legacy 'Suspended', restore to 'Approved'
@@ -901,11 +1112,11 @@ export async function restoreEmployerAccount(userId, reasonNote = "") {
     if (profile?.verification_status === "Suspended") {
       await supabase
         .from("profiles")
-        .update({ verification_status: "Approved", updated_at: new Date().toISOString() })
+        .update({ verification_status: "Approved", updated_at: nowIso })
         .eq("id", userId);
       await supabase
         .from("employer_profiles")
-        .update({ verification_status: "Approved", updated_at: new Date().toISOString() })
+        .update({ verification_status: "Approved", updated_at: nowIso })
         .eq("id", userId);
     }
 
@@ -925,7 +1136,8 @@ export async function restoreEmployerAccount(userId, reasonNote = "") {
       action: "EMPLOYER_RESTORED",
       targetType: "employer",
       targetId: userId,
-      reason: reasonNote || "Account reactivated by administrator"
+      reason: reasonNote || "Account reactivated by administrator",
+      metadata: { restored_at: nowIso },
     }).catch(() => {});
   }
 }

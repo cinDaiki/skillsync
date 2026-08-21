@@ -318,7 +318,7 @@ export default function SuspendedAccounts() {
           }}
         >
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", minWidth: "850px" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", minWidth: "950px" }}>
               <thead>
                 <tr
                   style={{
@@ -334,21 +334,22 @@ export default function SuspendedAccounts() {
                   <th style={{ padding: "14px 16px" }}>Account Type</th>
                   <th style={{ padding: "14px 16px" }}>Contact</th>
                   <th style={{ padding: "14px 16px" }}>Verification</th>
-                  <th style={{ padding: "14px 16px" }}>Suspension Status</th>
-                  <th style={{ padding: "14px 16px" }}>Moderation Reason</th>
+                  <th style={{ padding: "14px 16px" }}>Suspension Reason</th>
+                  <th style={{ padding: "14px 16px" }}>Suspended Date</th>
+                  <th style={{ padding: "14px 16px" }}>Admin Note</th>
                   <th style={{ padding: "14px 16px", textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "#64748b" }}>
+                    <td colSpan={8} style={{ textAlign: "center", padding: "36px", color: "#64748b" }}>
                       Loading suspended accounts...
                     </td>
                   </tr>
                 ) : accounts.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
+                    <td colSpan={8} style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
                       <div style={{ fontSize: "16px", fontWeight: "700", color: "#334155" }}>
                         {roleTab === "all"
                           ? "✅ No suspended accounts."
@@ -364,10 +365,17 @@ export default function SuspendedAccounts() {
                 ) : (
                   accounts.map((acc) => {
                     const isEmployer = normalizeAdminRole(acc.role) === "Employer";
-                    const roleLabel = isEmployer ? "Employer" : "Jobseeker";
                     const displayName = isEmployer
                       ? acc.company_name || acc.full_name || displayUserName(acc)
                       : displayUserName(acc);
+
+                    const formattedSuspendedDate = acc.suspended_at
+                      ? new Date(acc.suspended_at).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "Not recorded";
 
                     return (
                       <tr
@@ -450,7 +458,7 @@ export default function SuspendedAccounts() {
                           </span>
                         </td>
 
-                        {/* Suspension Status */}
+                        {/* Public Suspension Reason */}
                         <td style={{ padding: "14px 16px" }}>
                           <span
                             style={{
@@ -466,18 +474,23 @@ export default function SuspendedAccounts() {
                               gap: "4px",
                             }}
                           >
-                            🚫 Suspended
+                            🚫 {acc.suspension_reason_label || "Administrative suspension"}
                           </span>
                         </td>
 
-                        {/* Reason / Notes (reliable schema fields only) */}
-                        <td style={{ padding: "14px 16px", fontSize: "13px", color: "#64748b", maxWidth: "200px" }}>
-                          {acc.verification_reason ? (
-                            <span style={{ color: "#334155", fontStyle: "italic" }}>
-                              "{acc.verification_reason}"
+                        {/* Suspended Date */}
+                        <td style={{ padding: "14px 16px", fontSize: "13px", color: "#475569", whiteSpace: "nowrap" }}>
+                          {formattedSuspendedDate}
+                        </td>
+
+                        {/* Admin Moderation Note (from audit logs) */}
+                        <td style={{ padding: "14px 16px", fontSize: "13px", color: "#64748b", maxWidth: "220px" }}>
+                          {acc.internal_admin_note ? (
+                            <span style={{ color: "#334155", fontStyle: "italic", background: "#f8fafc", padding: "4px 8px", borderRadius: "4px", display: "inline-block" }}>
+                              "{acc.internal_admin_note}"
                             </span>
                           ) : (
-                            <span style={{ color: "#94a3b8" }}>No moderation note recorded</span>
+                            <span style={{ color: "#94a3b8" }}>No internal note</span>
                           )}
                         </td>
 
