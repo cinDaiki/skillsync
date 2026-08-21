@@ -185,12 +185,17 @@
 
 .dashboard-user div {
   text-align: right;
+  min-width: 0;
+  max-width: 240px;
 }
 
 .dashboard-user strong {
   display: block;
   color: #101828;
   font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-user small {
@@ -198,6 +203,9 @@
   margin-top: 3px;
   color: #667085;
   font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-user > span {

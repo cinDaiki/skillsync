@@ -1,4 +1,4 @@
-/* Applications.css - Candidate Application Tracker & Interview Confirmation Styles */
+/* Applications.css - Candidate Application Tracker Styles */
 
 .applications-page-header {
   display: flex;
@@ -9,49 +9,21 @@
   gap: 16px;
 }
 
-.applications-summary {
+/* ── UNIFIED FILTER TABS ───────────────────────────────────────────── */
+.applications-filter-tabs {
   display: flex;
-  gap: 12px;
-}
-
-.applications-summary-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  gap: 8px;
+  background: #f1f5f9;
+  padding: 4px;
   border-radius: 14px;
-  padding: 12px 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 90px;
+  border: 1px solid #e2e8f0;
 }
 
-.applications-summary-card span {
-  font-size: 11px;
-  font-weight: 800;
-  color: #64748b;
-  text-transform: uppercase;
-}
-
-.applications-summary-card strong {
-  font-size: 20px;
-  font-weight: 900;
-  color: #1e1b4b;
-}
-
-.applications-summary-card.active strong { color: #7c3aed; }
-.applications-summary-card.completed strong { color: #059669; }
-
-.applications-filters {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 22px;
-}
-
-.applications-filter-btn {
-  padding: 10px 18px;
-  border-radius: 12px;
-  border: 1.5px solid #e2e8f0;
-  background: #ffffff;
+.applications-filter-tab {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
   color: #475569;
   font-size: 13px;
   font-weight: 800;
@@ -59,118 +31,122 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: all 0.15s;
+  transition: all 0.15s ease;
 }
 
-.applications-filter-btn em {
-  font-style: normal;
-  background: #f1f5f9;
-  padding: 2px 8px;
+.applications-filter-tab .tab-count {
+  background: #e2e8f0;
+  color: #475569;
+  padding: 2px 7px;
   border-radius: 99px;
   font-size: 11px;
+  font-weight: 800;
 }
 
-.applications-filter-btn.active {
+.applications-filter-tab.active {
   background: #7c3aed;
   color: #ffffff;
-  border-color: #7c3aed;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.2);
 }
 
-.applications-filter-btn.active em {
-  background: rgba(255, 255, 255, 0.2);
+.applications-filter-tab.active .tab-count {
+  background: rgba(255, 255, 255, 0.25);
   color: #ffffff;
 }
 
-/* ── APPLICATION CARD ──────────────────────────────────────────────── */
-.application-card-enhanced {
+/* ── COMPACT APPLICATION CARDS ─────────────────────────────────────── */
+.applications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-card-compact {
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 20px;
-  padding: 24px;
-  margin-bottom: 20px;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.03);
-  transition: box-shadow 0.2s;
+  border-radius: 18px;
+  padding: 20px 24px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.application-card-enhanced:hover {
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+.app-card-compact:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
-.application-top {
+.app-card-compact.completed {
+  background: #fafafa;
+  border-color: #e2e8f0;
+}
+
+.app-card-top {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 16px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
-.application-top h3 {
+.app-card-title {
   margin: 0 0 4px 0;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 900;
   color: #0f172a;
 }
 
-.app-company-name {
+.app-card-company {
   margin: 0;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #64748b;
 }
 
 .application-status-badge {
-  padding: 5px 14px;
+  padding: 4px 12px;
   border-radius: 99px;
   font-size: 11.5px;
   font-weight: 900;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 
 .application-status-badge.submitted { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
 .application-status-badge.pending   { background: #fef3c7; color: #d97706; border: 1px solid #fde68a; }
-.application-status-badge.accepted  { background: #dcfce7; color: #16a34a; border: 1px solid #86efac; }
+.application-status-badge.accepted  { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
 .application-status-badge.rejected  { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
+.application-status-badge.withdrawn { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 
-.application-details-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
-  border-radius: 14px;
-  padding: 14px;
-  margin-bottom: 18px;
+.app-card-meta-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 600;
 }
 
-@media (max-width: 600px) { .application-details-grid { grid-template-columns: 1fr; } }
-
-.application-details-grid span {
-  display: block;
-  font-size: 10.5px;
-  font-weight: 800;
-  color: #94a3b8;
-  text-transform: uppercase;
-  margin-bottom: 3px;
+.dot-divider {
+  color: #cbd5e1;
 }
 
-.application-details-grid strong {
-  font-size: 13.5px;
-  color: #1e293b;
-  font-weight: 800;
-}
-
-/* ── RECRUITMENT TIMELINE TRACK ────────────────────────────────────── */
+/* ── RECRUITMENT PROGRESS TIMELINE ─────────────────────────────────── */
 .application-timeline-track {
   position: relative;
   display: flex;
   justify-content: space-between;
-  margin: 24px 0;
+  margin: 10px 0;
   padding: 0 10px;
 }
 
 .application-timeline-track::before {
   content: "";
   position: absolute;
-  top: 15px; left: 10px; right: 10px;
+  top: 13px; left: 14px; right: 14px;
   height: 3px;
   background: #e2e8f0;
   z-index: 1;
@@ -178,7 +154,7 @@
 
 .application-timeline-progress {
   position: absolute;
-  top: 15px; left: 10px;
+  top: 13px; left: 14px;
   height: 3px;
   background: #7c3aed;
   z-index: 2;
@@ -195,17 +171,17 @@
 }
 
 .timeline-step-circle {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: #ffffff;
   border: 2px solid #cbd5e1;
   color: #64748b;
   display: grid;
   place-items: center;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 900;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
 }
 
 .timeline-step.completed .timeline-step-circle {
@@ -216,8 +192,15 @@
 
 .timeline-step.active .timeline-step-circle {
   border-color: #7c3aed;
+  background: #ffffff;
   color: #7c3aed;
-  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.15);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+}
+
+.timeline-step.failed .timeline-step-circle {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
 }
 
 .timeline-step-label {
@@ -231,250 +214,99 @@
   color: #0f172a;
 }
 
-/* ── CANDIDATE INTERVIEW CARD ─────────────────────────────────────── */
-.cand-interview-card {
-  background: #ffffff;
-  border: 2px solid #e9d5ff;
-  border-radius: 16px;
-  padding: 18px;
-  margin-bottom: 18px;
-  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.05);
+.timeline-step.failed .timeline-step-label {
+  color: #dc2626;
 }
 
-.cand-interview-card.pending_confirmation {
-  border-color: #fde68a;
-  background: #fffdf5;
-}
-
-.cand-interview-card.confirmed {
-  border-color: #86efac;
-  background: #f0fdf4;
-}
-
-.cand-interview-header {
+/* ── ACTION INDICATOR & STATUS TEXT ────────────────────────────────── */
+.app-card-action-indicator {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #b45309;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 800;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
   gap: 8px;
+  width: fit-content;
 }
 
-.cand-interview-header h4 {
+.app-card-status-text {
   margin: 0;
-  font-size: 15px;
-  font-weight: 900;
-  color: #1e1b4b;
-}
-
-.cand-inv-badge {
-  padding: 4px 12px;
-  border-radius: 99px;
-  font-size: 11.5px;
-  font-weight: 900;
-}
-
-.cand-inv-badge.pending { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
-.cand-inv-badge.confirmed { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
-.cand-inv-badge.reschedule { background: #eff6ff; color: #1d4ed8; border: 1px solid #93c5fd; }
-.cand-inv-badge.declined { background: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5; }
-.cand-inv-badge.cancelled { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
-.cand-inv-badge.completed { background: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; }
-
-.cand-inv-info-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
   font-size: 13px;
-  margin-bottom: 12px;
-}
-
-.cand-inv-info-row span { display: block; font-size: 11px; font-weight: 800; color: #64748b; }
-.cand-inv-info-row strong { color: #0f172a; font-size: 14px; }
-
-.cand-inv-link-box, .cand-inv-walkin-box {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-
-.cand-inv-link-box a {
-  color: #2563eb;
-  font-weight: 800;
-  word-break: break-all;
-}
-
-.cand-inv-walkin-box p {
-  margin: 2px 0;
-  color: #334155;
-}
-
-.cand-inv-instructions {
-  font-size: 12.5px;
   color: #475569;
-  background: rgba(0, 0, 0, 0.02);
-  padding: 8px 10px;
-  border-radius: 8px;
-  margin: 0 0 14px 0;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
-/* Action Toolbar */
-.cand-inv-action-toolbar {
-  background: #ffffff;
-  border: 1.5px solid #fde68a;
-  border-radius: 12px;
-  padding: 14px;
-  margin-top: 10px;
+.app-card-outcome-text {
+  margin: 0;
+  font-size: 13.5px;
+  color: #334155;
+  font-weight: 600;
 }
 
-.toolbar-notice {
-  margin: 0 0 10px 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: #92400e;
-}
-
-.toolbar-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.cand-btn {
-  padding: 8px 16px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 800;
-  border: none;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.cand-btn.accept { background: #16a34a; color: #ffffff; }
-.cand-btn.accept:hover { background: #15803d; }
-
-.cand-btn.reschedule { background: #f59e0b; color: #ffffff; }
-.cand-btn.reschedule:hover { background: #d97706; }
-
-.cand-btn.decline { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
-.cand-btn.decline:hover { background: #fecaca; }
-
-.cand-confirmed-box {
-  background: #ffffff;
-  border: 1px solid #86efac;
-  border-radius: 10px;
-  padding: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.cand-confirmed-box p { margin: 0; font-size: 13px; font-weight: 800; color: #15803d; }
-
-.cand-join-btn {
-  padding: 8px 16px;
-  background: #2563eb;
-  color: #ffffff;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.cand-reschedule-status-box, .cand-completed-status-box {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 12px;
-  font-size: 13px;
-}
-
-.cand-reschedule-status-box p, .cand-completed-status-box p { margin: 4px 0; color: #334155; }
-
-/* ── FINAL DECISION BANNERS ────────────────────────────────────────── */
-.cand-decision-banner {
-  border-radius: 16px;
-  padding: 18px;
-  margin-bottom: 18px;
-}
-
-.cand-decision-banner.hired {
-  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
-  border: 2px solid #6ee7b7;
-  color: #065f46;
-}
-
-.cand-decision-banner.hired h4 { margin: 0 0 6px 0; font-size: 16px; font-weight: 900; color: #047857; }
-.cand-decision-banner.hired p { margin: 0 0 6px 0; font-size: 13.5px; }
-
-.cand-decision-banner.rejected {
-  background: #fef2f2;
-  border: 1.5px solid #fca5a5;
-  color: #991b1b;
-}
-
-.cand-decision-banner.rejected h4 { margin: 0 0 6px 0; font-size: 15px; font-weight: 900; color: #7f1d1d; }
-.cand-decision-banner.rejected p { margin: 0; font-size: 13px; }
-
-/* Attachments */
-.application-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.attachment-chip {
-  padding: 4px 10px;
-  background: #f1f5f9;
-  border-radius: 8px;
-  font-size: 11.5px;
-  font-weight: 700;
-  color: #64748b;
-}
-
-.attachment-chip.checked {
-  background: #f0fdf4;
-  color: #166534;
-  border: 1px solid #bbf7d0;
-}
-
-.application-detail-toggle {
-  background: none;
-  border: none;
-  color: #7c3aed;
-  font-size: 12.5px;
-  font-weight: 800;
-  cursor: pointer;
-  padding: 0;
-}
-
-.application-snapshot-panel {
-  margin-top: 14px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 14px;
-}
-
-.application-actions {
-  margin-top: 14px;
+/* ── CARD FOOTER ───────────────────────────────────────────────────── */
+.app-card-footer {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 14px;
+  margin-top: 4px;
 }
 
-.application-withdraw-btn {
-  background: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #fca5a5;
-  padding: 6px 14px;
-  border-radius: 8px;
-  font-size: 12px;
+.btn-view-app {
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-size: 13px;
   font-weight: 800;
   cursor: pointer;
+  border: 1.5px solid #e2e8f0;
+  background: #ffffff;
+  color: #1e293b;
+  transition: all 0.15s ease;
+}
+
+.btn-view-app:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.btn-view-app.primary {
+  background: #7c3aed;
+  color: #ffffff;
+  border-color: #7c3aed;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.15);
+}
+
+.btn-view-app.primary:hover {
+  background: #6d28d9;
+  border-color: #6d28d9;
+}
+
+.btn-withdraw-app {
+  margin-right: auto;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  transition: all 0.15s ease;
+}
+
+.btn-withdraw-app:hover {
+  background: #fee2e2;
+}
+
+/* Empty State */
+.applications-empty {
+  padding: 48px 24px;
+  text-align: center;
 }

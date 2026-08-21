@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 import AIMatchReport from "../../components/ai/AIMatchReport";
-import { fetchEmployerApplicants } from "../../services/applicationService";
+import { fetchEmployerApplicants, fetchEmployerApplicantById } from "../../services/applicationService";
 import {
   sendInterviewInvitation,
   respondToInterview,
@@ -228,14 +228,43 @@ export default function Applicants() {
     return "Basic";
   }
 
-  // Scroll to and highlight applicant card
-  function scrollToApplicantCard(appId) {
-    setHighlightedAppId(appId);
-    const element = document.getElementById(`applicant-card-${appId}`);
-    if (element) {
-      element.scrollIntoView({ behavior: "smooth", block: "center" });
+  async function handleViewApplicant(appOrId) {
+    if (!appOrId) return;
+
+    if (typeof appOrId === "object" && appOrId.id) {
+      setSelectedApplicant(appOrId);
+      return;
     }
-    setTimeout(() => setHighlightedAppId(null), 3000);
+
+    const appId = String(appOrId);
+    const found = applicants.find((a) => a.id === appId);
+    if (found) {
+      setSelectedApplicant(found);
+      return;
+    }
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+      if (!userId) {
+        toast.error("Unable to load applicant details. Please try again.");
+        return;
+      }
+
+      const { data, error } = await fetchEmployerApplicantById(appId, userId);
+      if (error || !data) {
+        toast.error("Unable to load applicant details. Please try again.");
+      } else {
+        setSelectedApplicant(data);
+      }
+    } catch (err) {
+      console.warn("Failed loading applicant details:", err.message);
+      toast.error("Unable to load applicant details. Please try again.");
+    }
+  }
+
+  function openResumeViewer(app) {
+    handleViewApplicant(app);
   }
 
   async function handleStatusChange(appId, newStatus, appName) {
@@ -557,20 +586,10 @@ export default function Applicants() {
       subtitle="Verify candidate skills alignment, manage interview invitations, and progress hiring decisions."
     >
       <section className="dashboard-panel">
-        <div className="panel-header">
-          <div>
+        <div className="panel-header emp-desk-header">
+          <div className="panel-header-content">
             <h2>Review Applications & Interview Pipelines</h2>
             <p>Compare criteria, invite candidates to Online or Walk-in interviews, and record evaluation notes.</p>
-          </div>
-          <div className="emp-interview-indicators">
-            <span className="emp-indicator-chip">
-              📅 Upcoming Interviews: <strong>{upcomingInterviews.length}</strong>
-            </span>
-            {todayCount > 0 && (
-              <span className="emp-indicator-chip today">
-                🔔 <strong>{todayCount} Interview Today</strong>
-              </span>
-            )}
           </div>
         </div>
 
@@ -630,7 +649,7 @@ export default function Applicants() {
                         <button
                           type="button"
                           className="upcoming-action-btn view-app"
-                          onClick={() => scrollToApplicantCard(inv.application_id)}
+                          onClick={() => handleViewApplicant(inv.application_id)}
                         >
                           👤 View Applicant
                         </button>
@@ -1492,8 +1511,8 @@ export default function Applicants() {
       {selectedApplicant && (
         <ResumeViewerModal
           applicant={selectedApplicant}
+          context="screening"
           onClose={closeResumeViewer}
-          onReject={() => handleStatusChange(selectedApplicant.id, "rejected", selectedApplicant.displayName || "Applicant")}
           onShortlist={() => handleStatusChange(selectedApplicant.id, "shortlisted", selectedApplicant.displayName || "Applicant")}
         />
       )}

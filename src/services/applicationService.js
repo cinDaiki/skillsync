@@ -1,5 +1,5 @@
-import { supabase } from "./supabase";
-import { getResume } from "./api";
+import { supabase } from "./supabase.js";
+import { getResume } from "./api.js";
 
 function withTimeout(promise, ms = 6000) {
   return Promise.race([
@@ -61,12 +61,12 @@ export function resolveApplicantIdentity(app) {
 export async function buildApplicantSnapshot(userId) {
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, email, contact_number, skills")
+    .select("full_name, email, contact_number, skills, education, work_experience, certifications, verification_status")
     .eq("id", userId)
     .maybeSingle();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const authEmail = user?.id === userId ? user.email || "" : "";
+  const { data: { session } } = await supabase.auth.getSession();
+  const authEmail = session?.user?.id === userId ? session.user.email || "" : "";
 
   const { data: resume } = await getResume(userId);
 
@@ -75,6 +75,10 @@ export async function buildApplicantSnapshot(userId) {
     email: profile?.email?.trim() || authEmail,
     contact_number: profile?.contact_number || "",
     skills: profile?.skills || "",
+    education: profile?.education || null,
+    work_experience: profile?.work_experience || null,
+    certifications: profile?.certifications || null,
+    verification_status: profile?.verification_status || null,
     resume: resume?.file_url
       ? {
           file_url: resume.file_url,
@@ -128,17 +132,15 @@ export async function syncApplicantSnapshot(userId) {
     return { error: null };
   }
 }
+
 export async function applyForJobWithSnapshot(jobId, applicantId) {
-  // Normalize arguments in case called as (applicantId, jobId) vs (jobId, applicantId)
   let realJobId = jobId;
   let realApplicantId = applicantId;
 
-  // If first arg looks like a user ID or second arg looks like job object/string, normalize
-  const { data: { user } } = await supabase.auth.getUser();
-  const currentUserId = user?.id || null;
+  const { data: { session } } = await supabase.auth.getSession();
+  const currentUserId = session?.user?.id || null;
 
   if (realJobId === currentUserId && realApplicantId && realApplicantId !== currentUserId) {
-    // Inverted arguments detected
     realJobId = applicantId;
     realApplicantId = jobId;
   }
@@ -146,7 +148,7 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
     realApplicantId = currentUserId;
   }
 
-  // 1. Central Enforcement: Fetch candidate profile verification_status & is_suspended
+  // Central Enforcement: Fetch candidate profile verification_status & is_suspended
   if (realApplicantId) {
     const { data: profile, error: profileErr } = await supabase
       .from("profiles")
@@ -158,14 +160,12 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
       console.warn("[ApplicationService] Profile fetch warning:", profileErr.message);
     }
 
-    // Check account suspension
     if (profile?.is_suspended) {
       const err = new Error("ACCOUNT_SUSPENDED: Your account has been suspended by an administrator. Application locked.");
       err.code = "ACCOUNT_SUSPENDED";
       return { data: null, error: err };
     }
 
-    // Check identity verification
     const vStatus = profile?.verification_status || "Pending Verification";
     const isVerified = vStatus === "Verified" || vStatus === "Approved";
 
@@ -223,12 +223,16 @@ export function enrichApplicationRecord(app) {
           email: snapshot.email || "",
           contact_number: snapshot.contact_number || "",
           skills: snapshot.skills || "",
+          education: snapshot.education || null,
+          work_experience: snapshot.work_experience || null,
+          certifications: snapshot.certifications || null,
+          verification_status: snapshot.verification_status || null,
         }
       : null;
 
   const profiles = profileFromJoin || profileFromSnapshot;
 
-  const resumeFromJoin = app.resume?.file_url ? app.resume : null;
+  // IMPORTANT: Prioritize submitted resume snapshot captured at application time over current candidate upload
   const resumeFromSnapshot = snapshotResume?.file_url
     ? {
         file_url: snapshotResume.file_url,
@@ -237,8 +241,8 @@ export function enrichApplicationRecord(app) {
         created_at: snapshotResume.created_at || null,
       }
     : null;
-
-  const resume = resumeFromJoin || resumeFromSnapshot;
+  const resumeFromJoin = app.resume?.file_url ? app.resume : null;
+  const resume = resumeFromSnapshot || resumeFromJoin;
 
   const identity = resolveApplicantIdentity({
     ...app,
@@ -258,9 +262,7 @@ export function enrichApplicationRecord(app) {
     profiles: {
       ...(profiles || {}),
       full_name: identity.displayName,
-      email: identity.displayEmail === "No email" ? "" : identity.displayEmail,
-      contact_number: profiles?.contact_number || snapshot.contact_number || "",
-      skills: profiles?.skills || snapshot.skills || "",
+      email: identity.displayEmail,
     },
     resume,
     displayName: identity.displayName,
@@ -270,7 +272,6 @@ export function enrichApplicationRecord(app) {
 }
 
 export async function fetchEmployerApplicants(employerId) {
-  // Step 1: Attempt direct relational fetch first to preserve full database fields (updated_at, reject_reason, match_score)
   try {
     const { data: jobs, error: jobsError } = await supabase
       .from("jobs")
@@ -296,7 +297,7 @@ export async function fetchEmployerApplicants(employerId) {
         if (applicantIds.length > 0) {
           const { data: profilesData } = await supabase
             .from("profiles")
-            .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications")
+            .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
             .in("id", applicantIds);
           (profilesData || []).forEach((p) => {
             profileMap[p.id] = p;
@@ -329,7 +330,7 @@ export async function fetchEmployerApplicants(employerId) {
     console.warn("Direct fetchEmployerApplicants fell back to RPC:", err.message);
   }
 
-  // Step 2: Fallback to secure RPC get_employer_applicants
+  // Fallback to secure RPC get_employer_applicants
   const { data: rpcData, error: rpcError } = await supabase.rpc(
     "get_employer_applicants"
   );
@@ -375,6 +376,73 @@ export async function fetchEmployerApplicants(employerId) {
   }
 
   return { data: [], error: rpcError || null };
+}
+
+/**
+ * Fetch a single application record for an employer by application.id
+ * Enforces ownership: only returns data if the job belongs to employerId
+ */
+export async function fetchEmployerApplicantById(applicationId, employerId = null) {
+  if (!applicationId) {
+    return { data: null, error: new Error("Missing applicationId") };
+  }
+
+  try {
+    let targetEmployerId = employerId;
+    if (!targetEmployerId) {
+      const { data: { session } } = await supabase.auth.getSession();
+      targetEmployerId = session?.user?.id;
+    }
+
+    if (!targetEmployerId) {
+      return { data: null, error: new Error("Unauthorized: No active session") };
+    }
+
+    const { data: appData, error: appError } = await supabase
+      .from("applications")
+      .select("*, jobs(id, title, employment_type, location, required_skills, employer_id)")
+      .eq("id", applicationId)
+      .maybeSingle();
+
+    if (appError || !appData) {
+      return { data: null, error: appError || new Error("Application not found") };
+    }
+
+    // Client-side defense + RLS alignment: Ensure job belongs to this employer
+    if (appData.jobs?.employer_id !== targetEmployerId) {
+      return { data: null, error: new Error("Unauthorized access to applicant record") };
+    }
+
+    let profile = null;
+    let resume = null;
+
+    if (appData.applicant_id) {
+      const { data: profData } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
+        .eq("id", appData.applicant_id)
+        .maybeSingle();
+      profile = profData;
+
+      const { data: resumeData } = await supabase
+        .from("resumes")
+        .select("*")
+        .eq("applicant_id", appData.applicant_id)
+        .maybeSingle();
+      resume = resumeData;
+    }
+
+    const enriched = enrichApplicationRecord({
+      ...appData,
+      profiles: profile,
+      resume: resume,
+      applicant_email: profile?.email || null,
+    });
+
+    return { data: enriched, error: null };
+  } catch (err) {
+    return { data: null, error: err };
+  }
 }
 
 export function normalizeApplicantRecord(app) {
