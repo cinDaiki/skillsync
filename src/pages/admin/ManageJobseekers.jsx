@@ -52,7 +52,6 @@ export default function ManageJobseekers() {
     setLoading(true);
     const res = await fetchAdminJobseekers({
       search,
-      status: statusFilter,
       verificationStatus: verificationFilter,
       page,
       pageSize,
@@ -62,7 +61,7 @@ export default function ManageJobseekers() {
     setTotalPages(res.totalPages || 1);
     if (res.summary) setSummary(res.summary);
     setLoading(false);
-  }, [search, statusFilter, verificationFilter, page, pageSize]);
+  }, [search, verificationFilter, page, pageSize]);
 
   useEffect(() => {
     loadJobseekers();
@@ -409,23 +408,6 @@ export default function ManageJobseekers() {
               outline: "none",
             }}
           />
-
-          <select
-            value={statusFilter}
-            onChange={handleStatusChange}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              fontSize: "14px",
-              background: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            <option value="all">All Account Statuses</option>
-            <option value="active">Active Only</option>
-            <option value="suspended">Suspended Only</option>
-          </select>
 
           <select
             value={verificationFilter}

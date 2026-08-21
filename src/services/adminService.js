@@ -2,7 +2,48 @@ import { supabase } from "./supabase.js";
 import { addNotification } from "./notificationService.js";
 
 function isJobSeeker(role) {
-  return role === "candidate" || role === "job_seeker";
+  const r = String(role || "").trim().toLowerCase();
+  return r === "candidate" || r === "job_seeker" || r === "jobseeker";
+}
+
+/**
+ * Canonical suspension predicate for Admin views.
+ * An account is suspended if is_suspended is explicitly true,
+ * OR verification_status is legacy 'Suspended' (case-insensitive).
+ */
+export function isAccountSuspended(profile) {
+  if (!profile) return false;
+  if (profile.is_suspended === true) return true;
+  const vStatus = String(profile.verification_status || "").trim().toLowerCase();
+  return vStatus === "suspended";
+}
+
+/**
+ * Inverse active predicate for Admin views.
+ * An account is active if it is NOT suspended (handles null / undefined / empty verification_status safely).
+ */
+export function isAccountActive(profile) {
+  return !isAccountSuspended(profile);
+}
+
+/**
+ * Normalized role classifier for Admin UI.
+ * candidate / job_seeker / jobseeker -> 'Jobseeker'
+ * employer -> 'Employer'
+ * admin -> 'Admin'
+ */
+export function normalizeAdminRole(role) {
+  const r = String(role || "").trim().toLowerCase();
+  if (r === "candidate" || r === "job_seeker" || r === "jobseeker") {
+    return "Jobseeker";
+  }
+  if (r === "employer") {
+    return "Employer";
+  }
+  if (r === "admin") {
+    return "Admin";
+  }
+  return r;
 }
 
 export async function fetchAdminProfiles() {
@@ -23,9 +64,6 @@ export async function fetchAdminProfiles() {
       .from("employer_profiles")
       .select("id, id_image_url, selfie_image_url, business_permit_url, sec_registration_url, company_name, location, contact_number, verification_status");
 
-    console.log("[AdminService] employer_profiles data:", employerProfiles);
-    console.log("[AdminService] employer_profiles error:", employerProfilesError);
-
     if (Array.isArray(employerProfiles) && employerProfiles.length > 0) {
       const empMap = new Map(employerProfiles.map((ep) => [ep.id, ep]));
       profilesList = profilesList.map((p) => {
@@ -42,7 +80,6 @@ export async function fetchAdminProfiles() {
             contact_number: ep ? (ep.contact_number || p.contact_number) : p.contact_number,
             verification_status: ep ? (ep.verification_status || p.verification_status) : p.verification_status,
           };
-          console.log("[AdminService] FINAL merged employer:", mergedEmployer);
           return mergedEmployer;
         }
         return p;
@@ -56,65 +93,71 @@ export async function fetchAdminProfiles() {
 }
 
 /**
- * Server-side paginated query for Admin Jobseeker Management
+ * Server-side paginated query for Admin Jobseeker Management (ACTIVE accounts only)
  */
-export async function fetchAdminJobseekers({ search = "", status = "all", verificationStatus = "all", page = 1, pageSize = 10 } = {}) {
+export async function fetchAdminJobseekers({ search = "", verificationStatus = "all", page = 1, pageSize = 10 } = {}) {
   try {
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-
+    // 1. Fetch all candidate profiles to ensure accurate, three-valued-logic-safe active separation
     let query = supabase
       .from("profiles")
-      .select("*", { count: "exact" })
-      .in("role", ["candidate", "job_seeker"])
+      .select("*")
+      .in("role", ["candidate", "job_seeker", "jobseeker"])
       .order("created_at", { ascending: false });
 
-    if (search.trim()) {
-      const term = `%${search.trim()}%`;
-      query = query.or(`full_name.ilike.${term},email.ilike.${term},address.ilike.${term}`);
+    const { data: allCandidates, error: fetchErr } = await query;
+
+    if (fetchErr) {
+      console.error("[AdminService] fetchAdminJobseekers error:", fetchErr);
+      return { data: [], totalCount: 0, page, totalPages: 0, error: fetchErr };
     }
 
-    if (status === "active") {
-      query = query.or("is_suspended.is.null,is_suspended.eq.false");
-    } else if (status === "suspended") {
-      query = query.eq("is_suspended", true);
-    }
+    const candidateList = allCandidates || [];
 
-    if (verificationStatus === "verified") {
-      query = query.in("verification_status", ["Verified", "Approved"]);
-    } else if (verificationStatus === "under_review") {
-      query = query.eq("verification_status", "Under Review");
-    } else if (verificationStatus === "rejected") {
-      query = query.eq("verification_status", "Rejected");
-    } else if (verificationStatus === "pending") {
-      query = query.or("verification_status.is.null,verification_status.eq.Pending Verification,verification_status.eq.Pending");
-    }
-
-    const { data: profiles, count, error: profileErr } = await query.range(from, to);
-
-    if (profileErr) {
-      console.error("[AdminService] fetchAdminJobseekers error:", profileErr);
-      return { data: [], totalCount: 0, page, totalPages: 0, error: profileErr };
-    }
-
-    // Also fetch aggregate summary counts for summary cards
-    const { data: allProfiles } = await supabase
-      .from("profiles")
-      .select("id, is_suspended, verification_status")
-      .in("role", ["candidate", "job_seeker"]);
-
+    // Global summary counts across all candidate records
     const summary = {
-      total: (allProfiles || []).length,
-      active: (allProfiles || []).filter(p => !p.is_suspended).length,
-      suspended: (allProfiles || []).filter(p => p.is_suspended).length,
-      verified: (allProfiles || []).filter(p => p.verification_status === "Verified" || p.verification_status === "Approved").length,
-      pending: (allProfiles || []).filter(p => !p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification" || p.verification_status === "Under Review").length,
+      total: candidateList.filter(isAccountActive).length,
+      active: candidateList.filter(isAccountActive).length,
+      suspended: candidateList.filter(isAccountSuspended).length,
+      verified: candidateList.filter(p => isAccountActive(p) && (p.verification_status === "Verified" || p.verification_status === "Approved")).length,
+      pending: candidateList.filter(p => isAccountActive(p) && (!p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification" || p.verification_status === "Under Review")).length,
     };
 
-    // Merge candidate_profiles table data if available
-    let jobseekersList = profiles || [];
-    if (jobseekersList.length > 0) {
-      const ids = jobseekersList.map((p) => p.id);
+    // 2. Strict Active-Only Filter
+    let activeCandidates = candidateList.filter(isAccountActive);
+
+    // 3. Search Filter
+    if (search && search.trim()) {
+      const term = search.trim().toLowerCase();
+      activeCandidates = activeCandidates.filter((p) =>
+        (p.full_name && p.full_name.toLowerCase().includes(term)) ||
+        (p.email && p.email.toLowerCase().includes(term)) ||
+        (p.address && p.address.toLowerCase().includes(term))
+      );
+    }
+
+    // 4. Verification Status Filter
+    if (verificationStatus !== "all" && verificationStatus !== "All") {
+      if (verificationStatus === "verified") {
+        activeCandidates = activeCandidates.filter((p) => p.verification_status === "Verified" || p.verification_status === "Approved");
+      } else if (verificationStatus === "under_review") {
+        activeCandidates = activeCandidates.filter((p) => p.verification_status === "Under Review");
+      } else if (verificationStatus === "rejected") {
+        activeCandidates = activeCandidates.filter((p) => p.verification_status === "Rejected");
+      } else if (verificationStatus === "pending") {
+        activeCandidates = activeCandidates.filter((p) => !p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification");
+      } else {
+        activeCandidates = activeCandidates.filter((p) => p.verification_status === verificationStatus);
+      }
+    }
+
+    const totalCount = activeCandidates.length;
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+    const from = (page - 1) * pageSize;
+    let paginatedData = activeCandidates.slice(from, from + pageSize);
+
+    // 5. Merge candidate_profiles table data if available
+    if (paginatedData.length > 0) {
+      const ids = paginatedData.map((p) => p.id);
       const { data: candProfiles } = await supabase
         .from("candidate_profiles")
         .select("*")
@@ -122,7 +165,7 @@ export async function fetchAdminJobseekers({ search = "", status = "all", verifi
 
       if (Array.isArray(candProfiles) && candProfiles.length > 0) {
         const candMap = new Map(candProfiles.map((cp) => [cp.user_id, cp]));
-        jobseekersList = jobseekersList.map((p) => {
+        paginatedData = paginatedData.map((p) => {
           const cp = candMap.get(p.id);
           return {
             ...p,
@@ -134,17 +177,14 @@ export async function fetchAdminJobseekers({ search = "", status = "all", verifi
           };
         });
       } else {
-        jobseekersList = jobseekersList.map((p) => ({
+        paginatedData = paginatedData.map((p) => ({
           ...p,
           profile_completion: calculateProfileCompletion(p, null),
         }));
       }
     }
 
-    const totalCount = count || jobseekersList.length;
-    const totalPages = Math.ceil(totalCount / pageSize) || 1;
-
-    return { data: jobseekersList, totalCount, page, totalPages, summary, error: null };
+    return { data: paginatedData, totalCount, page, totalPages, summary, error: null };
   } catch (err) {
     console.error("[AdminService] fetchAdminJobseekers exception:", err);
     return { data: [], totalCount: 0, page: 1, totalPages: 0, error: err };
@@ -171,45 +211,27 @@ function calculateProfileCompletion(profile, candidateProfile) {
 }
 
 /**
- * Server-side paginated query for Admin Employer Management with job metrics
+ * Server-side paginated query for Admin Employer Management (ACTIVE accounts only)
  */
 export async function fetchAdminEmployers({ search = "", status = "All", page = 1, pageSize = 10 } = {}) {
   try {
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-
     let query = supabase
       .from("profiles")
-      .select("*", { count: "exact" })
+      .select("*")
       .eq("role", "employer")
       .order("created_at", { ascending: false });
 
-    if (search.trim()) {
-      const term = `%${search.trim()}%`;
-      query = query.or(`full_name.ilike.${term},email.ilike.${term}`);
-    }
-
-    if (status !== "All") {
-      if (status === "Approved") {
-        query = query.in("verification_status", ["Approved", "Verified"]).or("is_suspended.is.null,is_suspended.eq.false");
-      } else if (status === "Suspended") {
-        query = query.or("is_suspended.eq.true,verification_status.eq.Suspended");
-      } else {
-        query = query.eq("verification_status", status);
-      }
-    }
-
-    const { data: profiles, count, error: profileErr } = await query.range(from, to);
+    const { data: allEmployers, error: profileErr } = await query;
 
     if (profileErr) {
       console.error("[AdminService] fetchAdminEmployers error:", profileErr);
       return { data: [], totalCount: 0, page, totalPages: 0, error: profileErr };
     }
 
-    let employersList = profiles || [];
-    const empIds = employersList.map((p) => p.id);
+    let employersList = (allEmployers || []).filter(isAccountActive);
 
-    // Merge employer_profiles details and job statistics
+    // Merge employer_profiles details
+    const empIds = employersList.map((p) => p.id);
     if (empIds.length > 0) {
       const { data: empProfiles } = await supabase
         .from("employer_profiles")
@@ -263,13 +285,164 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
       });
     }
 
-    const totalCount = count || employersList.length;
-    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+    // Apply Search
+    if (search && search.trim()) {
+      const term = search.trim().toLowerCase();
+      employersList = employersList.filter((p) =>
+        (p.full_name && p.full_name.toLowerCase().includes(term)) ||
+        (p.email && p.email.toLowerCase().includes(term)) ||
+        (p.company_name && p.company_name.toLowerCase().includes(term))
+      );
+    }
 
-    return { data: employersList, totalCount, page, totalPages, error: null };
+    // Apply Status Filter
+    if (status !== "All" && status !== "all") {
+      if (status === "Approved") {
+        employersList = employersList.filter((p) => p.verification_status === "Approved" || p.verification_status === "Verified");
+      } else if (status === "Pending") {
+        employersList = employersList.filter((p) => !p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification");
+      } else if (status === "Rejected") {
+        employersList = employersList.filter((p) => p.verification_status === "Rejected");
+      } else {
+        employersList = employersList.filter((p) => p.verification_status === status);
+      }
+    }
+
+    const totalCount = employersList.length;
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+    const from = (page - 1) * pageSize;
+    const paginatedData = employersList.slice(from, from + pageSize);
+
+    return { data: paginatedData, totalCount, page, totalPages, error: null };
   } catch (err) {
     console.error("[AdminService] fetchAdminEmployers exception:", err);
     return { data: [], totalCount: 0, page: 1, totalPages: 0, error: err };
+  }
+}
+
+/**
+ * Server-side / unified query for Admin Suspended Accounts Page
+ * Returns all suspended Jobseekers and Employers with global summary counts.
+ */
+export async function fetchSuspendedAccounts({ search = "", roleFilter = "all", page = 1, pageSize = 10 } = {}) {
+  try {
+    // 1. Fetch all profiles
+    const { data: allProfiles, error: profErr } = await supabase
+      .from("profiles")
+      .select("*")
+      .order("updated_at", { ascending: false });
+
+    if (profErr) {
+      console.error("[AdminService] fetchSuspendedAccounts error:", profErr);
+      return { data: [], totalCount: 0, page, totalPages: 0, summary: { total: 0, jobseekers: 0, employers: 0 }, error: profErr };
+    }
+
+    // 2. Filter strictly for suspended accounts, excluding admin accounts
+    const allSuspended = (allProfiles || []).filter((p) => {
+      const normRole = normalizeAdminRole(p.role);
+      return (normRole === "Jobseeker" || normRole === "Employer") && isAccountSuspended(p);
+    });
+
+    // 3. GLOBAL summary counts (independent of search text, current tab, or current page)
+    const summary = {
+      total: allSuspended.length,
+      jobseekers: allSuspended.filter((p) => normalizeAdminRole(p.role) === "Jobseeker").length,
+      employers: allSuspended.filter((p) => normalizeAdminRole(p.role) === "Employer").length,
+    };
+
+    // 4. Merge Employer Profiles & Job Stats for suspended employers
+    const empIds = allSuspended.filter((p) => normalizeAdminRole(p.role) === "Employer").map((p) => p.id);
+    let employerProfileMap = new Map();
+    let jobsMap = new Map();
+
+    if (empIds.length > 0) {
+      const [empProfilesRes, jobsRes] = await Promise.all([
+        supabase.from("employer_profiles").select("*").in("id", empIds),
+        supabase.from("jobs").select("id, employer_id, status").in("employer_id", empIds),
+      ]);
+
+      (empProfilesRes.data || []).forEach((ep) => employerProfileMap.set(ep.id, ep));
+      (jobsRes.data || []).forEach((j) => {
+        if (!jobsMap.has(j.employer_id)) {
+          jobsMap.set(j.employer_id, { total: 0, open: 0, pending: 0, closed: 0 });
+        }
+        const s = jobsMap.get(j.employer_id);
+        s.total += 1;
+        if (j.status === "open") s.open += 1;
+        else if (j.status === "pending_review") s.pending += 1;
+        else if (j.status === "closed") s.closed += 1;
+      });
+    }
+
+    // Merge detailed attributes
+    let enrichedList = allSuspended.map((p) => {
+      const normRole = normalizeAdminRole(p.role);
+      if (normRole === "Employer") {
+        const ep = employerProfileMap.get(p.id);
+        const stats = jobsMap.get(p.id) || { total: 0, open: 0, pending: 0, closed: 0 };
+        return {
+          ...p,
+          normalizedRole: "Employer",
+          company_name: ep?.company_name || p.company_name || "Unnamed Company",
+          industry: ep?.industry || "Not specified",
+          location: ep?.location || p.location || "Not specified",
+          website: ep?.website || "",
+          contact_number: ep?.contact_number || p.contact_number || "",
+          verification_status: ep?.verification_status || p.verification_status || "Suspended",
+          verification_reason: p.verification_reason || "",
+          job_stats: stats,
+        };
+      }
+      return {
+        ...p,
+        normalizedRole: "Jobseeker",
+        verification_status: p.verification_status || "Pending",
+        verification_reason: p.verification_reason || "",
+      };
+    });
+
+    // 5. Apply Tab / Role Filter
+    if (roleFilter === "jobseekers") {
+      enrichedList = enrichedList.filter((p) => p.normalizedRole === "Jobseeker");
+    } else if (roleFilter === "employers") {
+      enrichedList = enrichedList.filter((p) => p.normalizedRole === "Employer");
+    }
+
+    // 6. Apply Search Filter
+    if (search && search.trim()) {
+      const term = search.trim().toLowerCase();
+      enrichedList = enrichedList.filter((p) =>
+        (p.full_name && p.full_name.toLowerCase().includes(term)) ||
+        (p.email && p.email.toLowerCase().includes(term)) ||
+        (p.company_name && p.company_name.toLowerCase().includes(term)) ||
+        (p.address && p.address.toLowerCase().includes(term))
+      );
+    }
+
+    // 7. Paginate
+    const totalCount = enrichedList.length;
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+    const from = (page - 1) * pageSize;
+    const paginatedData = enrichedList.slice(from, from + pageSize);
+
+    return {
+      data: paginatedData,
+      totalCount,
+      page,
+      totalPages,
+      summary,
+      error: null,
+    };
+  } catch (err) {
+    console.error("[AdminService] fetchSuspendedAccounts exception:", err);
+    return {
+      data: [],
+      totalCount: 0,
+      page: 1,
+      totalPages: 0,
+      summary: { total: 0, jobseekers: 0, employers: 0 },
+      error: err,
+    };
   }
 }
 

@@ -8,6 +8,7 @@ const sidebarLinks = {
     { label: "Dashboard", icon: "⌂", path: "/admin/dashboard" },
     { label: "Jobseekers", icon: "👤", path: "/admin/jobseekers" },
     { label: "Employers", icon: "🏢", path: "/admin/employers" },
+    { label: "Suspended Accounts", icon: "🚫", path: "/admin/suspended-accounts" },
     { label: "Manage Jobs", icon: "💼", path: "/admin/jobs" },
     { label: "Applications", icon: "📋", path: "/admin/applications" },
     { label: "Resume Vault", icon: "📁", path: "/admin/resumes" },

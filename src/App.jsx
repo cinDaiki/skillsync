@@ -34,6 +34,7 @@ import ManageUsers from "./pages/admin/ManageUsers";
 import ManageJobseekers from "./pages/admin/ManageJobseekers";
 import AdminManageJobs from "./pages/admin/AdminManageJobs";
 import ManageEmployers from "./pages/admin/ManageEmployers";
+import SuspendedAccounts from "./pages/admin/SuspendedAccounts";
 import Reports from "./pages/admin/Reports";
 import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
 import ManageResumes from "./pages/admin/ManageResumes";
@@ -253,6 +254,15 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.ADMIN]}>
               <ManageEmployers />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/admin/suspended-accounts"
+          element={
+            <RoleRoute allowedRoles={[ROLES.ADMIN]}>
+              <SuspendedAccounts />
             </RoleRoute>
           }
         />
