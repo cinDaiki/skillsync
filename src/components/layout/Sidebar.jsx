@@ -9,6 +9,7 @@ const sidebarLinks = {
     { label: "Jobseekers", icon: "👤", path: "/admin/jobseekers" },
     { label: "Employers", icon: "🏢", path: "/admin/employers" },
     { label: "Suspended Accounts", icon: "🚫", path: "/admin/suspended-accounts" },
+    { label: "Suspension Appeals", icon: "⚖️", path: "/admin/suspension-appeals" },
     { label: "Manage Jobs", icon: "💼", path: "/admin/jobs" },
     { label: "Applications", icon: "📋", path: "/admin/applications" },
     { label: "Resume Vault", icon: "📁", path: "/admin/resumes" },
