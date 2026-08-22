@@ -5,6 +5,7 @@ import {
   fetchAdminProfiles,
   fetchAdminJobs,
   fetchAdminAuditLogs,
+  isAccountActive,
   isAccountSuspended,
 } from "../../services/adminService";
 
@@ -44,11 +45,11 @@ export default function AdminDashboard() {
       const jobsList = jobsRes.data || [];
       const auditList = auditRes.data || [];
 
-      const seekers = profileList.filter((p) => p.role === "candidate" || p.role === "job_seeker");
-      const employers = profileList.filter((p) => p.role === "employer");
+      const seekers = profileList.filter((p) => (p.role === "candidate" || p.role === "job_seeker" || p.role === "jobseeker") && isAccountActive(p));
+      const employers = profileList.filter((p) => p.role === "employer" && isAccountActive(p));
       const pendingEmps = employers.filter((e) => (e.verification_status || "Pending") === "Pending").length;
       const approvedEmps = employers.filter((e) => e.verification_status === "Approved" || e.verification_status === "Verified").length;
-      const suspended = profileList.filter(isAccountSuspended).length;
+      const suspended = profileList.filter((p) => isAccountSuspended(p)).length;
 
       const openJobsCount = jobsList.filter((j) => j.status === "open").length;
       const pendingJobsCount = jobsList.filter((j) => j.status === "pending_review").length;
@@ -69,7 +70,7 @@ export default function AdminDashboard() {
       setAuditLogs(auditList);
     } catch (err) {
       console.error("[AdminDashboard] Load error:", err);
-      setLoadError("Failed to load dashboard metrics. Check database connection.");
+      setLoadError("Failed to load dashboard metrics. Please try again.");
     } finally {
       setLoading(false);
     }

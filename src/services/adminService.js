@@ -21,7 +21,18 @@ function isJobSeeker(role) {
  */
 export function isAccountSuspended(profile, now = new Date()) {
   if (!profile) return false;
-  const nowDate = now instanceof Date ? now : new Date(now);
+
+  // Resolve valid reference date, safely ignoring array indices (0, 1, 2...) from Array.prototype.filter/map
+  let nowDate;
+  if (now instanceof Date && !isNaN(now.getTime())) {
+    nowDate = now;
+  } else if (typeof now === "string" && !isNaN(new Date(now).getTime())) {
+    nowDate = new Date(now);
+  } else if (typeof now === "number" && now > 1000000000000) {
+    nowDate = new Date(now);
+  } else {
+    nowDate = new Date();
+  }
 
   // Modern Phase 3/4 evaluation
   if (profile.is_suspended === true || profile.is_suspended === "true") {
@@ -920,34 +931,43 @@ export async function updateCandidateVerification(userId, status, reasonNote = "
     }
 
     // Send candidate notification
-    if (isApproved) {
-      await addNotification(
-        userId,
-        "✅ Identity Verified!",
-        "Your identity verification submission has been approved by our administration team. You can now apply for verified jobs across SkillSync.",
-        "verification"
-      ).catch(() => {});
-    } else if (isRejected) {
-      await addNotification(
-        userId,
-        "❌ Verification Update",
-        `Your identity verification was not approved.${reasonNote ? ` Reason: ${reasonNote}` : " Please review your documents and submit a clearer ID in your profile."}`,
-        "verification"
-      ).catch(() => {});
+    try {
+      if (isApproved) {
+        await addNotification(
+          userId,
+          "✅ Identity Verified!",
+          "Your identity verification submission has been approved by our administration team. You can now apply for verified jobs across SkillSync.",
+          "verification"
+        );
+      } else if (isRejected) {
+        await addNotification(
+          userId,
+          "❌ Verification Update",
+          `Your identity verification was not approved.${reasonNote ? ` Reason: ${reasonNote}` : " Please review your documents and submit a clearer ID in your profile."}`,
+          "verification"
+        );
+      }
+    } catch (notifErr) {
+      console.warn("[AdminService] Notification error:", notifErr?.message);
+    }
+
+    // Write audit log on successful completion
+    try {
+      await logAdminAction({
+        action: (status === "Verified" || status === "Approved") ? "CANDIDATE_VERIFICATION_APPROVED" : "CANDIDATE_VERIFICATION_REJECTED",
+        targetType: "candidate",
+        targetId: userId,
+        reason: reasonNote || null,
+        metadata: { new_status: status }
+      });
+    } catch (auditErr) {
+      console.warn("[AdminService] Audit log error:", auditErr?.message);
     }
 
     return { error: null };
   } catch (err) {
     console.error("[AdminService] updateCandidateVerification error:", err);
     return { error: err };
-  } finally {
-    await logAdminAction({
-      action: (status === "Verified" || status === "Approved") ? "CANDIDATE_VERIFICATION_APPROVED" : "CANDIDATE_VERIFICATION_REJECTED",
-      targetType: "candidate",
-      targetId: userId,
-      reason: reasonNote || null,
-      metadata: { new_status: status }
-    }).catch(() => {});
   }
 }
 
@@ -1028,31 +1048,40 @@ export async function suspendCandidateAccount(userId, reasonParam = "other") {
     }
 
     const durationInfo = finalExpiresAt ? ` until ${new Date(finalExpiresAt).toLocaleDateString()}` : "";
-    await addNotification(
-      userId,
-      "🚫 Account Suspended",
-      `Your SkillSync candidate account has been suspended${durationInfo}: ${getPublicSuspensionMessage(validCode)} Please contact support for more information.`,
-      "system"
-    ).catch(() => {});
+    try {
+      await addNotification(
+        userId,
+        "🚫 Account Suspended",
+        `Your SkillSync candidate account has been suspended${durationInfo}: ${getPublicSuspensionMessage(validCode)} Please contact support for more information.`,
+        "system"
+      );
+    } catch (notifErr) {
+      console.warn("[AdminService] Notification error:", notifErr?.message);
+    }
+
+    // Write audit log on successful completion
+    try {
+      await logAdminAction({
+        action: "CANDIDATE_SUSPENDED",
+        targetType: "candidate",
+        targetId: userId,
+        reason: validCode,
+        metadata: {
+          reason_code: validCode,
+          internal_note: trimmedNote || null,
+          suspended_at: nowIso,
+          suspension_expires_at: finalExpiresAt,
+          duration_preset: durationPreset,
+        },
+      });
+    } catch (auditErr) {
+      console.warn("[AdminService] Audit log error:", auditErr?.message);
+    }
 
     return { error: null, expiresAt: finalExpiresAt };
   } catch (err) {
     console.error("[AdminService] suspendCandidateAccount error:", err);
     return { error: err };
-  } finally {
-    await logAdminAction({
-      action: "CANDIDATE_SUSPENDED",
-      targetType: "candidate",
-      targetId: userId,
-      reason: validCode,
-      metadata: {
-        reason_code: validCode,
-        internal_note: trimmedNote || null,
-        suspended_at: nowIso,
-        suspension_expires_at: finalExpiresAt,
-        duration_preset: durationPreset,
-      },
-    }).catch(() => {});
   }
 }
 
@@ -1097,32 +1126,43 @@ export async function restoreCandidateAccount(userId, reasonNote = "") {
       .maybeSingle();
 
     if (profile?.verification_status === "Suspended") {
-      await supabase
+      const { error: recovErr } = await supabase
         .from("profiles")
         .update({ verification_status: "Pending Verification", updated_at: nowIso })
-        .eq("id", userId)
-        .catch(() => {});
+        .eq("id", userId);
+      if (recovErr) {
+        console.warn("[AdminService] Legacy candidate recovery notice:", recovErr.message);
+      }
     }
 
-    await addNotification(
-      userId,
-      "✓ Account Restored",
-      "Your SkillSync candidate account has been reactivated. You can now log in and continue your job search.",
-      "system"
-    ).catch(() => {});
+    try {
+      await addNotification(
+        userId,
+        "✓ Account Restored",
+        "Your SkillSync candidate account has been reactivated. You can now log in and continue your job search.",
+        "system"
+      );
+    } catch (notifErr) {
+      console.warn("[AdminService] Notification error:", notifErr?.message);
+    }
+
+    // Write audit log on successful completion
+    try {
+      await logAdminAction({
+        action: "CANDIDATE_RESTORED",
+        targetType: "candidate",
+        targetId: userId,
+        reason: reasonNote || "Account reactivated by administrator",
+        metadata: { restored_at: nowIso },
+      });
+    } catch (auditErr) {
+      console.warn("[AdminService] Audit log error:", auditErr?.message);
+    }
 
     return { error: null };
   } catch (err) {
     console.error("[AdminService] restoreCandidateAccount error:", err);
     return { error: err };
-  } finally {
-    await logAdminAction({
-      action: "CANDIDATE_RESTORED",
-      targetType: "candidate",
-      targetId: userId,
-      reason: reasonNote || "Account reactivated by administrator",
-      metadata: { restored_at: nowIso },
-    }).catch(() => {});
   }
 }
 
@@ -1203,31 +1243,40 @@ export async function suspendEmployerAccount(userId, reasonParam = "other") {
     }
 
     const durationInfo = finalExpiresAt ? ` until ${new Date(finalExpiresAt).toLocaleDateString()}` : "";
-    await addNotification(
-      userId,
-      "🚫 Account Suspended",
-      `Your SkillSync employer account has been suspended${durationInfo}: ${getPublicSuspensionMessage(validCode)} Please contact support for more information.`,
-      "system"
-    ).catch(() => {});
+    try {
+      await addNotification(
+        userId,
+        "🚫 Account Suspended",
+        `Your SkillSync employer account has been suspended${durationInfo}: ${getPublicSuspensionMessage(validCode)} Please contact support for more information.`,
+        "system"
+      );
+    } catch (notifErr) {
+      console.warn("[AdminService] Notification error:", notifErr?.message);
+    }
+
+    // Write audit log on successful completion
+    try {
+      await logAdminAction({
+        action: "EMPLOYER_SUSPENDED",
+        targetType: "employer",
+        targetId: userId,
+        reason: validCode,
+        metadata: {
+          reason_code: validCode,
+          internal_note: trimmedNote || null,
+          suspended_at: nowIso,
+          suspension_expires_at: finalExpiresAt,
+          duration_preset: durationPreset,
+        },
+      });
+    } catch (auditErr) {
+      console.warn("[AdminService] Audit log error:", auditErr?.message);
+    }
 
     return { error: null, expiresAt: finalExpiresAt };
   } catch (err) {
     console.error("[AdminService] suspendEmployerAccount error:", err);
     return { error: err };
-  } finally {
-    await logAdminAction({
-      action: "EMPLOYER_SUSPENDED",
-      targetType: "employer",
-      targetId: userId,
-      reason: validCode,
-      metadata: {
-        reason_code: validCode,
-        internal_note: trimmedNote || null,
-        suspended_at: nowIso,
-        suspension_expires_at: finalExpiresAt,
-        duration_preset: durationPreset,
-      },
-    }).catch(() => {});
   }
 }
 
@@ -1264,7 +1313,7 @@ export async function restoreEmployerAccount(userId, reasonNote = "") {
       return { error: updateErr };
     }
 
-    // If verification_status was legacy 'Suspended', restore to 'Approved'
+    // Legacy recovery: If verification_status was legacy 'Suspended', recover to 'Pending'
     const { data: profile } = await supabase
       .from("profiles")
       .select("verification_status")
@@ -1272,35 +1321,51 @@ export async function restoreEmployerAccount(userId, reasonNote = "") {
       .maybeSingle();
 
     if (profile?.verification_status === "Suspended") {
-      await supabase
+      const { error: recovErr1 } = await supabase
         .from("profiles")
-        .update({ verification_status: "Approved", updated_at: nowIso })
+        .update({ verification_status: "Pending", updated_at: nowIso })
         .eq("id", userId);
-      await supabase
+      if (recovErr1) {
+        console.warn("[AdminService] Legacy employer recovery notice:", recovErr1.message);
+      }
+
+      const { error: recovErr2 } = await supabase
         .from("employer_profiles")
-        .update({ verification_status: "Approved", updated_at: nowIso })
+        .update({ verification_status: "Pending", updated_at: nowIso })
         .eq("id", userId);
+      if (recovErr2) {
+        console.warn("[AdminService] Legacy employer_profiles recovery notice:", recovErr2.message);
+      }
     }
 
-    await addNotification(
-      userId,
-      "✓ Account Restored",
-      "Your SkillSync employer account has been reactivated. You can now access your employer dashboard.",
-      "system"
-    ).catch(() => {});
+    try {
+      await addNotification(
+        userId,
+        "✓ Account Restored",
+        "Your SkillSync employer account has been reactivated. You can now access your employer portal and job listings.",
+        "system"
+      );
+    } catch (notifErr) {
+      console.warn("[AdminService] Notification error:", notifErr?.message);
+    }
+
+    // Write audit log on successful completion
+    try {
+      await logAdminAction({
+        action: "EMPLOYER_RESTORED",
+        targetType: "employer",
+        targetId: userId,
+        reason: reasonNote || "Account reactivated by administrator",
+        metadata: { restored_at: nowIso },
+      });
+    } catch (auditErr) {
+      console.warn("[AdminService] Audit log error:", auditErr?.message);
+    }
 
     return { error: null };
   } catch (err) {
     console.error("[AdminService] restoreEmployerAccount error:", err);
     return { error: err };
-  } finally {
-    await logAdminAction({
-      action: "EMPLOYER_RESTORED",
-      targetType: "employer",
-      targetId: userId,
-      reason: reasonNote || "Account reactivated by administrator",
-      metadata: { restored_at: nowIso },
-    }).catch(() => {});
   }
 }
 
@@ -1323,25 +1388,41 @@ export async function updateCandidateAdministrativeDetails(userId, { fullName, c
 
     if (tableErr) return { error: tableErr };
 
+    // Write audit log on successful completion
+    try {
+      await logAdminAction({
+        action: "CANDIDATE_ADMIN_DETAILS_UPDATED",
+        targetType: "candidate",
+        targetId: userId,
+        reason: reasonNote || "Administrative profile correction",
+        metadata: { fullName, contactNumber, address }
+      });
+    } catch (e) {
+      console.warn("[AdminService] Audit log error:", e?.message);
+    }
+
     return { error: null };
   } catch (err) {
     console.error("[AdminService] updateCandidateAdministrativeDetails error:", err);
     return { error: err };
-  } finally {
-    await logAdminAction({
-      action: "CANDIDATE_ADMIN_DETAILS_UPDATED",
-      targetType: "candidate",
-      targetId: userId,
-      reason: reasonNote || "Administrative profile correction",
-      metadata: { fullName, contactNumber, address }
-    }).catch(() => {});
   }
 }
 
+export const ALLOWED_EMPLOYER_VERIFICATION_STATUSES = new Set(["Pending", "Approved", "Verified", "Rejected"]);
+
 /**
- * Updates employer verification status with admin reason and audit log
+ * Updates employer verification status with admin reason and audit log.
+ * Independent of suspension state (does NOT modify is_suspended or suspension lifecycle fields).
  */
 export async function updateEmployerVerification(userId, status, reasonNote = "") {
+  if (!userId) return { error: new Error("Employer user ID is required") };
+
+  if (!ALLOWED_EMPLOYER_VERIFICATION_STATUSES.has(status)) {
+    return {
+      error: new Error(`Invalid employer verification status: "${status}". Allowed statuses: Pending, Approved, Verified, Rejected.`)
+    };
+  }
+
   console.log(`[AdminService] Diagnostic: Attempting updateEmployerVerification for Target User ID: ${userId}, Status: ${status}, Reason: "${reasonNote}"`);
 
   try {
@@ -1351,16 +1432,9 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
       reason_note: reasonNote || null,
     });
 
-    const isSuspensionStatus = status === "Suspended";
-
     if (!rpcError) {
       console.log(`[AdminService] Diagnostic: RPC admin_update_employer_verification succeeded for ${userId}`);
-      // Synchronize canonical is_suspended on profiles
-      await supabase
-        .from("profiles")
-        .update({ is_suspended: isSuspensionStatus, updated_at: new Date().toISOString() })
-        .eq("id", userId)
-        .catch(() => {});
+      // Note: The RPC already writes to admin_audit_logs internally.
       return { error: null };
     }
 
@@ -1372,17 +1446,16 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
       status: rpcError.status
     });
 
-    // Direct table fallback for authenticated admin user
+    // Direct table fallback for authenticated admin user (modifies ONLY verification fields)
     const profileUpdates = {
       verification_status: status,
-      is_suspended: isSuspensionStatus,
       updated_at: new Date().toISOString()
     };
     if (reasonNote) profileUpdates.verification_reason = reasonNote;
 
     console.log(`[AdminService] Diagnostic: Executing direct PATCH fallback on public.profiles for ID ${userId} with payload:`, profileUpdates);
 
-    const { error: tableError } = await supabase
+    let { error: tableError } = await supabase
       .from("profiles")
       .update(profileUpdates)
       .eq("id", userId);
@@ -1401,18 +1474,18 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
         console.warn("[AdminService] Retrying profiles update without verification_reason column...");
         const { error: retryErr } = await supabase
           .from("profiles")
-          .update({ verification_status: status, is_suspended: isSuspensionStatus, updated_at: new Date().toISOString() })
+          .update({ verification_status: status, updated_at: new Date().toISOString() })
           .eq("id", userId);
 
         if (retryErr && !retryErr.message?.includes("fetch failed")) {
           console.error("[AdminService] Retry profiles update failed:", retryErr);
           return {
-            error: new Error(`Unable to approve employer (${retryErr.message}). Please execute supabase/phase_8_4_moderation.sql in your Supabase SQL Editor.`)
+            error: new Error(`Unable to update employer verification (${retryErr.message}).`)
           };
         }
       } else if (!tableError.message?.includes("fetch failed")) {
         return {
-          error: new Error(`Unable to approve employer (${tableError.message || "HTTP 400 Bad Request"}). Please ensure supabase/phase_8_4_moderation.sql has been executed.`)
+          error: new Error(`Unable to update employer verification (${tableError.message || "HTTP 400 Bad Request"}).`)
         };
       }
     }
@@ -1424,21 +1497,25 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
       .eq("id", userId);
 
     if (empError && !empError.message?.includes("fetch failed")) {
-      console.warn("[AdminService] public.employer_profiles PATCH Update Warning:", empError);
+      console.warn("[AdminService] public.employer_profiles PATCH Update Warning:", empError.message);
+    }
+
+    // Primary direct table fallback succeeded -> write audit event
+    try {
+      await logAdminAction({
+        action: status === "Approved" || status === "Verified" ? "EMPLOYER_APPROVED" : status === "Rejected" ? "EMPLOYER_REJECTED" : "EMPLOYER_STATUS_UPDATED",
+        targetType: "employer",
+        targetId: userId,
+        reason: reasonNote
+      });
+    } catch (auditErr) {
+      console.warn("[AdminService] Audit log error:", auditErr?.message);
     }
 
     return { error: null };
   } catch (err) {
     console.error("[AdminService] updateEmployerVerification exception:", err);
-    return { error: new Error("Unable to approve employer. Verification service is currently unavailable.") };
-  } finally {
-    // Log audit trail
-    await logAdminAction({
-      action: status === "Approved" || status === "Verified" ? "EMPLOYER_APPROVED" : status === "Rejected" ? "EMPLOYER_REJECTED" : "EMPLOYER_SUSPENDED",
-      targetType: "employer",
-      targetId: userId,
-      reason: reasonNote
-    }).catch(() => {});
+    return { error: new Error(`Unable to update employer verification: ${err.message || "Please try again."}`) };
   }
 }
 
@@ -1466,19 +1543,24 @@ export async function moderateJobStatus(jobId, status, reasonNote = "") {
 
       if (tableError && !tableError.message?.includes("fetch failed")) return { error: tableError };
     }
+
+    // Primary update succeeded -> log audit action
+    try {
+      await logAdminAction({
+        action: status === "open" ? "JOB_APPROVED" : status === "rejected" ? "JOB_REJECTED" : "JOB_SUSPENDED",
+        targetType: "job",
+        targetId: jobId,
+        reason: reasonNote
+      });
+    } catch (auditErr) {
+      console.warn("[AdminService] Audit log error:", auditErr?.message);
+    }
+
+    return { error: null };
   } catch (err) {
     console.warn("[AdminService] moderateJobStatus offline mode fallback.");
+    return { error: null };
   }
-
-  // Audit log
-  await logAdminAction({
-    action: status === "open" ? "JOB_APPROVED" : status === "rejected" ? "JOB_REJECTED" : "JOB_SUSPENDED",
-    targetType: "job",
-    targetId: jobId,
-    reason: reasonNote
-  }).catch(() => {});
-
-  return { error: null };
 }
 
 /**

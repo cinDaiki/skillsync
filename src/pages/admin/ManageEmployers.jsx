@@ -144,8 +144,12 @@ export default function ManageEmployers() {
 
   async function handleRemoveEmployer(userId) {
     if (!window.confirm("Are you sure you want to remove this employer account?")) return;
-    await supabase.from("profiles").delete().eq("id", userId);
-    await supabase.auth.admin.deleteUser(userId).catch(() => {});
+    try {
+      await supabase.from("profiles").delete().eq("id", userId);
+      await supabase.auth.admin.deleteUser(userId);
+    } catch (e) {
+      console.warn("[ManageEmployers] Remove employer warning:", e?.message);
+    }
     loadEmployers();
   }
 
