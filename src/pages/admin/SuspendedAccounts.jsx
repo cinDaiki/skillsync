@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { useToast } from "../../contexts/ToastContext";
 import {
@@ -8,6 +8,8 @@ import {
   fetchEmployerJobs,
   displayUserName,
   normalizeAdminRole,
+  formatSuspensionRemaining,
+  isAccountSuspended,
 } from "../../services/adminService";
 
 export default function SuspendedAccounts() {
@@ -22,6 +24,16 @@ export default function SuspendedAccounts() {
   const [pageSize, setPageSize] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+
+  // Live client-side timer for real-time countdown without repeated database queries
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Restore Modal State
   const [restoreModalAccount, setRestoreModalAccount] = useState(null);
@@ -53,8 +65,29 @@ export default function SuspendedAccounts() {
   }, [search, roleTab, page, pageSize]);
 
   useEffect(() => {
-    loadSuspendedAccounts();
+    loadJobseekersOrSuspended: loadSuspendedAccounts();
   }, [loadSuspendedAccounts]);
+
+  // Automatic Expiry Reconciliation: Trigger single refresh when any temporary suspension expires
+  const prevExpiredRef = useRef(new Set());
+
+  useEffect(() => {
+    const hasNewlyExpired = accounts.some(
+      (acc) =>
+        acc.suspension_expires_at &&
+        new Date(acc.suspension_expires_at) <= now &&
+        !prevExpiredRef.current.has(acc.id)
+    );
+
+    if (hasNewlyExpired) {
+      accounts.forEach((acc) => {
+        if (acc.suspension_expires_at && new Date(acc.suspension_expires_at) <= now) {
+          prevExpiredRef.current.add(acc.id);
+        }
+      });
+      loadSuspendedAccounts();
+    }
+  }, [now, accounts, loadSuspendedAccounts]);
 
   const handleSearchChange = (e) => {
     setSearch(e.target.value);
@@ -110,6 +143,24 @@ export default function SuspendedAccounts() {
     setCompanyJobsModal({ account, jobs: jobs || [], loading: false });
   }
 
+  // Live filtered accounts reflecting real-time countdown
+  const liveAccounts = accounts.filter((acc) => isAccountSuspended(acc, now));
+
+  // Compute live summary statistics reflecting immediate local expiry
+  const liveJobseekersCount = liveAccounts.filter(
+    (acc) => normalizeAdminRole(acc.role) !== "Employer"
+  ).length;
+  const liveEmployersCount = liveAccounts.filter(
+    (acc) => normalizeAdminRole(acc.role) === "Employer"
+  ).length;
+  const liveTotalCount = liveJobseekersCount + liveEmployersCount;
+
+  const displayedSummary = {
+    total: summary.total > 0 && accounts.length === liveAccounts.length ? summary.total : liveTotalCount,
+    jobseekers: summary.jobseekers > 0 && accounts.length === liveAccounts.length ? summary.jobseekers : liveJobseekersCount,
+    employers: summary.employers > 0 && accounts.length === liveAccounts.length ? summary.employers : liveEmployersCount,
+  };
+
   return (
     <DashboardLayout
       role="admin"
@@ -156,7 +207,7 @@ export default function SuspendedAccounts() {
               🚫 Total Suspended
             </span>
             <h3 style={{ fontSize: "24px", fontWeight: "800", color: "#dc2626", margin: "6px 0 0" }}>
-              {summary.total}
+              {displayedSummary.total}
             </h3>
             <span style={{ fontSize: "12px", color: "#64748b" }}>Accounts currently restricted</span>
           </div>
@@ -175,7 +226,7 @@ export default function SuspendedAccounts() {
               👤 Jobseekers
             </span>
             <h3 style={{ fontSize: "24px", fontWeight: "800", color: "#8b18ff", margin: "6px 0 0" }}>
-              {summary.jobseekers}
+              {displayedSummary.jobseekers}
             </h3>
             <span style={{ fontSize: "12px", color: "#64748b" }}>Suspended candidates</span>
           </div>
@@ -194,7 +245,7 @@ export default function SuspendedAccounts() {
               🏢 Employers
             </span>
             <h3 style={{ fontSize: "24px", fontWeight: "800", color: "#0284c7", margin: "6px 0 0" }}>
-              {summary.employers}
+              {displayedSummary.employers}
             </h3>
             <span style={{ fontSize: "12px", color: "#64748b" }}>Suspended company accounts</span>
           </div>
@@ -219,17 +270,16 @@ export default function SuspendedAccounts() {
               style={{
                 padding: "8px 16px",
                 borderRadius: "8px",
-                border: "1px solid",
-                borderColor: roleTab === "all" ? "#dc2626" : "#cbd5e1",
-                background: roleTab === "all" ? "#fef2f2" : "#ffffff",
-                color: roleTab === "all" ? "#dc2626" : "#475569",
-                fontWeight: "700",
                 fontSize: "13px",
+                fontWeight: "700",
                 cursor: "pointer",
-                transition: "all 0.15s",
+                border: "none",
+                background: roleTab === "all" ? "#0f172a" : "#f1f5f9",
+                color: roleTab === "all" ? "#ffffff" : "#475569",
+                transition: "all 0.15s ease",
               }}
             >
-              All ({summary.total})
+              All Suspended ({displayedSummary.total})
             </button>
             <button
               type="button"
@@ -237,17 +287,16 @@ export default function SuspendedAccounts() {
               style={{
                 padding: "8px 16px",
                 borderRadius: "8px",
-                border: "1px solid",
-                borderColor: roleTab === "jobseekers" ? "#8b18ff" : "#cbd5e1",
-                background: roleTab === "jobseekers" ? "#faf5ff" : "#ffffff",
-                color: roleTab === "jobseekers" ? "#8b18ff" : "#475569",
-                fontWeight: "700",
                 fontSize: "13px",
+                fontWeight: "700",
                 cursor: "pointer",
-                transition: "all 0.15s",
+                border: "none",
+                background: roleTab === "jobseekers" ? "#8b18ff" : "#f1f5f9",
+                color: roleTab === "jobseekers" ? "#ffffff" : "#475569",
+                transition: "all 0.15s ease",
               }}
             >
-              Jobseekers ({summary.jobseekers})
+              Jobseekers ({displayedSummary.jobseekers})
             </button>
             <button
               type="button"
@@ -255,17 +304,16 @@ export default function SuspendedAccounts() {
               style={{
                 padding: "8px 16px",
                 borderRadius: "8px",
-                border: "1px solid",
-                borderColor: roleTab === "employers" ? "#0284c7" : "#cbd5e1",
-                background: roleTab === "employers" ? "#f0f9ff" : "#ffffff",
-                color: roleTab === "employers" ? "#0284c7" : "#475569",
-                fontWeight: "700",
                 fontSize: "13px",
+                fontWeight: "700",
                 cursor: "pointer",
-                transition: "all 0.15s",
+                border: "none",
+                background: roleTab === "employers" ? "#0284c7" : "#f1f5f9",
+                color: roleTab === "employers" ? "#ffffff" : "#475569",
+                transition: "all 0.15s ease",
               }}
             >
-              Employers ({summary.employers})
+              Employers ({displayedSummary.employers})
             </button>
           </div>
 
@@ -348,7 +396,7 @@ export default function SuspendedAccounts() {
                       Loading suspended accounts...
                     </td>
                   </tr>
-                ) : accounts.length === 0 ? (
+                ) : liveAccounts.length === 0 ? (
                   <tr>
                     <td colSpan={9} style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
                       <div style={{ fontSize: "16px", fontWeight: "700", color: "#334155" }}>
@@ -364,7 +412,7 @@ export default function SuspendedAccounts() {
                     </td>
                   </tr>
                 ) : (
-                  accounts.map((acc) => {
+                  liveAccounts.map((acc) => {
                     const isEmployer = normalizeAdminRole(acc.role) === "Employer";
                     const displayName = isEmployer
                       ? acc.company_name || acc.full_name || displayUserName(acc)
@@ -383,18 +431,21 @@ export default function SuspendedAccounts() {
                           month: "short",
                           day: "numeric",
                           year: "numeric",
-                          hour: "numeric",
+                          hour: "2-digit",
                           minute: "2-digit",
                         })
                       : null;
+
+                    const liveRemaining = acc.suspension_expires_at
+                      ? formatSuspensionRemaining(acc.suspension_expires_at, now)
+                      : "Indefinite";
 
                     return (
                       <tr
                         key={acc.id}
                         style={{
                           borderBottom: "1px solid #f1f5f9",
-                          fontSize: "14px",
-                          transition: "background 0.15s",
+                          transition: "background 0.15s ease",
                         }}
                       >
                         {/* User Identity */}
@@ -510,7 +561,7 @@ export default function SuspendedAccounts() {
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                ⏳ {acc.duration_remaining || "Active"}
+                                ⏳ {liveRemaining}
                               </span>
                             </div>
                           ) : (

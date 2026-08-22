@@ -36,8 +36,40 @@ export default function ManageJobseekers() {
   const [suspendModalCandidate, setSuspendModalCandidate] = useState(null);
   const [suspendReason, setSuspendReason] = useState("policy_violation");
   const [suspendDuration, setSuspendDuration] = useState("indefinite");
-  const [customExpiresAt, setCustomExpiresAt] = useState("");
+  const [customDateTimeInput, setCustomDateTimeInput] = useState("");
+  const [confirmedCustomDateTime, setConfirmedCustomDateTime] = useState("");
+  const [customDateError, setCustomDateError] = useState("");
   const [suspendNotes, setSuspendNotes] = useState("");
+
+  const handleConfirmCustomDate = () => {
+    if (!customDateTimeInput) {
+      setCustomDateError("Please select an expiry date and time.");
+      return;
+    }
+    const d = new Date(customDateTimeInput);
+    if (isNaN(d.getTime())) {
+      setCustomDateError("Invalid date and time.");
+      return;
+    }
+    if (d <= new Date()) {
+      setCustomDateError("Expiry date and time must be in the future.");
+      return;
+    }
+    setConfirmedCustomDateTime(customDateTimeInput);
+    setCustomDateError("");
+  };
+
+  const handleCustomInputChange = (val) => {
+    setCustomDateTimeInput(val);
+    setConfirmedCustomDateTime(""); // Invalidate previous confirmation on change
+    setCustomDateError("");
+  };
+
+  const handleCancelCustomDate = () => {
+    setCustomDateTimeInput("");
+    setConfirmedCustomDateTime("");
+    setCustomDateError("");
+  };
 
   const [restoreModalCandidate, setRestoreModalCandidate] = useState(null);
 
@@ -174,15 +206,15 @@ export default function ManageJobseekers() {
   // --- SUSPENSION HANDLERS ---
   const handleConfirmSuspend = async () => {
     if (!suspendModalCandidate) return;
-    if (suspendDuration === "custom" && !customExpiresAt) {
-      showToast("Please specify a custom suspension expiry date and time.", "error");
+    if (suspendDuration === "custom" && !confirmedCustomDateTime) {
+      showToast("Please confirm a valid custom suspension expiry date and time.", "error");
       return;
     }
     setActionLoading(true);
     const { error } = await suspendCandidateAccount(suspendModalCandidate.id, {
       reasonCode: suspendReason,
       durationPreset: suspendDuration,
-      customDateTime: customExpiresAt || null,
+      customDateTime: confirmedCustomDateTime || null,
       internalNote: suspendNotes,
     });
     setActionLoading(false);
@@ -196,7 +228,9 @@ export default function ManageJobseekers() {
     setSuspendModalCandidate(null);
     setSuspendNotes("");
     setSuspendDuration("indefinite");
-    setCustomExpiresAt("");
+    setCustomDateTimeInput("");
+    setConfirmedCustomDateTime("");
+    setCustomDateError("");
     if (selectedCandidate?.id === suspendModalCandidate.id) {
       setSelectedCandidate(prev => ({ ...prev, is_suspended: true }));
     }
@@ -1038,17 +1072,82 @@ export default function ManageJobseekers() {
               </div>
 
               {suspendDuration === "custom" && (
-                <div style={{ marginBottom: "14px", background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
-                  <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
-                    Select Expiry Date & Time: *
+                <div style={{ marginBottom: "14px", background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid #cbd5e1" }}>
+                  <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "6px" }}>
+                    Select Expiry Date &amp; Time: *
                   </label>
-                  <input
-                    type="datetime-local"
-                    value={customExpiresAt}
-                    min={new Date().toISOString().slice(0, 16)}
-                    onChange={(e) => setCustomExpiresAt(e.target.value)}
-                    style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", boxSizing: "border-box" }}
-                  />
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      type="datetime-local"
+                      value={customDateTimeInput}
+                      min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                      onChange={(e) => handleCustomInputChange(e.target.value)}
+                      style={{
+                        flex: "1",
+                        minWidth: "200px",
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                        border: customDateError ? "1px solid #ef4444" : "1px solid #cbd5e1",
+                        fontSize: "13px",
+                        boxSizing: "border-box",
+                        background: "#fff"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleConfirmCustomDate}
+                      disabled={!customDateTimeInput || confirmedCustomDateTime === customDateTimeInput}
+                      style={{
+                        background: confirmedCustomDateTime === customDateTimeInput ? "#16a34a" : "#2563eb",
+                        color: "#fff",
+                        border: "none",
+                        padding: "8px 14px",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        cursor: (!customDateTimeInput || confirmedCustomDateTime === customDateTimeInput) ? "default" : "pointer",
+                        whiteSpace: "nowrap",
+                        opacity: !customDateTimeInput ? 0.6 : 1
+                      }}
+                    >
+                      {confirmedCustomDateTime === customDateTimeInput ? "✓ Confirmed" : "Use This Date & Time"}
+                    </button>
+                    {customDateTimeInput && (
+                      <button
+                        type="button"
+                        onClick={handleCancelCustomDate}
+                        style={{
+                          background: "#f1f5f9",
+                          color: "#475569",
+                          border: "1px solid #cbd5e1",
+                          padding: "8px 10px",
+                          borderRadius: "6px",
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          cursor: "pointer"
+                        }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  {customDateError && (
+                    <p style={{ margin: "6px 0 0", color: "#dc2626", fontSize: "12px", fontWeight: "600" }}>
+                      ⚠️ {customDateError}
+                    </p>
+                  )}
+
+                  {confirmedCustomDateTime && (
+                    <div style={{ marginTop: "8px", padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "6px", fontSize: "12px", color: "#166534" }}>
+                      <strong>✓ Confirmed Custom Expiry:</strong> {new Date(confirmedCustomDateTime).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  )}
+                  {!confirmedCustomDateTime && customDateTimeInput && !customDateError && (
+                    <p style={{ margin: "6px 0 0", color: "#d97706", fontSize: "11px", fontWeight: "600" }}>
+                      👉 Click &ldquo;Use This Date &amp; Time&rdquo; to confirm your selected expiry.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1066,10 +1165,34 @@ export default function ManageJobseekers() {
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-                <button type="button" onClick={() => { setSuspendModalCandidate(null); setSuspendNotes(""); setSuspendDuration("indefinite"); setCustomExpiresAt(""); }} style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSuspendModalCandidate(null);
+                    setSuspendNotes("");
+                    setSuspendDuration("indefinite");
+                    setCustomDateTimeInput("");
+                    setConfirmedCustomDateTime("");
+                    setCustomDateError("");
+                  }}
+                  style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}
+                >
                   Cancel
                 </button>
-                <button type="button" onClick={handleConfirmSuspend} disabled={actionLoading} style={{ background: "#dc2626", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "700", cursor: "pointer" }}>
+                <button
+                  type="button"
+                  onClick={handleConfirmSuspend}
+                  disabled={actionLoading || (suspendDuration === "custom" && !confirmedCustomDateTime)}
+                  style={{
+                    background: (actionLoading || (suspendDuration === "custom" && !confirmedCustomDateTime)) ? "#fca5a5" : "#dc2626",
+                    color: "#fff",
+                    border: "none",
+                    padding: "8px 16px",
+                    borderRadius: "8px",
+                    fontWeight: "700",
+                    cursor: (actionLoading || (suspendDuration === "custom" && !confirmedCustomDateTime)) ? "not-allowed" : "pointer"
+                  }}
+                >
                   {actionLoading ? "Suspending..." : "Confirm Suspension"}
                 </button>
               </div>

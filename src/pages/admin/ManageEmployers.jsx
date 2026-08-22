@@ -30,13 +30,45 @@ export default function ManageEmployers() {
   const [actionModal, setActionModal] = useState(null); // { employer, targetStatus }
   const [suspendReason, setSuspendReason] = useState("policy_violation");
   const [suspendDuration, setSuspendDuration] = useState("indefinite");
-  const [customExpiresAt, setCustomExpiresAt] = useState("");
+  const [customDateTimeInput, setCustomDateTimeInput] = useState("");
+  const [confirmedCustomDateTime, setConfirmedCustomDateTime] = useState("");
+  const [customDateError, setCustomDateError] = useState("");
   const [suspendNotes, setSuspendNotes] = useState("");
   const [restoreModalEmployer, setRestoreModalEmployer] = useState(null); // employer object
   const [viewDetailsModal, setViewDetailsModal] = useState(null); // employer object
   const [companyJobsModal, setCompanyJobsModal] = useState(null); // { employer, jobs: [], loading: boolean }
   const [reasonInput, setReasonInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const handleConfirmCustomDate = () => {
+    if (!customDateTimeInput) {
+      setCustomDateError("Please select an expiry date and time.");
+      return;
+    }
+    const d = new Date(customDateTimeInput);
+    if (isNaN(d.getTime())) {
+      setCustomDateError("Invalid date and time.");
+      return;
+    }
+    if (d <= new Date()) {
+      setCustomDateError("Expiry date and time must be in the future.");
+      return;
+    }
+    setConfirmedCustomDateTime(customDateTimeInput);
+    setCustomDateError("");
+  };
+
+  const handleCustomInputChange = (val) => {
+    setCustomDateTimeInput(val);
+    setConfirmedCustomDateTime(""); // Invalidate previous confirmation on change
+    setCustomDateError("");
+  };
+
+  const handleCancelCustomDate = () => {
+    setCustomDateTimeInput("");
+    setConfirmedCustomDateTime("");
+    setCustomDateError("");
+  };
 
   const loadEmployers = useCallback(async () => {
     setLoading(true);
@@ -86,15 +118,15 @@ export default function ManageEmployers() {
     setSubmitting(true);
     let res;
     if (newStatus === "Suspended") {
-      if (suspendDuration === "custom" && !customExpiresAt) {
-        toast.error("Please specify a custom suspension expiry date and time.");
+      if (suspendDuration === "custom" && !confirmedCustomDateTime) {
+        toast.error("Please confirm a valid custom suspension expiry date and time.");
         setSubmitting(false);
         return;
       }
       res = await suspendEmployerAccount(userId, {
         reasonCode: suspendReason,
         durationPreset: suspendDuration,
-        customDateTime: customExpiresAt || null,
+        customDateTime: confirmedCustomDateTime || null,
         internalNote: suspendNotes,
       });
     } else {
@@ -111,7 +143,9 @@ export default function ManageEmployers() {
       toast.success("🚫 Employer account suspended.");
       setSuspendNotes("");
       setSuspendDuration("indefinite");
-      setCustomExpiresAt("");
+      setCustomDateTimeInput("");
+      setConfirmedCustomDateTime("");
+      setCustomDateError("");
     } else {
       toast.success(`Employer status updated to "${newStatus}".`);
       setReasonInput("");
@@ -516,17 +550,82 @@ export default function ManageEmployers() {
                 </div>
 
                 {suspendDuration === "custom" && (
-                  <div style={{ marginBottom: "12px", background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
-                    <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
-                      Select Expiry Date & Time: *
+                  <div style={{ marginBottom: "12px", background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid #cbd5e1" }}>
+                    <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "6px" }}>
+                      Select Expiry Date &amp; Time: *
                     </label>
-                    <input
-                      type="datetime-local"
-                      value={customExpiresAt}
-                      min={new Date().toISOString().slice(0, 16)}
-                      onChange={(e) => setCustomExpiresAt(e.target.value)}
-                      style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", boxSizing: "border-box" }}
-                    />
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                      <input
+                        type="datetime-local"
+                        value={customDateTimeInput}
+                        min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                        onChange={(e) => handleCustomInputChange(e.target.value)}
+                        style={{
+                          flex: "1",
+                          minWidth: "200px",
+                          padding: "8px 12px",
+                          borderRadius: "6px",
+                          border: customDateError ? "1px solid #ef4444" : "1px solid #cbd5e1",
+                          fontSize: "13px",
+                          boxSizing: "border-box",
+                          background: "#fff"
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleConfirmCustomDate}
+                        disabled={!customDateTimeInput || confirmedCustomDateTime === customDateTimeInput}
+                        style={{
+                          background: confirmedCustomDateTime === customDateTimeInput ? "#16a34a" : "#2563eb",
+                          color: "#fff",
+                          border: "none",
+                          padding: "8px 14px",
+                          borderRadius: "6px",
+                          fontSize: "12px",
+                          fontWeight: "700",
+                          cursor: (!customDateTimeInput || confirmedCustomDateTime === customDateTimeInput) ? "default" : "pointer",
+                          whiteSpace: "nowrap",
+                          opacity: !customDateTimeInput ? 0.6 : 1
+                        }}
+                      >
+                        {confirmedCustomDateTime === customDateTimeInput ? "✓ Confirmed" : "Use This Date & Time"}
+                      </button>
+                      {customDateTimeInput && (
+                        <button
+                          type="button"
+                          onClick={handleCancelCustomDate}
+                          style={{
+                            background: "#f1f5f9",
+                            color: "#475569",
+                            border: "1px solid #cbd5e1",
+                            padding: "8px 10px",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            fontWeight: "600",
+                            cursor: "pointer"
+                          }}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {customDateError && (
+                      <p style={{ margin: "6px 0 0", color: "#dc2626", fontSize: "12px", fontWeight: "600" }}>
+                        ⚠️ {customDateError}
+                      </p>
+                    )}
+
+                    {confirmedCustomDateTime && (
+                      <div style={{ marginTop: "8px", padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "6px", fontSize: "12px", color: "#166534" }}>
+                        <strong>✓ Confirmed Custom Expiry:</strong> {new Date(confirmedCustomDateTime).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                    )}
+                    {!confirmedCustomDateTime && customDateTimeInput && !customDateError && (
+                      <p style={{ margin: "6px 0 0", color: "#d97706", fontSize: "11px", fontWeight: "600" }}>
+                        👉 Click &ldquo;Use This Date &amp; Time&rdquo; to confirm your selected expiry.
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -561,16 +660,37 @@ export default function ManageEmployers() {
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "16px" }}>
               <button
                 type="button"
-                onClick={() => { setActionModal(null); setReasonInput(""); setSuspendNotes(""); setSuspendDuration("indefinite"); setCustomExpiresAt(""); }}
+                onClick={() => {
+                  setActionModal(null);
+                  setReasonInput("");
+                  setSuspendNotes("");
+                  setSuspendDuration("indefinite");
+                  setCustomDateTimeInput("");
+                  setConfirmedCustomDateTime("");
+                  setCustomDateError("");
+                }}
                 style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={submitting || (actionModal.targetStatus === "Rejected" && !reasonInput.trim())}
+                disabled={
+                  submitting ||
+                  (actionModal.targetStatus === "Rejected" && !reasonInput.trim()) ||
+                  (actionModal.targetStatus === "Suspended" && suspendDuration === "custom" && !confirmedCustomDateTime)
+                }
                 onClick={() => executeStatusUpdate(actionModal.employer.id, actionModal.targetStatus)}
-                style={{ background: "#dc2626", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: (submitting || (actionModal.targetStatus === "Rejected" && !reasonInput.trim())) ? "not-allowed" : "pointer" }}
+                style={{
+                  background: (submitting || (actionModal.targetStatus === "Rejected" && !reasonInput.trim()) || (actionModal.targetStatus === "Suspended" && suspendDuration === "custom" && !confirmedCustomDateTime)) ? "#fca5a5" : "#dc2626",
+                  color: "#fff",
+                  border: "none",
+                  padding: "8px 16px",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontWeight: "700",
+                  cursor: (submitting || (actionModal.targetStatus === "Rejected" && !reasonInput.trim()) || (actionModal.targetStatus === "Suspended" && suspendDuration === "custom" && !confirmedCustomDateTime)) ? "not-allowed" : "pointer"
+                }}
               >
                 {submitting ? "Updating..." : `Confirm ${actionModal.targetStatus}`}
               </button>
