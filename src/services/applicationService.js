@@ -1,6 +1,7 @@
 import { supabase } from "./supabase.js";
 import { getResume } from "./api.js";
 import { isEmployerSuspended, fetchSuspendedEmployerIds } from "./jobAvailability.js";
+import { isAccountSuspended } from "./adminService.js";
 
 function withTimeout(promise, ms = 6000) {
   return Promise.race([
@@ -149,11 +150,11 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
     realApplicantId = currentUserId;
   }
 
-  // Central Enforcement: Fetch candidate profile verification_status & is_suspended
+  // Central Enforcement: Fetch candidate profile verification_status, is_suspended & suspension_expires_at
   if (realApplicantId) {
     const { data: profile, error: profileErr } = await supabase
       .from("profiles")
-      .select("verification_status, is_suspended")
+      .select("verification_status, is_suspended, suspension_expires_at")
       .eq("id", realApplicantId)
       .maybeSingle();
 
@@ -161,7 +162,7 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
       console.warn("[ApplicationService] Profile fetch warning:", profileErr.message);
     }
 
-    if (profile?.is_suspended) {
+    if (isAccountSuspended(profile)) {
       const err = new Error("ACCOUNT_SUSPENDED: Your account has been suspended by an administrator. Application locked.");
       err.code = "ACCOUNT_SUSPENDED";
       return { data: null, error: err };
@@ -173,35 +174,31 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
     if (!isVerified) {
       const err = new Error(
         vStatus === "Under Review"
-          ? "IDENTITY_VERIFICATION_REQUIRED: Your identity verification is under administrator review. You can apply once approved."
-          : "IDENTITY_VERIFICATION_REQUIRED: Your identity must be verified before applying to jobs. Please complete ID verification in your Profile."
+          ? "IDENTITY_VERIFICATION_UNDER_REVIEW: Your identity verification is currently being reviewed by our administration team. Applications will unlock upon approval."
+          : vStatus === "Rejected"
+          ? "IDENTITY_VERIFICATION_REJECTED: Your identity verification submission was rejected. Please review your profile documents to re-apply."
+          : "IDENTITY_VERIFICATION_REQUIRED: Your identity must be verified before applying to jobs. Please complete verification in your profile."
       );
       err.code = "IDENTITY_VERIFICATION_REQUIRED";
-      err.verificationStatus = vStatus;
+      err.status = vStatus;
       return { data: null, error: err };
     }
   }
 
-  // Final Safety Gate: Validate Job Existence & Employer Suspension
-  if (!realJobId) {
-    const err = new Error("INVALID_JOB: Job ID is required.");
-    err.code = "INVALID_JOB";
-    return { data: null, error: err };
-  }
-
-  // Fetch job record. (Note: Database RLS hides open jobs belonging to suspended employers, returning jobData: null)
+  // 0. Fetch job data first to identify employer_id
   const { data: jobData, error: jobErr } = await supabase
     .from("jobs")
-    .select("id, employer_id, status")
+    .select("id, status, employer_id")
     .eq("id", realJobId)
     .maybeSingle();
 
-  if (jobErr) {
-    console.warn("[ApplicationService] Job fetch warning:", jobErr.message);
+  if (jobErr || !jobData) {
+    const err = new Error("This position is temporarily unavailable for applications.");
+    err.code = "JOB_NOT_FOUND";
+    return { data: null, error: err };
   }
 
-  // If job is missing, closed, hidden by RLS, or missing employer_id:
-  if (!jobData || jobData.status !== "open" || !jobData.employer_id) {
+  if (jobData.status !== "open" || !jobData.employer_id) {
     const err = new Error("This position is temporarily unavailable for applications.");
     err.code = "EMPLOYER_SUSPENDED";
     return { data: null, error: err };
@@ -211,7 +208,7 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
   const [{ data: employerProfile, error: empErr }, suspendedSet] = await Promise.all([
     supabase
       .from("profiles")
-      .select("id, is_suspended, verification_status")
+      .select("id, is_suspended, verification_status, suspension_expires_at")
       .eq("id", jobData.employer_id)
       .maybeSingle(),
     fetchSuspendedEmployerIds(supabase, [jobData.employer_id])

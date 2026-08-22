@@ -5,6 +5,7 @@ import {
   fetchAdminProfiles,
   fetchAdminJobs,
   fetchAdminAuditLogs,
+  isAccountSuspended,
 } from "../../services/adminService";
 
 export default function AdminDashboard() {
@@ -47,7 +48,7 @@ export default function AdminDashboard() {
       const employers = profileList.filter((p) => p.role === "employer");
       const pendingEmps = employers.filter((e) => (e.verification_status || "Pending") === "Pending").length;
       const approvedEmps = employers.filter((e) => e.verification_status === "Approved" || e.verification_status === "Verified").length;
-      const suspended = profileList.filter((p) => p.is_suspended).length;
+      const suspended = profileList.filter(isAccountSuspended).length;
 
       const openJobsCount = jobsList.filter((j) => j.status === "open").length;
       const pendingJobsCount = jobsList.filter((j) => j.status === "pending_review").length;

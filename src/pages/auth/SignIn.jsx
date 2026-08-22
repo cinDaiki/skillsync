@@ -5,6 +5,7 @@ import { supabase } from "../../services/supabase";
 import { setCurrentUser } from "../../services/localStorageService";
 import { getDashboardPath } from "../../utils/getDashboardPath";
 import { isDevMode } from "../../services/devMode";
+import { isAccountSuspended } from "../../services/adminService";
 import "./SignIn.css";
 
 function resolveRole(profileRole, metadataRole) {
@@ -28,7 +29,7 @@ export default function SignIn() {
     password: "",
   });
 
-  const [error, setError] = useState("");
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
   function handleChange(e) {
@@ -43,19 +44,16 @@ export default function SignIn() {
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
-    setError("");
+    setError(null);
 
     try {
       const { data, error: signInError } = await signIn(formData.email, formData.password);
 
       if (signInError) {
-        const msg = signInError.message?.toLowerCase() || "";
-        if (msg.includes("email not confirmed")) {
-          setError("Your email is not confirmed yet. Please check your inbox and click the confirmation link.");
-        } else if (msg.includes("invalid login credentials") || msg.includes("invalid email or password")) {
-          setError("Incorrect email or password. Please try again.");
-        } else if (msg.includes("too many requests")) {
-          setError("Too many login attempts. Please wait a moment and try again.");
+        if (signInError.message?.toLowerCase().includes("email not confirmed")) {
+          setError("Please confirm your email before signing in. Check your inbox for the confirmation link.");
+        } else if (signInError.message?.toLowerCase().includes("invalid login credentials")) {
+          setError("Invalid email or password. Please try again.");
         } else {
           setError(signInError.message || "Login failed. Please try again.");
         }
@@ -67,39 +65,35 @@ export default function SignIn() {
       let isSuspended = false;
       if (isDevMode()) {
         role = resolveRole(data.user?.role, data.user?.user_metadata?.role);
-        isSuspended = Boolean(
-          data.user?.is_suspended ||
-          data.user?.user_metadata?.is_suspended ||
-          data.user?.verification_status?.toLowerCase() === "suspended"
-        );
+        isSuspended = isAccountSuspended(data.user || data.user?.user_metadata);
         setCurrentUser({
-          id:           data.user.id,
-          email:        data.user.email,
+          id:                    data.user.id,
+          email:                 data.user.email,
           role,
-          full_name:    data.user?.full_name || data.user?.user_metadata?.full_name || "",
-          is_suspended: isSuspended,
+          full_name:             data.user?.full_name || data.user?.user_metadata?.full_name || "",
+          is_suspended:          isSuspended,
+          suspension_expires_at: data.user?.suspension_expires_at || null,
         });
       } else {
         // PRODUCTION: fetch role, verification_status, and is_suspended from profiles table
         const { data: profile } = await supabase
           .from("profiles")
-          .select("role, full_name, email, profile_picture_url, is_suspended, verification_status")
+          .select("role, full_name, email, profile_picture_url, is_suspended, verification_status, suspension_reason_code, suspension_expires_at, suspended_at")
           .eq("id", data.user.id)
           .maybeSingle();
 
         role = resolveRole(profile?.role, data.user?.user_metadata?.role);
-        isSuspended = Boolean(
-          profile?.is_suspended === true ||
-          profile?.verification_status?.toLowerCase() === "suspended"
-        );
+        isSuspended = isAccountSuspended(profile);
 
         setCurrentUser({
-          id:                  data.user.id,
-          email:               profile?.email || data.user.email,
+          id:                    data.user.id,
+          email:                 profile?.email || data.user.email,
           role,
-          full_name:           profile?.full_name || data.user?.user_metadata?.full_name || "",
-          profile_picture_url: profile?.profile_picture_url || "",
-          is_suspended:        isSuspended,
+          full_name:             profile?.full_name || data.user?.user_metadata?.full_name || "",
+          profile_picture_url:   profile?.profile_picture_url || "",
+          is_suspended:          isSuspended,
+          suspension_expires_at: profile?.suspension_expires_at || null,
+          suspension_reason_code: profile?.suspension_reason_code || null,
         });
       }
 

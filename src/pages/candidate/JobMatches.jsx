@@ -135,7 +135,7 @@ export default function JobMatches() {
         const [{ data: profs }, { data: empProfs }, suspendedSet] = await Promise.all([
           supabase
             .from("profiles")
-            .select("id, full_name, email, verification_status, is_suspended")
+            .select("id, full_name, email, verification_status, is_suspended, suspension_expires_at")
             .in("id", empIds),
           supabase
             .from("employer_profiles")
