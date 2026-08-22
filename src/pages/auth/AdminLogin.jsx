@@ -45,11 +45,18 @@ export default function AdminLogin() {
       // ── END DEV MODE ───────────────────────────────────────────────────────
 
       if (!signInError && data?.user) {
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("role, full_name, email")
           .eq("id", data.user.id)
           .maybeSingle();
+
+        if (profileError) {
+          console.error("Admin profile query error:", profileError);
+          await signOut();
+          setError("Unable to verify administrator access. Please try again.");
+          return;
+        }
 
         if (profile?.role === "admin") {
           setCurrentUser({

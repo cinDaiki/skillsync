@@ -7,7 +7,9 @@ import {
   restoreCandidateAccount,
   updateCandidateAdministrativeDetails,
   displayUserName,
+  isAccountSuspended,
   SUSPENSION_REASON_OPTIONS,
+  SUSPENSION_DURATION_PRESETS,
 } from "../../services/adminService";
 import { getPrivateDocumentSignedUrl } from "../../services/api";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
@@ -33,6 +35,8 @@ export default function ManageJobseekers() {
 
   const [suspendModalCandidate, setSuspendModalCandidate] = useState(null);
   const [suspendReason, setSuspendReason] = useState("policy_violation");
+  const [suspendDuration, setSuspendDuration] = useState("indefinite");
+  const [customExpiresAt, setCustomExpiresAt] = useState("");
   const [suspendNotes, setSuspendNotes] = useState("");
 
   const [restoreModalCandidate, setRestoreModalCandidate] = useState(null);
@@ -170,9 +174,15 @@ export default function ManageJobseekers() {
   // --- SUSPENSION HANDLERS ---
   const handleConfirmSuspend = async () => {
     if (!suspendModalCandidate) return;
+    if (suspendDuration === "custom" && !customExpiresAt) {
+      showToast("Please specify a custom suspension expiry date and time.", "error");
+      return;
+    }
     setActionLoading(true);
     const { error } = await suspendCandidateAccount(suspendModalCandidate.id, {
       reasonCode: suspendReason,
+      durationPreset: suspendDuration,
+      customDateTime: customExpiresAt || null,
       internalNote: suspendNotes,
     });
     setActionLoading(false);
@@ -185,6 +195,8 @@ export default function ManageJobseekers() {
     showToast("🚫 Candidate account suspended.");
     setSuspendModalCandidate(null);
     setSuspendNotes("");
+    setSuspendDuration("indefinite");
+    setCustomExpiresAt("");
     if (selectedCandidate?.id === suspendModalCandidate.id) {
       setSelectedCandidate(prev => ({ ...prev, is_suspended: true }));
     }
@@ -485,7 +497,7 @@ export default function ManageJobseekers() {
                   </tr>
                 ) : (
                   jobseekers.map((cand) => {
-                    const isSuspended = Boolean(cand.is_suspended);
+                    const isSuspended = isAccountSuspended(cand);
                     const isVerified = cand.verification_status === "Verified" || cand.verification_status === "Approved";
                     const hasSubmittedVerification = Boolean(cand.id_image_url);
 
@@ -693,7 +705,7 @@ export default function ManageJobseekers() {
         {/* 1. CANDIDATE DETAILS MODAL */}
         {selectedCandidate && (() => {
           const cand = selectedCandidate;
-          const isSuspended = Boolean(cand.is_suspended);
+          const isSuspended = isAccountSuspended(cand);
           const isVerified = cand.verification_status === "Verified" || cand.verification_status === "Approved";
           const hasResume = Boolean(cand.resume_url || cand.resume?.file_url);
 
@@ -1008,6 +1020,38 @@ export default function ManageJobseekers() {
                 </select>
               </div>
 
+              <div style={{ marginBottom: "14px" }}>
+                <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                  Suspension Duration (Automatic Expiry): *
+                </label>
+                <select
+                  value={suspendDuration}
+                  onChange={(e) => setSuspendDuration(e.target.value)}
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", background: "#fff" }}
+                >
+                  {SUSPENSION_DURATION_PRESETS.map((preset) => (
+                    <option key={preset.code} value={preset.code}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {suspendDuration === "custom" && (
+                <div style={{ marginBottom: "14px", background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
+                  <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                    Select Expiry Date & Time: *
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={customExpiresAt}
+                    min={new Date().toISOString().slice(0, 16)}
+                    onChange={(e) => setCustomExpiresAt(e.target.value)}
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", boxSizing: "border-box" }}
+                  />
+                </div>
+              )}
+
               <div style={{ marginBottom: "20px" }}>
                 <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
                   Internal Moderation Note (Admin Only — Private):
@@ -1022,7 +1066,7 @@ export default function ManageJobseekers() {
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-                <button type="button" onClick={() => { setSuspendModalCandidate(null); setSuspendNotes(""); }} style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>
+                <button type="button" onClick={() => { setSuspendModalCandidate(null); setSuspendNotes(""); setSuspendDuration("indefinite"); setCustomExpiresAt(""); }} style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>
                   Cancel
                 </button>
                 <button type="button" onClick={handleConfirmSuspend} disabled={actionLoading} style={{ background: "#dc2626", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "700", cursor: "pointer" }}>

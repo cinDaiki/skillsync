@@ -210,7 +210,7 @@ export async function respondToInterview({
   if (interview.employer_id) {
     const { data: employerProfile, error: empErr } = await supabase
       .from("profiles")
-      .select("id, is_suspended, verification_status")
+      .select("id, is_suspended, verification_status, suspension_expires_at")
       .eq("id", interview.employer_id)
       .maybeSingle();
 

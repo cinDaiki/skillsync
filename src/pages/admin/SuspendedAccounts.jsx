@@ -318,7 +318,7 @@ export default function SuspendedAccounts() {
           }}
         >
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", minWidth: "950px" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", minWidth: "1050px" }}>
               <thead>
                 <tr
                   style={{
@@ -335,6 +335,7 @@ export default function SuspendedAccounts() {
                   <th style={{ padding: "14px 16px" }}>Contact</th>
                   <th style={{ padding: "14px 16px" }}>Verification</th>
                   <th style={{ padding: "14px 16px" }}>Suspension Reason</th>
+                  <th style={{ padding: "14px 16px" }}>Duration / Expiry</th>
                   <th style={{ padding: "14px 16px" }}>Suspended Date</th>
                   <th style={{ padding: "14px 16px" }}>Admin Note</th>
                   <th style={{ padding: "14px 16px", textAlign: "right" }}>Actions</th>
@@ -343,13 +344,13 @@ export default function SuspendedAccounts() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: "center", padding: "36px", color: "#64748b" }}>
+                    <td colSpan={9} style={{ textAlign: "center", padding: "36px", color: "#64748b" }}>
                       Loading suspended accounts...
                     </td>
                   </tr>
                 ) : accounts.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
+                    <td colSpan={9} style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
                       <div style={{ fontSize: "16px", fontWeight: "700", color: "#334155" }}>
                         {roleTab === "all"
                           ? "✅ No suspended accounts."
@@ -376,6 +377,16 @@ export default function SuspendedAccounts() {
                           year: "numeric",
                         })
                       : "Not recorded";
+
+                    const formattedExpiryDate = acc.suspension_expires_at
+                      ? new Date(acc.suspension_expires_at).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : null;
 
                     return (
                       <tr
@@ -476,6 +487,35 @@ export default function SuspendedAccounts() {
                           >
                             🚫 {acc.suspension_reason_label || "Administrative suspension"}
                           </span>
+                        </td>
+
+                        {/* Duration / Expiry */}
+                        <td style={{ padding: "14px 16px", fontSize: "13px" }}>
+                          {acc.suspension_expires_at ? (
+                            <div>
+                              <div style={{ fontWeight: "600", color: "#0f172a", whiteSpace: "nowrap" }}>
+                                {formattedExpiryDate}
+                              </div>
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  fontWeight: "700",
+                                  color: "#991b1b",
+                                  background: "#fee2e2",
+                                  border: "1px solid #fca5a5",
+                                  padding: "2px 6px",
+                                  borderRadius: "6px",
+                                  display: "inline-block",
+                                  marginTop: "3px",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                ⏳ {acc.duration_remaining || "Active"}
+                              </span>
+                            </div>
+                          ) : (
+                            <span style={{ color: "#64748b", fontWeight: "600" }}>Indefinite</span>
+                          )}
                         </td>
 
                         {/* Suspended Date */}

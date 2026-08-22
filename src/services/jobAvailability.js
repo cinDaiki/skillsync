@@ -6,19 +6,19 @@
  * Candidate Dashboard, and Application Submission.
  */
 
+import { isAccountSuspended } from "./adminService.js";
+
 /**
- * Checks whether an employer profile is currently suspended.
- * Evaluates canonical `is_suspended` boolean and legacy `verification_status: "Suspended"`.
+ * Checks whether an employer profile is currently effectively suspended.
+ * Evaluates canonical `is_suspended`, `suspension_expires_at` (automatic expiry),
+ * and legacy `verification_status: "Suspended"`.
  *
  * @param {object|null} profile - Employer profile record
- * @returns {boolean} true if employer is suspended, false otherwise
+ * @param {Date|string|number} [now=new Date()] - Reference time
+ * @returns {boolean} true if employer is currently suspended, false otherwise
  */
-export function isEmployerSuspended(profile) {
-  if (!profile) return false;
-  return Boolean(
-    profile.is_suspended === true ||
-    profile.verification_status?.toLowerCase() === "suspended"
-  );
+export function isEmployerSuspended(profile, now = new Date()) {
+  return isAccountSuspended(profile, now);
 }
 
 /**
@@ -26,12 +26,13 @@ export function isEmployerSuspended(profile) {
  *
  * @param {object|null} job - Job record
  * @param {object|null} employerProfile - Profile record of the employer who posted the job
+ * @param {Date|string|number} [now=new Date()] - Reference time
  * @returns {boolean} true if job is open and employer is not suspended
  */
-export function isJobAvailableForDiscovery(job, employerProfile) {
+export function isJobAvailableForDiscovery(job, employerProfile, now = new Date()) {
   if (!job) return false;
   if (job.status !== "open") return false;
-  if (isEmployerSuspended(employerProfile)) return false;
+  if (isEmployerSuspended(employerProfile, now)) return false;
   return true;
 }
 
@@ -40,7 +41,7 @@ export function isJobAvailableForDiscovery(job, employerProfile) {
  *
  * @param {object} supabaseClient - Supabase client instance
  * @param {string[]} employerIds - Array of employer user IDs
- * @returns {Promise<Set<string>>} Set of suspended employer IDs
+ * @returns {Promise<Set<string>>} Set of effectively suspended employer IDs
  */
 export async function fetchSuspendedEmployerIds(supabaseClient, employerIds) {
   if (!supabaseClient || !employerIds || employerIds.length === 0) {
@@ -61,7 +62,7 @@ export async function fetchSuspendedEmployerIds(supabaseClient, employerIds) {
     // 2. Fallback to direct profiles table query
     const { data, error } = await supabaseClient
       .from("profiles")
-      .select("id, is_suspended, verification_status")
+      .select("id, is_suspended, verification_status, suspension_expires_at")
       .in("id", uniqueIds);
 
     if (error) {
@@ -87,10 +88,11 @@ export async function fetchSuspendedEmployerIds(supabaseClient, employerIds) {
  * Checks whether an existing recruitment process is temporarily paused due to employer suspension.
  *
  * @param {object|null} employerProfile - Employer profile record
+ * @param {Date|string|number} [now=new Date()] - Reference time
  * @returns {boolean} true if recruitment is paused
  */
-export function isRecruitmentTemporarilyPaused(employerProfile) {
-  return isEmployerSuspended(employerProfile);
+export function isRecruitmentTemporarilyPaused(employerProfile, now = new Date()) {
+  return isEmployerSuspended(employerProfile, now);
 }
 
 /**

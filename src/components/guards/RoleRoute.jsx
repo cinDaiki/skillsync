@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import { supabase } from "../../services/supabase";
 import { setCurrentUser } from "../../services/localStorageService";
 import { isDevMode, devGetSession } from "../../services/devMode";
+import { isAccountSuspended } from "../../services/adminService";
 
 function normalizeRole(role) {
   if (role === "job_seeker") return "candidate";
@@ -34,11 +35,7 @@ export default function RoleRoute({ allowedRoles, children }) {
         const role = normalizeRole(
           fakeProfile?.role || session.user?.user_metadata?.role
         );
-        const isSuspended = Boolean(
-          fakeProfile?.is_suspended === true ||
-          fakeProfile?.verification_status?.toLowerCase() === "suspended" ||
-          session.user?.user_metadata?.is_suspended === true
-        );
+        const isSuspended = isAccountSuspended(fakeProfile || session.user?.user_metadata);
 
         // Preserve any profile_picture_url already in localStorage
         const existingUser = (() => {
@@ -47,11 +44,12 @@ export default function RoleRoute({ allowedRoles, children }) {
 
         setCurrentUser({
           ...existingUser,
-          id:           session.user.id,
-          email:        fakeProfile?.email || session.user.email,
+          id:                    session.user.id,
+          email:                 fakeProfile?.email || session.user.email,
           role,
-          full_name:    fakeProfile?.full_name || session.user?.user_metadata?.full_name || "",
-          is_suspended: isSuspended,
+          full_name:             fakeProfile?.full_name || session.user?.user_metadata?.full_name || "",
+          is_suspended:          isSuspended,
+          suspension_expires_at: fakeProfile?.suspension_expires_at || null,
         });
 
         if (isSuspended && role !== "admin") {
@@ -76,25 +74,24 @@ export default function RoleRoute({ allowedRoles, children }) {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("role, full_name, email, profile_picture_url, is_suspended, verification_status")
+        .select("role, full_name, email, profile_picture_url, is_suspended, verification_status, suspension_reason_code, suspension_expires_at, suspended_at")
         .eq("id", session.user.id)
         .maybeSingle();
 
       const role = normalizeRole(
         profile?.role || session.user?.user_metadata?.role
       );
-      const isSuspended = Boolean(
-        profile?.is_suspended === true ||
-        profile?.verification_status?.toLowerCase() === "suspended"
-      );
+      const isSuspended = isAccountSuspended(profile);
 
       setCurrentUser({
-        id:                  session.user.id,
-        email:               profile?.email || session.user.email,
+        id:                    session.user.id,
+        email:                 profile?.email || session.user.email,
         role,
-        full_name:           profile?.full_name || session.user?.user_metadata?.full_name || "",
-        profile_picture_url: profile?.profile_picture_url || "",
-        is_suspended:        isSuspended,
+        full_name:             profile?.full_name || session.user?.user_metadata?.full_name || "",
+        profile_picture_url:   profile?.profile_picture_url || "",
+        is_suspended:          isSuspended,
+        suspension_expires_at: profile?.suspension_expires_at || null,
+        suspension_reason_code: profile?.suspension_reason_code || null,
       });
 
       if (isSuspended && role !== "admin") {

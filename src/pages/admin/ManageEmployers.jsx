@@ -9,7 +9,9 @@ import {
   updateEmployerVerification,
   suspendEmployerAccount,
   restoreEmployerAccount,
+  isAccountSuspended,
   SUSPENSION_REASON_OPTIONS,
+  SUSPENSION_DURATION_PRESETS,
 } from "../../services/adminService";
 
 export default function ManageEmployers() {
@@ -27,6 +29,8 @@ export default function ManageEmployers() {
   // Modals state
   const [actionModal, setActionModal] = useState(null); // { employer, targetStatus }
   const [suspendReason, setSuspendReason] = useState("policy_violation");
+  const [suspendDuration, setSuspendDuration] = useState("indefinite");
+  const [customExpiresAt, setCustomExpiresAt] = useState("");
   const [suspendNotes, setSuspendNotes] = useState("");
   const [restoreModalEmployer, setRestoreModalEmployer] = useState(null); // employer object
   const [viewDetailsModal, setViewDetailsModal] = useState(null); // employer object
@@ -82,8 +86,15 @@ export default function ManageEmployers() {
     setSubmitting(true);
     let res;
     if (newStatus === "Suspended") {
+      if (suspendDuration === "custom" && !customExpiresAt) {
+        toast.error("Please specify a custom suspension expiry date and time.");
+        setSubmitting(false);
+        return;
+      }
       res = await suspendEmployerAccount(userId, {
         reasonCode: suspendReason,
+        durationPreset: suspendDuration,
+        customDateTime: customExpiresAt || null,
         internalNote: suspendNotes,
       });
     } else {
@@ -99,6 +110,8 @@ export default function ManageEmployers() {
     if (newStatus === "Suspended") {
       toast.success("🚫 Employer account suspended.");
       setSuspendNotes("");
+      setSuspendDuration("indefinite");
+      setCustomExpiresAt("");
     } else {
       toast.success(`Employer status updated to "${newStatus}".`);
       setReasonInput("");
@@ -131,8 +144,12 @@ export default function ManageEmployers() {
 
   async function handleRemoveEmployer(userId) {
     if (!window.confirm("Are you sure you want to remove this employer account?")) return;
-    await supabase.from("profiles").delete().eq("id", userId);
-    await supabase.auth.admin.deleteUser(userId).catch(() => {});
+    try {
+      await supabase.from("profiles").delete().eq("id", userId);
+      await supabase.auth.admin.deleteUser(userId);
+    } catch (e) {
+      console.warn("[ManageEmployers] Remove employer warning:", e?.message);
+    }
     loadEmployers();
   }
 
@@ -249,7 +266,7 @@ export default function ManageEmployers() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {employers.map((employer) => {
-              const isSuspended = Boolean(employer.is_suspended || employer.verification_status === "Suspended");
+              const isSuspended = isAccountSuspended(employer);
               const status = employer.verification_status || "Pending";
               const isApproved = status === "Approved" || status === "Verified";
               const docCount = [employer.id_image_url, employer.selfie_image_url, employer.business_permit_url, employer.sec_registration_url].filter(Boolean).length;
@@ -481,6 +498,38 @@ export default function ManageEmployers() {
                   </select>
                 </div>
 
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                    Suspension Duration (Automatic Expiry): *
+                  </label>
+                  <select
+                    value={suspendDuration}
+                    onChange={(e) => setSuspendDuration(e.target.value)}
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", background: "#fff" }}
+                  >
+                    {SUSPENSION_DURATION_PRESETS.map((preset) => (
+                      <option key={preset.code} value={preset.code}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {suspendDuration === "custom" && (
+                  <div style={{ marginBottom: "12px", background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
+                    <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                      Select Expiry Date & Time: *
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={customExpiresAt}
+                      min={new Date().toISOString().slice(0, 16)}
+                      onChange={(e) => setCustomExpiresAt(e.target.value)}
+                      style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", boxSizing: "border-box" }}
+                    />
+                  </div>
+                )}
+
                 <div style={{ marginBottom: "14px" }}>
                   <label style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
                     Internal Moderation Note (Admin Only — Private):
@@ -512,7 +561,7 @@ export default function ManageEmployers() {
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "16px" }}>
               <button
                 type="button"
-                onClick={() => { setActionModal(null); setReasonInput(""); setSuspendNotes(""); }}
+                onClick={() => { setActionModal(null); setReasonInput(""); setSuspendNotes(""); setSuspendDuration("indefinite"); setCustomExpiresAt(""); }}
                 style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
               >
                 Cancel

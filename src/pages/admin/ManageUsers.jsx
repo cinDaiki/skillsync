@@ -9,6 +9,7 @@ import {
   deleteUser,
   updateUserProfile,
   displayUserName,
+  isAccountSuspended,
 } from "../../services/adminService";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 
@@ -202,10 +203,11 @@ export default function ManageUsers() {
       (roleFilter === "employer" && user.role === "employer") ||
       (roleFilter === "candidate" && (user.role === "candidate" || user.role === "job_seeker"));
 
+    const isSuspended = isAccountSuspended(user);
     const matchesStatus =
       statusFilter === "all" ||
-      (statusFilter === "suspended" && user.is_suspended) ||
-      (statusFilter === "active" && !user.is_suspended);
+      (statusFilter === "suspended" && isSuspended) ||
+      (statusFilter === "active" && !isSuspended);
 
     const matchesVerify =
       verifyFilter === "all" ||
@@ -314,7 +316,7 @@ export default function ManageUsers() {
           ) : (
             <div style={{ display: "grid", gap: "12px" }}>
               {filteredUsers.map((user) => {
-                const isUserSuspended = user.is_suspended === true;
+                const isUserSuspended = isAccountSuspended(user);
                 return (
                   <article key={user.id} style={{
                     display: "flex",
@@ -534,12 +536,12 @@ export default function ManageUsers() {
                     fontWeight: "900",
                     padding: "3px 8px",
                     borderRadius: "6px",
-                    background: selectedUser.is_suspended ? "#fff1f2" : "#e9fbef",
-                    color: selectedUser.is_suspended ? "#e11d48" : "#15803d",
+                    background: isAccountSuspended(selectedUser) ? "#fff1f2" : "#e9fbef",
+                    color: isAccountSuspended(selectedUser) ? "#e11d48" : "#15803d",
                     display: "inline-block",
                     marginTop: "6px"
                   }}>
-                    {selectedUser.is_suspended ? "Access Suspended" : "Active Member"}
+                    {isAccountSuspended(selectedUser) ? "Access Suspended" : "Active Member"}
                   </span>
                 </div>
               </div>
