@@ -244,7 +244,6 @@ export default function JobMatches() {
     setApplications((prev) => [...prev, data]);
     toast.success(`Successfully applied for "${job.title}"!`);
 
-    await triggerSimulationNotification(userId, "job_applied", { jobTitle: job.title });
     setConfirmApplyJob(null);
     setShowDetailModal(false);
   }

@@ -200,41 +200,37 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
       })
       const dCalc = performance.now() - tCalcStart;
 
-      // ── 4. Upsert results ─────────────────────────────────────────────────────
-      const tUpsertStart = performance.now();
-      const { error } = await supabase
-        .from('job_matches')
-        .upsert(upserts, { onConflict: 'user_id,job_id' })
-      const dUpsert = performance.now() - tUpsertStart;
+      // ── 4. Persist server-authoritative matches via RPC ──────────────────────
+      const tRpcStart = performance.now();
+      let serverSavedCount = 0;
+      for (const job of jobs) {
+        try {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc("compute_and_save_job_match", {
+            p_job_id: job.id
+          });
+          if (!rpcErr && rpcData?.success) {
+            serverSavedCount++;
+          } else if (rpcErr) {
+            console.warn(`[SemanticMatching] compute_and_save_job_match failed for job ${job.id}:`, rpcErr.message);
+          }
+        } catch (rpcEx) {
+          console.warn(`[SemanticMatching] compute_and_save_job_match exception for job ${job.id}:`, rpcEx.message);
+        }
+      }
+      const dRpc = performance.now() - tRpcStart;
 
       const dTotal = performance.now() - tStart;
       console.log(`[Perf-SemanticMatching] runSemanticMatchingForCandidate Complete:
         - Vector Search Database Fetch: ${dFind.toFixed(2)}ms
         - Details (Jobs, Profile, Resume) fetch: ${dFetch.toFixed(2)}ms
         - Match Score Calculations: ${dCalc.toFixed(2)}ms
-        - Supabase Upserts: ${dUpsert.toFixed(2)}ms
+        - Server RPC Persist: ${dRpc.toFixed(2)}ms (${serverSavedCount} saved)
         - runSemanticMatchingForCandidate() Total: ${dTotal.toFixed(2)}ms`);
 
-      if (error) {
-        console.error('[SemanticMatching] Upsert error:', error.message)
-      } else {
-        console.log(`[SemanticMatching] Saved ${upserts.length} semantic matches for candidate ${userId}`)
-
-        // ── 5. Notify high matches (≥80%) ──────────────────────────────────────
-        const highMatches = upserts.filter(u => u.match_score >= 80)
-        if (highMatches.length > 0) {
-          const best = highMatches[0]
-          const bestJob = jobs.find(j => j.id === best.job_id)
-          await supabase.from('notifications').insert([{
-            user_id: userId,
-            title:   `🔥 ${highMatches.length} High AI Match${highMatches.length > 1 ? 'es' : ''} Found!`,
-            message: `Your resume is a ${best.match_score}% AI match for "${bestJob?.title || 'a job'}". Check your AI Job Matches!`,
-            type:    'job_match',
-          }])
-        }
-      }
+      return upserts;
     } catch (err) {
       console.error('[SemanticMatching] Unexpected error:', err)
+      return [];
     } finally {
       activeMatchingPromises.delete(userId);
     }
@@ -246,7 +242,7 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
 
 /**
  * Fetch semantic match results for the candidate's AI Matches page.
- * Returns jobs sorted by semantic_score descending.
+ * Returns jobs sorted by match_score descending.
  *
  * @param {string} userId
  * @returns {Promise<object[]>}
@@ -258,7 +254,6 @@ export async function fetchSemanticMatchesForCandidate(userId) {
     .from('job_matches')
     .select('*, jobs!inner(*)')
     .eq('user_id', userId)
-    .eq('match_type', 'semantic')
     .order('match_score', { ascending: false })
 
   if (error) {

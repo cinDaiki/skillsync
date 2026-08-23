@@ -60,30 +60,9 @@ export function calculateMatch(candidate = {}, job = {}) {
 }
 
 /**
- * Notify High Match
- */
-async function notifyHighMatch(candidateId, employerId, jobTitle, score) {
-  if (score >= 80) {
-    // Notify Job Seeker
-    await supabase.from("notifications").insert([{
-      user_id: candidateId,
-      title: "🔥 High Match Job Found!",
-      message: `You are a ${score}% match for ${jobTitle}. Check your recommendations!`,
-      type: "job_match"
-    }]);
-
-    // Notify Employer
-    await supabase.from("notifications").insert([{
-      user_id: employerId,
-      title: "✨ Top Candidate Found!",
-      message: `A candidate matched ${score}% for your ${jobTitle} position.`,
-      type: "job_match"
-    }]);
-  }
-}
-
-/**
  * Execute Match for a single Candidate against ALL active jobs
+ * Uses server-authoritative compute_and_save_job_match RPC.
+ * Fails closed without direct table upsert fallbacks.
  */
 export async function runMatchingForCandidate(userId) {
   try {
@@ -95,9 +74,7 @@ export async function runMatchingForCandidate(userId) {
       return;
     }
 
-    console.log("Candidate Skills", profile.skills);
-
-    const { data: jobs } = await supabase.from("jobs").select("*").eq("status", "open");
+    const { data: jobs } = await supabase.from("jobs").select("id, status, employer_id").eq("status", "open");
     if (!jobs || jobs.length === 0) {
       console.log("No open jobs found.");
       return;
@@ -111,62 +88,25 @@ export async function runMatchingForCandidate(userId) {
       return;
     }
 
-    console.log("Jobs Found", availableJobs.length);
+    console.log("Available Jobs for Server Matching:", availableJobs.length);
 
-    const upserts = [];
-
+    let successCount = 0;
     for (const job of availableJobs) {
       try {
-        const matchResult = calculateMatch(profile, job);
-        upserts.push({
-          user_id: userId,
-          job_id: job.id,
-          // employer_id omitted — FK constraint may fail if employer has no profile row
-          match_score: matchResult.match_score,
-          skills_score: matchResult.skills_score,
-          education_score: matchResult.education_score,
-          experience_score: matchResult.experience_score,
-          match_status: "Recommended",
-          matching_skills: matchResult.matching_skills,
-          missing_skills: matchResult.missing_skills,
-          matched_certs: matchResult.matched_certs,
-          recommended_courses: matchResult.recommended_courses,
-          micro_credentials: matchResult.micro_credentials,
-          match_reason: matchResult.match_reason,
-          updated_at: new Date().toISOString()
+        const { data, error } = await supabase.rpc("compute_and_save_job_match", {
+          p_job_id: job.id
         });
-        // Fire notifications async
-        notifyHighMatch(userId, job.employer_id, job.title, matchResult.match_score);
+        if (!error && data?.success) {
+          successCount++;
+        } else if (error) {
+          console.warn(`[MatchingEngine] compute_and_save_job_match failed for job ${job.id}:`, error.message);
+        }
       } catch (jobErr) {
-        console.warn(`Skipping job ${job.id} due to error:`, jobErr.message);
+        console.warn(`[MatchingEngine] compute_and_save_job_match exception for job ${job.id}:`, jobErr.message);
       }
     }
 
-    if (upserts.length === 0) {
-      console.log("No valid job matches to upsert.");
-      return;
-    }
-
-    // Upsert — try with new columns first, fallback without if schema not updated
-    const { error: upsertError } = await supabase
-      .from("job_matches")
-      .upsert(upserts, { onConflict: 'user_id,job_id' });
-
-    if (upsertError) {
-      console.warn("job_matches upsert failed, retrying without new columns:", upsertError.message);
-      // Strip columns that may not exist yet
-      const fallbackUpserts = upserts.map(({ micro_credentials, matched_certs, employer_id, ...rest }) => rest);
-      const { error: retryError } = await supabase
-        .from("job_matches")
-        .upsert(fallbackUpserts, { onConflict: 'user_id,job_id' });
-      if (retryError) {
-        console.error("job_matches fallback upsert also failed:", retryError.message);
-      } else {
-        console.log(`Matching engine: saved ${fallbackUpserts.length} matches (fallback mode).`);
-      }
-    } else {
-      console.log(`Matching engine ran for candidate ${userId}, saved ${upserts.length} matches.`);
-    }
+    console.log(`Matching engine: computed and stored ${successCount} server-authoritative matches for candidate ${userId}.`);
   } catch (err) {
     console.error("Matching engine error:", err);
   }
@@ -174,58 +114,11 @@ export async function runMatchingForCandidate(userId) {
 
 /**
  * Execute Match for a single Job against ALL candidates
+ * Employer matching is read-only / server-evaluated; employers do not directly mutate job_matches.
  */
 export async function runMatchingForJob(jobId) {
   try {
-    const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).maybeSingle();
-    if (!job) return;
-
-    const { data: candidates } = await supabase.from("candidate_profiles").select("*");
-    if (!candidates || candidates.length === 0) return;
-
-    const upserts = [];
-
-    for (const candidate of candidates) {
-      try {
-        const matchResult = calculateMatch(candidate, job);
-        upserts.push({
-          user_id: candidate.user_id,
-          job_id: job.id,
-          // employer_id omitted — FK constraint may fail if employer has no profile row
-          match_score: matchResult.match_score,
-          skills_score: matchResult.skills_score,
-          education_score: matchResult.education_score,
-          experience_score: matchResult.experience_score,
-          match_status: "Recommended",
-          matching_skills: matchResult.matching_skills,
-          missing_skills: matchResult.missing_skills,
-          matched_certs: matchResult.matched_certs,
-          recommended_courses: matchResult.recommended_courses,
-          micro_credentials: matchResult.micro_credentials,
-          match_reason: matchResult.match_reason,
-          updated_at: new Date().toISOString()
-        });
-        notifyHighMatch(candidate.user_id, job.employer_id, job.title, matchResult.match_score);
-      } catch (candidateErr) {
-        console.warn(`Skipping candidate ${candidate.user_id}:`, candidateErr.message);
-      }
-    }
-
-    if (upserts.length === 0) return;
-
-    const { error: upsertJobError } = await supabase
-      .from("job_matches")
-      .upsert(upserts, { onConflict: 'user_id,job_id' });
-
-    if (upsertJobError) {
-      console.warn("job upsert failed, trying fallback:", upsertJobError.message);
-      const fallback = upserts.map(({ micro_credentials, matched_certs, employer_id, ...rest }) => rest);
-      const { error: retryErr } = await supabase.from("job_matches").upsert(fallback, { onConflict: 'user_id,job_id' });
-      if (retryErr) console.error("job_matches fallback (job) failed:", retryErr.message);
-      else console.log(`Matched job ${jobId}: ${fallback.length} candidates (fallback).`);
-    } else {
-      console.log(`Matched job ${jobId}: ${upserts.length} candidates.`);
-    }
+    console.log(`Matching engine: candidate matching for job ${jobId} is handled server-side.`);
   } catch (err) {
     console.error("Matching engine error:", err);
   }

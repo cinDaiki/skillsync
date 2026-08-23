@@ -330,7 +330,6 @@ export default function Resume() {
       }
       setApplications(prev => [...prev, job.id]);
       if (toast) toast.success(`Applied to "${job.title}" successfully!`);
-      await triggerSimulationNotification(userId, 'job_applied', { jobTitle: job.title });
     } catch (err) {
       if (toast) toast.error('Unexpected error applying.');
     } finally {
@@ -339,7 +338,7 @@ export default function Resume() {
   }
 
   async function handleDeleteResume() {
-    const confirmDelete = window.confirm("Are you sure you want to delete your resume? This will also remove your job matches.");
+    const confirmDelete = window.confirm("Are you sure you want to delete your resume? This will also remove your stored resume data.");
     if (!confirmDelete) return;
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -351,16 +350,13 @@ export default function Resume() {
     // Clear candidate_profiles (removes matching engine source data)
     await supabase.from("candidate_profiles").delete().eq("user_id", user.id);
 
-    // Clear job_matches (no resume = no matches)
-    await supabase.from("job_matches").delete().eq("user_id", user.id);
-
     // Clear skills from profiles table
     await supabase.from("profiles").update({ skills: "" }).eq("id", user.id);
 
     syncApplicantSnapshot(user.id).catch(() => {});
     setResumeFile(null);
     setExtractedSkills([]);
-    setMessage("Resume deleted. Your job matches have been cleared.");
+    setMessage("Resume deleted successfully.");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 

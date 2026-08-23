@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 import AIMatchReport from "../../components/ai/AIMatchReport";
-import { fetchEmployerApplicants, fetchEmployerApplicantById } from "../../services/applicationService";
+import { fetchEmployerApplicants, fetchEmployerApplicantById, updateApplicationStage } from "../../services/applicationService";
 import {
   sendInterviewInvitation,
   respondToInterview,
@@ -282,7 +282,7 @@ export default function Applicants() {
   }
 
   async function executeUpdateStatus(appId, newStatus) {
-    const { error } = await supabase.from("applications").update({ status: newStatus }).eq("id", appId);
+    const { error } = await updateApplicationStage(appId, newStatus);
     if (error) {
       toast.error("Failed to update status: " + error.message);
       return;
