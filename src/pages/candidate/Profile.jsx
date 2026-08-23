@@ -685,8 +685,7 @@ export default function Profile() {
       if (error) throw error;
       
       const updateKey = type === "id" ? "idImageUrl" : "selfieImageUrl";
-      // Status becomes "Under Review" so admin can see it needs attention
-      const newStatus = "Under Review";
+      const newStatus = "Pending Verification";
       const newDate = new Date().toISOString();
       
       setProfile(prev => ({
@@ -696,22 +695,17 @@ export default function Profile() {
         verificationDate: newDate
       }));
       
-      await supabase.from("profiles").update({
-        [type === "id" ? "id_image_url" : "selfie_image_url"]: url,
-        verification_status: newStatus,
-        verification_date: newDate
-      }).eq("id", activeId);
-      
-      try {
-        const { addNotification } = await import("../../services/notificationService");
-        await addNotification(
-          activeId,
-          "Identity Verification Submitted",
-          `Your ${type === 'id' ? 'Government ID' : 'Selfie image'} has been uploaded and submitted for administrator review.`,
-          "system"
-        );
-      } catch (notifErr) {
-        console.warn("Failed sending upload notification:", notifErr);
+      const { error: rpcErr } = await supabase.rpc("submit_identity_verification", {
+        p_id_image_url: type === "id" ? url : null,
+        p_selfie_image_url: type === "selfie" ? url : null
+      });
+
+      if (rpcErr) {
+        // Fallback for offline / direct update if RPC is unavailable in local mockup
+        await supabase.from("profiles").update({
+          [type === "id" ? "id_image_url" : "selfie_image_url"]: url,
+          updated_at: newDate
+        }).eq("id", activeId);
       }
 
       setMessage({ text: `${type === 'id' ? 'Valid ID' : 'Selfie image'} uploaded successfully!`, type: "success" });

@@ -82,75 +82,40 @@ export async function sendInterviewInvitation({
 
   const jobTitle = appData.jobs?.title || "Job Placement";
 
-  const payload = {
-    application_id: applicationId,
-    employer_id: employerId,
-    candidate_id: candidateId,
-    job_id: jobId,
-    status: "PENDING_CONFIRMATION",
-    interview_type: interviewType,
-    scheduled_date: scheduledDate,
-    scheduled_time: scheduledTime,
-    platform: interviewType === "ONLINE" ? platform : null,
-    meeting_url: interviewType === "ONLINE" ? meetingUrl : null,
-    address: interviewType === "WALK_IN" ? address : null,
-    contact_person: interviewType === "WALK_IN" ? contactPerson : null,
-    instructions: instructions || "",
-    proposed_by: employerId,
-    proposed_at: new Date().toISOString(),
-  };
+  // 1. Invoke server-authoritative atomic interview scheduling RPC
+  const { data: rpcRes, error: rpcErr } = await supabase.rpc("schedule_job_interview", {
+    p_application_id: applicationId,
+    p_interview_type: interviewType || "ONLINE",
+    p_scheduled_date: scheduledDate,
+    p_scheduled_time: scheduledTime,
+    p_platform: platform || "Google Meet",
+    p_meeting_url: meetingUrl || null,
+    p_address: address || null,
+    p_contact_person: contactPerson || null,
+    p_instructions: instructions || null
+  });
 
-  const { data: interviewData, error: interviewErr } = await supabase
-    .from("interviews")
-    .insert([payload])
-    .select()
-    .maybeSingle();
-
-  if (interviewErr) {
-    console.error("Failed to insert interview record:", interviewErr);
-    return { data: null, error: interviewErr };
+  if (rpcErr) {
+    console.error("Failed to schedule interview via RPC:", rpcErr);
+    return { data: null, error: rpcErr };
   }
 
-  const legacySchedule = {
-    date: scheduledDate,
-    time: scheduledTime,
-    link: meetingUrl || address,
-    notes: instructions,
-    type: interviewType,
-    status: "PENDING_CONFIRMATION"
-  };
-
-  await supabase
-    .from("applications")
-    .update({
-      status: "interview_scheduled",
-      interview_schedule: legacySchedule,
-      interview_date: scheduledDate,
-      interview_location: address || platform,
-      interview_link: meetingUrl
-    })
-    .eq("id", applicationId);
-
-  const detailsMsg = interviewType === "ONLINE"
-    ? `on ${scheduledDate} at ${scheduledTime} via ${platform}`
-    : `on ${scheduledDate} at ${scheduledTime} at ${address}`;
-
-  await addNotification(
-    candidateId,
-    "🗓️ Interview Invitation Received",
-    `An employer has invited you to an interview for "${jobTitle}" ${detailsMsg}. Please confirm your availability.`,
-    "interview"
-  );
+  const interviewId = rpcRes?.interview_id;
+  const { data: interviewData } = await supabase
+    .from("interviews")
+    .select("*")
+    .eq("id", interviewId)
+    .maybeSingle();
 
   await logAdminAction({
     action: "INTERVIEW_PROPOSED",
     targetType: "application",
     targetId: applicationId,
     reason: `Employer proposed ${interviewType} interview for candidate on ${scheduledDate} ${scheduledTime}`,
-    metadata: { interviewId: interviewData.id, interviewType }
+    metadata: { interviewId: interviewId || rpcRes?.interview_id, interviewType }
   });
 
-  return { data: interviewData, error: null };
+  return { data: interviewData || rpcRes, error: null };
 }
 
 /**
@@ -235,59 +200,7 @@ export async function respondToInterview({
 
   if (rpcErr) {
     console.error("RPC candidate_respond_interview error:", rpcErr);
-    const newStatus = response === "ACCEPTED" ? "CONFIRMED" : response === "DECLINED" ? "DECLINED" : "RESCHEDULE_REQUESTED";
-    await supabase.from("interviews").update({
-      status: newStatus,
-      candidate_response: response,
-      candidate_response_at: new Date().toISOString(),
-      candidate_message: message,
-      preferred_date: preferredDate,
-      preferred_time_range: preferredTimeRange,
-      confirmed_at: response === "ACCEPTED" ? new Date().toISOString() : interview.confirmed_at
-    }).eq("id", interviewId);
-  }
-
-  const jobTitle = interview.jobs?.title || "Job Position";
-
-  if (response === "ACCEPTED") {
-    await addNotification(
-      interview.employer_id,
-      "🟢 Interview Confirmed!",
-      `Candidate has confirmed the interview for "${jobTitle}" on ${interview.scheduled_date} at ${interview.scheduled_time}.`,
-      "interview"
-    );
-    await logAdminAction({
-      action: "INTERVIEW_CONFIRMED",
-      targetType: "interview",
-      targetId: interviewId,
-      reason: "Candidate confirmed interview schedule."
-    });
-  } else if (response === "DECLINED") {
-    await addNotification(
-      interview.employer_id,
-      "🔴 Candidate Declined Interview",
-      `Candidate declined the interview invitation for "${jobTitle}". Reason: ${message || "No reason provided."}`,
-      "interview"
-    );
-    await logAdminAction({
-      action: "INTERVIEW_DECLINED",
-      targetType: "interview",
-      targetId: interviewId,
-      reason: `Candidate declined interview. Reason: ${message}`
-    });
-  } else if (response === "RESCHEDULE_REQUESTED") {
-    await addNotification(
-      interview.employer_id,
-      "🔄 Candidate Requested Reschedule",
-      `Candidate requested another time for "${jobTitle}". Preferred: ${preferredDate || "Flexible"} (${preferredTimeRange || "Anytime"}). Note: ${message || "None"}`,
-      "interview"
-    );
-    await logAdminAction({
-      action: "RESCHEDULE_REQUESTED",
-      targetType: "interview",
-      targetId: interviewId,
-      reason: `Candidate requested reschedule to ${preferredDate} ${preferredTimeRange}`
-    });
+    return { data: null, error: rpcErr };
   }
 
   const { data: updated } = await supabase.from("interviews").select("*").eq("id", interviewId).maybeSingle();
@@ -373,27 +286,6 @@ export async function rescheduleInterviewByEmployer({
   if (updateErr) {
     return { data: null, error: updateErr };
   }
-
-  await supabase.from("applications").update({
-    status: "interview",
-    interview_date: newDate,
-    interview_schedule: {
-      date: newDate,
-      time: newTime,
-      link: meetingUrl || address || interview.meeting_url,
-      notes: instructions || interview.instructions,
-      type: interview.interview_type,
-      status: "PENDING_CONFIRMATION"
-    }
-  }).eq("id", interview.application_id);
-
-  const jobTitle = interview.jobs?.title || "Job Position";
-  await addNotification(
-    interview.candidate_id,
-    "📅 New Interview Schedule Proposed",
-    `The employer proposed a new interview time for "${jobTitle}" on ${newDate} at ${newTime}. Please review and confirm.`,
-    "interview"
-  );
 
   await logAdminAction({
     action: "INTERVIEW_RESCHEDULED",
@@ -532,25 +424,16 @@ export async function completeInterview({ interviewId, employerId }) {
     return { data: null, error: updateErr };
   }
 
-  // Update application status to interview_completed so candidate moves to Hiring Decisions workspace
+  // Update application status to interview_completed via canonical server RPC
   if (interview.application_id) {
-    await supabase
-      .from("applications")
-      .update({
-        status: "interview_completed",
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", interview.application_id);
+    const { error: stageErr } = await supabase.rpc("employer_update_application_stage", {
+      p_application_id: interview.application_id,
+      p_target_status: "interview_completed"
+    });
+    if (stageErr) {
+      console.warn("completeInterview stage transition RPC info:", stageErr.message);
+    }
   }
-
-  const jobTitle = interview.jobs?.title || "Job Position";
-
-  await addNotification(
-    interview.candidate_id,
-    "✓ Interview Session Completed",
-    `Your interview for "${jobTitle}" has been marked as completed. The employer is reviewing your application.`,
-    "interview"
-  );
 
   await logAdminAction({
     action: "INTERVIEW_COMPLETED",
@@ -619,13 +502,28 @@ export async function makeHiringDecision({
   decision,
   rejectionReason = "",
 }) {
-  if (!applicationId || !employerId || !candidateId || !decision) {
-    return { data: null, error: new Error("Missing required parameters for hiring decision.") };
+  if (!applicationId || !decision) {
+    return { data: null, error: new Error("Application ID and decision are required.") };
   }
 
   const upperDecision = decision.toUpperCase();
   if (upperDecision !== "HIRED" && upperDecision !== "REJECTED") {
-    return { data: null, error: new Error("Decision must be HIRED or REJECTED.") };
+    return { data: null, error: new Error("Invalid decision. Must be HIRED or REJECTED.") };
+  }
+
+  // 1. Verify Employer Suspension
+  if (employerId) {
+    const { data: employerProfile } = await supabase
+      .from("profiles")
+      .select("is_suspended, suspension_expires_at")
+      .eq("id", employerId)
+      .maybeSingle();
+
+    if (isEmployerSuspended(employerProfile)) {
+      const err = new Error("Hiring actions are temporarily unavailable while your account is suspended.");
+      err.code = "EMPLOYER_SUSPENDED";
+      return { data: null, error: err };
+    }
   }
 
   let { data: appData, error: appErr } = await supabase
@@ -633,14 +531,6 @@ export async function makeHiringDecision({
     .select("id, jobs(title, employer_id)")
     .eq("id", applicationId)
     .maybeSingle();
-
-  if (appErr) {
-    const fallback = await supabase.from("applications").select("*").eq("id", applicationId).maybeSingle();
-    if (fallback.data) {
-      appData = fallback.data;
-      appErr = null;
-    }
-  }
 
   if (appErr || !appData) {
     return { data: null, error: new Error("Application not found.") };
@@ -653,57 +543,25 @@ export async function makeHiringDecision({
   const jobTitle = appData.jobs?.title || "Position";
   const newStatus = upperDecision === "HIRED" ? "hired" : "rejected";
 
-  const appUpdatePayload = {
-    status: newStatus,
-    updated_at: new Date().toISOString()
-  };
-  if (upperDecision === "REJECTED" && rejectionReason) {
-    appUpdatePayload.reject_reason = rejectionReason;
+  // 2. Strictly invoke server-authoritative stage update RPC (Fails closed)
+  const { data: rpcRes, error: rpcErr } = await supabase.rpc("employer_update_application_stage", {
+    p_application_id: applicationId,
+    p_target_status: newStatus,
+    p_reject_reason: upperDecision === "REJECTED" ? rejectionReason : null,
+  });
+
+  if (rpcErr) {
+    console.error("Failed to record hiring decision via RPC:", rpcErr);
+    return { data: null, error: rpcErr };
   }
 
-  let { data: updatedApp, error: updateErr } = await supabase
+  const { data: updatedApp } = await supabase
     .from("applications")
-    .update(appUpdatePayload)
+    .select("*")
     .eq("id", applicationId)
-    .select()
     .maybeSingle();
 
-  if (updateErr && (updateErr.code === "PGRST204" || updateErr.code === "42703")) {
-    delete appUpdatePayload.reject_reason;
-    ({ data: updatedApp, error: updateErr } = await supabase
-      .from("applications")
-      .update(appUpdatePayload)
-      .eq("id", applicationId)
-      .select()
-      .maybeSingle());
-  }
-
-  if (updateErr) {
-    return { data: null, error: updateErr };
-  }
-
-  // Cleanly resolve any active/upcoming interview sessions for this application
-  const resolvedInterviewStatus = upperDecision === "HIRED" ? "COMPLETED" : "CANCELLED";
-  const nowIso = new Date().toISOString();
-
-  await supabase
-    .from("interviews")
-    .update({
-      status: resolvedInterviewStatus,
-      completed_at: upperDecision === "HIRED" ? nowIso : null,
-      cancelled_at: upperDecision === "REJECTED" ? nowIso : null,
-      updated_at: nowIso
-    })
-    .eq("application_id", applicationId)
-    .in("status", ["PENDING_CONFIRMATION", "CONFIRMED", "RESCHEDULE_REQUESTED"]);
-
   if (upperDecision === "HIRED") {
-    await addNotification(
-      candidateId,
-      "🎉 Congratulations! You Have Been Selected!",
-      `We are pleased to inform you that you have been hired for "${jobTitle}"! Check your application tracker for next steps.`,
-      "application_update"
-    );
     await logAdminAction({
       action: "CANDIDATE_HIRED",
       targetType: "application",
@@ -711,12 +569,6 @@ export async function makeHiringDecision({
       reason: `Employer selected candidate for ${jobTitle}`
     });
   } else {
-    await addNotification(
-      candidateId,
-      "Application Update",
-      `Thank you for interviewing for "${jobTitle}". After careful consideration, the employer has decided not to proceed with your application at this time.`,
-      "application_update"
-    );
     await logAdminAction({
       action: "CANDIDATE_REJECTED",
       targetType: "application",
@@ -725,7 +577,7 @@ export async function makeHiringDecision({
     });
   }
 
-  return { data: updatedApp, error: null };
+  return { data: updatedApp || { id: applicationId, status: newStatus }, error: null };
 }
 
 /**

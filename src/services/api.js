@@ -24,41 +24,42 @@ function extractResumeStoragePath(fileUrl) {
   return null
 }
 
-export async function getResumeViewUrl(fileUrl) {
-  if (!fileUrl) return { url: null, error: new Error('No resume URL') }
+export async function getResumeViewUrl(fileUrl, expiresSec = 900) {
+  if (!fileUrl) return { url: null, error: new Error('No resume URL') };
 
-  const storagePath = extractResumeStoragePath(fileUrl)
+  const storagePath = extractResumeStoragePath(fileUrl);
   if (!storagePath) {
-    return { url: fileUrl, error: null }
+    if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+      return { url: fileUrl, error: null };
+    }
+    return { url: null, error: new Error('Invalid resume storage path') };
   }
 
   const { data, error } = await supabase.storage
     .from('resumes')
-    .createSignedUrl(storagePath, 60 * 60)
+    .createSignedUrl(storagePath, expiresSec);
 
   if (error || !data?.signedUrl) {
-    return { url: fileUrl, error }
+    console.warn('[Resumes] Failed to generate signed URL for:', storagePath, error?.message);
+    return { url: null, error };
   }
 
-  return { url: data.signedUrl, error: null }
+  return { url: data.signedUrl, error: null };
 }
 
-// Upload resume file to Supabase Storage
+// Upload resume file to Supabase Storage (Private)
 export const uploadResume = async (file, userId) => {
-  const fileName = `${userId}/${Date.now()}_${file.name}`
+  const fileName = `${userId}/${Date.now()}_${file.name}`;
   
   const { data, error } = await supabase.storage
     .from('resumes')
-    .upload(fileName, file)
+    .upload(fileName, file, { upsert: true });
   
-  if (error) return { data: null, error }
+  if (error) return { data: null, error };
   
-  const { data: urlData } = supabase.storage
-    .from('resumes')
-    .getPublicUrl(fileName)
-  
-  return { data: urlData.publicUrl, error: null }
-}
+  // Storage bucket 'resumes' is private; return relative storage path
+  return { data: fileName, storagePath: fileName, error: null };
+};
 
 // Save resume record to database
 export const saveResumeRecord = async (applicantId, fileUrl, extractedSkills) => {
@@ -68,9 +69,9 @@ export const saveResumeRecord = async (applicantId, fileUrl, extractedSkills) =>
       applicant_id: applicantId,
       file_url: fileUrl,
       extracted_skills: extractedSkills
-    }])
-  return { data, error }
-}
+    }]);
+  return { data, error };
+};
 
 // Get resume by applicant
 export const getResume = async (applicantId) => {
@@ -78,50 +79,25 @@ export const getResume = async (applicantId) => {
     .from('resumes')
     .select('*')
     .eq('applicant_id', applicantId)
-    .maybeSingle()
-  return { data, error }
-}
+    .maybeSingle();
+  return { data, error };
+};
 
-// Upload Verification Document to Supabase Storage
-// Uses the existing 'resumes' bucket under 'verifications/' subfolder
+// Upload Verification Document to Supabase Storage (Private)
 export const uploadVerificationDocument = async (file, userId, type) => {
   const fileExt = file.name.split('.').pop();
   const fileName = `verifications/${userId}/${type}_${Date.now()}.${fileExt}`;
 
-  // Try 'resumes' bucket first (guaranteed to exist), then fall back to 'verifications'
-  let uploadError = null;
-  let publicUrl = null;
-
-  // Attempt 1: resumes bucket (safe, always exists)
-  const { error: err1 } = await supabase.storage
+  const { data, error } = await supabase.storage
     .from('resumes')
     .upload(fileName, file, { upsert: true });
 
-  if (!err1) {
-    const { data: urlData } = supabase.storage.from('resumes').getPublicUrl(fileName);
-    publicUrl = urlData?.publicUrl;
-  } else {
-    uploadError = err1;
-    // Attempt 2: verifications bucket (if it exists)
-    const { error: err2 } = await supabase.storage
-      .from('verifications')
-      .upload(`${userId}/${type}_${Date.now()}.${fileExt}`, file, { upsert: true });
-
-    if (!err2) {
-      const { data: urlData2 } = supabase.storage
-        .from('verifications')
-        .getPublicUrl(`${userId}/${type}_${Date.now()}.${fileExt}`);
-      publicUrl = urlData2?.publicUrl;
-      uploadError = null;
-    }
+  if (error) {
+    return { data: null, error };
   }
 
-  if (uploadError || !publicUrl) {
-    return { data: null, error: uploadError || new Error('Upload failed: no public URL returned') };
-  }
-
-  return { data: publicUrl, error: null };
-}
+  return { data: fileName, storagePath: fileName, error: null };
+};
 
 /**
  * Helper to extract certificate storage path from full URL, signed URL, or relative path

@@ -514,3 +514,52 @@ export async function fetchEmployerApplicantById(applicationId, employerId = nul
 export function normalizeApplicantRecord(app) {
   return enrichApplicationRecord(app);
 }
+
+/**
+ * Server-Authoritative Candidate Application Withdrawal
+/**
+ * Server-Authoritative Candidate Application Withdrawal
+ * Strictly invokes withdraw_job_application RPC (Fails closed on error)
+ */
+export async function withdrawJobApplication(applicationId) {
+  if (!applicationId) return { error: new Error("Application ID is required.") };
+
+  try {
+    const { data, error } = await supabase.rpc("withdraw_job_application", {
+      p_application_id: applicationId,
+    });
+
+    if (error) {
+      return { data: null, error };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    return { data: null, error: err };
+  }
+}
+
+/**
+ * Server-Authoritative Employer Application Stage Transition
+ * Strictly invokes employer_update_application_stage RPC (Fails closed on error)
+ */
+export async function updateApplicationStage(applicationId, targetStatus, rejectReason = null, recruiterNotes = null) {
+  if (!applicationId) return { error: new Error("Application ID is required.") };
+
+  try {
+    const { data, error } = await supabase.rpc("employer_update_application_stage", {
+      p_application_id: applicationId,
+      p_target_status: targetStatus,
+      p_reject_reason: rejectReason,
+      p_recruiter_notes: recruiterNotes,
+    });
+
+    if (error) {
+      return { data: null, error };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    return { data: null, error: err };
+  }
+}

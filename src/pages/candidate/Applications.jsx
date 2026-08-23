@@ -13,6 +13,7 @@ import {
   isTerminalApplication,
 } from "../../services/recruitmentStatus";
 import { fetchSuspendedEmployerIds } from "../../services/jobAvailability";
+import { withdrawJobApplication } from "../../services/applicationService";
 import "./Applications.css";
 
 function formatDate(dateString) {
@@ -197,10 +198,7 @@ export default function Applications() {
   async function handleWithdraw(applicationId) {
     setWithdrawing(true);
     try {
-      const { error } = await supabase
-        .from("applications")
-        .delete()
-        .eq("id", applicationId);
+      const { error } = await withdrawJobApplication(applicationId);
 
       if (error) {
         toast.error("Failed to withdraw application: " + error.message);

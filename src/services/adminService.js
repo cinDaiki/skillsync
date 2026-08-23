@@ -1521,45 +1521,25 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
 
 /**
  * Moderates job status (approve to 'open', reject, or suspend)
+ * Uses server-authoritative admin_moderate_job RPC and fails closed.
  */
 export async function moderateJobStatus(jobId, status, reasonNote = "") {
   try {
-    const { error: rpcError } = await supabase.rpc("admin_moderate_job", {
+    const { data, error: rpcError } = await supabase.rpc("admin_moderate_job", {
       target_job_id: jobId,
       new_status: status,
       reason_note: reasonNote || null,
     });
 
     if (rpcError) {
-      // Direct table fallback
-      const { error: tableError } = await supabase
-        .from("jobs")
-        .update({
-          status: status,
-          rejection_reason: reasonNote || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", jobId);
-
-      if (tableError && !tableError.message?.includes("fetch failed")) return { error: tableError };
+      console.error("[AdminService] admin_moderate_job RPC error:", rpcError.message);
+      return { error: rpcError };
     }
 
-    // Primary update succeeded -> log audit action
-    try {
-      await logAdminAction({
-        action: status === "open" ? "JOB_APPROVED" : status === "rejected" ? "JOB_REJECTED" : "JOB_SUSPENDED",
-        targetType: "job",
-        targetId: jobId,
-        reason: reasonNote
-      });
-    } catch (auditErr) {
-      console.warn("[AdminService] Audit log error:", auditErr?.message);
-    }
-
-    return { error: null };
+    return { data, error: null };
   } catch (err) {
-    console.warn("[AdminService] moderateJobStatus offline mode fallback.");
-    return { error: null };
+    console.error("[AdminService] moderateJobStatus exception:", err);
+    return { error: err };
   }
 }
 

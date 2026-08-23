@@ -115,8 +115,8 @@ export default function ResumeViewerModal({
       if (!active) return;
 
       if (urlError || !url) {
-        setError("Could not load resume preview. Try downloading the file instead.");
-        setViewUrl(resume.file_url);
+        setError("Could not load resume preview. Access is restricted or preview is unavailable.");
+        setViewUrl("");
       } else {
         setViewUrl(url);
       }
