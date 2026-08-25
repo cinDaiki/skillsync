@@ -272,6 +272,85 @@
   text-decoration: underline;
 }
 
+/* OTP Specific Styles */
+
+.admin-otp-input {
+  text-align: center;
+  font-size: 24px !important;
+  font-weight: 800 !important;
+  letter-spacing: 10px;
+  font-family: monospace, monospace !important;
+  padding-left: 20px !important;
+}
+
+.admin-remember-label {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.admin-remember-label span {
+  color: #475467 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+
+.admin-remember-checkbox {
+  width: 18px !important;
+  height: 18px !important;
+  accent-color: #8b18ff;
+  cursor: pointer;
+  margin: 0;
+}
+
+.admin-otp-resend-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.admin-resend-btn {
+  background: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  color: #8b18ff !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  height: auto !important;
+  padding: 0 !important;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.admin-resend-btn:disabled {
+  color: #98a2b3 !important;
+  cursor: not-allowed;
+  text-decoration: none;
+  transform: none !important;
+}
+
+.admin-back-credentials-btn {
+  background: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  color: #667085 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  height: auto !important;
+  padding: 0 !important;
+  cursor: pointer;
+}
+
+.admin-back-credentials-btn:hover {
+  color: #101828 !important;
+  text-decoration: underline;
+  transform: none !important;
+}
+
 /* Responsive */
 
 @media (max-width: 980px) {

@@ -1,7 +1,7 @@
 /**
  * devMode.js — SkillSync Offline Development/Test Mode
  *
- * When VITE_DEV_MODE=true in .env:
+ * When VITE_DEV_MODE=true in .env (and NOT in production):
  *   - All authentication is handled locally (no Supabase Auth calls)
  *   - Pre-defined test accounts are available
  *   - Newly registered accounts are stored in localStorage
@@ -9,14 +9,14 @@
  *
  * When VITE_DEV_MODE=false (default / production):
  *   - This file is imported but none of its auth functions are called
- *   - All Supabase code runs exactly as before
+ *   - All Supabase code runs in production mode
  */
 
 // ─── Toggle check ─────────────────────────────────────────────────────────────
 
 export function isDevMode() {
-  if (import.meta.env.PROD) {
-    return false
+  if (import.meta.env.PROD === true) {
+    return false;
   }
   return import.meta.env.VITE_DEV_MODE === "true";
 }
@@ -120,7 +120,7 @@ export async function devSignIn(email, password) {
   };
 
   return {
-    data:  { user, session: { user } },
+    data:  { user, session: { user, access_token: "dev-mock-jwt" } },
     error: null,
   };
 }
@@ -147,7 +147,6 @@ export async function devSignUp(email, password, fullName, role) {
   };
 
   saveDevUser(newUser);
-  // Do NOT auto-login — mimic production flow (sign in separately)
 
   const user = {
     id:            newUser.id,
@@ -180,7 +179,6 @@ export function devGetCurrentUser() {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const user = JSON.parse(raw);
-    // In dev mode, trust any user that has id and role in localStorage
     if (!user?.id || !user?.role) return null;
     return user;
   } catch {
@@ -196,7 +194,6 @@ export function devGetSession() {
   const user = devGetCurrentUser();
   if (!user) return { data: { session: null } };
 
-  // Build a fake profile that mirrors Supabase profile shape
   const fakeProfile = {
     role:      user.role,
     full_name: user.full_name,
@@ -213,6 +210,93 @@ export function devGetSession() {
         },
       },
     },
-    fakeProfile, // bonus: RoleRoute can skip the profile DB query
+    fakeProfile,
   };
+}
+
+// ─── Adaptive Step-Up Dev Mode Helpers ────────────────────────────────────────
+
+export async function devGetLoginGateStatus() {
+  const user = devGetCurrentUser();
+  if (!user) {
+    return { data: { authenticated: false, profile_exists: false, role: null, is_suspended: false }, error: null };
+  }
+  return {
+    data: {
+      authenticated: true,
+      profile_exists: true,
+      role: user.role,
+      is_suspended: false,
+    },
+    error: null,
+  };
+}
+
+export async function devCheckSessionTrust() {
+  return {
+    data: {
+      is_trusted: true,
+      requires_otp: false,
+      reason: "DEV_MODE_TRUSTED",
+    },
+    error: null,
+  };
+}
+
+export async function devRequestLoginVerification() {
+  return {
+    data: {
+      success: true,
+      challenge_id: "dev-mock-challenge-uuid",
+      cooldown_seconds: 60,
+    },
+    error: null,
+  };
+}
+
+export async function devVerifyLoginVerification(_challengeId, otp) {
+  if (otp !== "123456") {
+    return {
+      data: null,
+      error: { message: "Invalid verification code" },
+    };
+  }
+  return {
+    data: { success: true, verified: true, trusted_device_registered: true },
+    error: null,
+  };
+}
+
+// ─── Registration Email Verification Dev Mode Helpers ─────────────────────────
+
+export async function devRequestRegistrationVerification(email) {
+  return {
+    data: {
+      success: true,
+      challenge_id: "dev-reg-challenge-uuid",
+      cooldown_seconds: 60,
+    },
+    error: null,
+  };
+}
+
+export async function devVerifyRegistrationVerification(_challengeId, _email, otp) {
+  if (otp !== "123456") {
+    return {
+      data: null,
+      error: { message: "Invalid verification code. In DevMode, use 123456." },
+    };
+  }
+  return {
+    data: {
+      success: true,
+      verified: true,
+      completion_token: "dev-completion-token-1234567890abcdef",
+    },
+    error: null,
+  };
+}
+
+export async function devCompleteRegistration({ email, password, fullName, role }) {
+  return devSignUp(email, password, fullName, role);
 }

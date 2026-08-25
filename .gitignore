@@ -6,6 +6,8 @@ node_modules
 .env.local
 .env.production
 .env.*.local
+supabase/functions/.env
+supabase/functions/.env.*
 
 # Build output
 dist
@@ -24,6 +26,7 @@ scratch/
 .tools/
 supabase/.temp/
 supabase/.branches/
+supabase/snippets/
 
 # Secrets
 *.pem
