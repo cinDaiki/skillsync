@@ -1,40 +1,102 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { signIn, signOut } from "../../services/authService";
+import {
+  signIn,
+  signOut,
+  getOrCreateDeviceToken,
+  getLoginGateStatus,
+  checkSessionTrust,
+  requestLoginVerification,
+  verifyLoginVerification,
+} from "../../services/authService";
 import { supabase } from "../../services/supabase";
 import { setCurrentUser } from "../../services/localStorageService";
 import { isDevMode } from "../../services/devMode";
 import "./AdminLogin.css";
 
+function maskEmail(email) {
+  if (!email || !email.includes("@")) return email || "";
+  const [user, domain] = email.split("@");
+  if (user.length <= 2) {
+    return `${user.charAt(0)}***@${domain}`;
+  }
+  return `${user.charAt(0)}***${user.charAt(user.length - 1)}@${domain}`;
+}
+
+function getDeviceName() {
+  if (typeof navigator === "undefined") return "Admin Device";
+  const platform = navigator.userAgentData?.platform || navigator.platform || "Device";
+  const ua = navigator.userAgent || "";
+  let browser = "Browser";
+  if (ua.includes("Edg")) browser = "Edge";
+  else if (ua.includes("Chrome")) browser = "Chrome";
+  else if (ua.includes("Firefox")) browser = "Firefox";
+  else if (ua.includes("Safari")) browser = "Safari";
+  return `${browser} on ${platform}`;
+}
+
 export default function AdminLogin() {
   const navigate = useNavigate();
+
+  // View mode: "credentials" | "verify_otp"
+  const [viewMode, setViewMode] = useState("credentials");
+
+  // Credential state
+  const [formData, setFormData] = useState({
+    email: "",
+    password: "",
+  });
+
+  // Step-up OTP state
+  const [challengeId, setChallengeId] = useState(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [rememberDevice, setRememberDevice] = useState(true);
+  const [maskedEmail, setMaskedEmail] = useState("");
+  const [otpCooldown, setOtpCooldown] = useState(0);
+
+  // Status & Feedback
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(event) {
+  // Countdown timer for OTP resend cooldown
+  useEffect(() => {
+    if (otpCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpCooldown]);
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setError("");
+  }
+
+  async function handleCredentialsSubmit(event) {
     event.preventDefault();
     setError("");
     setLoading(true);
 
-    const email = event.target.email.value.trim();
-    const password = event.target.password.value;
+    const email = formData.email.trim();
+    const password = formData.password;
 
     try {
-      const { data, error: signInError } = await signIn(email, password);
+      const { data: authData, error: signInError } = await signIn(email, password);
 
-      // ── DEV MODE: never query Supabase — check role from local dev user ───
+      // ── DEV MODE ──────────────────────────────────────────────────────────
       if (isDevMode()) {
-        if (signInError || !data?.user) {
+        if (signInError || !authData?.user) {
           setError("Incorrect admin email or password. Please try again.");
           return;
         }
-        const devRole = data.user?.role || data.user?.user_metadata?.role;
+        const devRole = authData.user?.role || authData.user?.user_metadata?.role;
         if (devRole === "admin") {
           setCurrentUser({
-            id:        data.user.id,
-            email:     data.user.email,
+            id:        authData.user.id,
+            email:     authData.user.email,
             role:      "admin",
-            full_name: data.user.full_name || data.user?.user_metadata?.full_name || "",
+            full_name: authData.user.full_name || authData.user?.user_metadata?.full_name || "",
           });
           navigate("/admin/dashboard");
         } else {
@@ -44,43 +106,196 @@ export default function AdminLogin() {
       }
       // ── END DEV MODE ───────────────────────────────────────────────────────
 
-      if (!signInError && data?.user) {
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("role, full_name, email")
-          .eq("id", data.user.id)
-          .maybeSingle();
+      if (signInError) {
+        setError("Incorrect admin email or password. Please try again.");
+        return;
+      }
 
-        if (profileError) {
-          console.error("Admin profile query error:", profileError);
-          await signOut();
-          setError("Unable to verify administrator access. Please try again.");
-          return;
-        }
+      if (!authData?.user) {
+        setError("Unable to authenticate session. Please try again.");
+        return;
+      }
 
-        if (profile?.role === "admin") {
-          setCurrentUser({
-            id: data.user.id,
-            email: profile?.email || data.user.email,
-            role: "admin",
-            full_name: profile?.full_name || "",
-          });
-          navigate("/admin/dashboard");
-          return;
-        }
+      // 1. Authoritative Login Gate Check
+      const { data: gate, error: gateError } = await getLoginGateStatus();
 
+      if (gateError) {
+        console.error("Admin gate error:", gateError);
+        await signOut();
+        setError("Unable to verify administrator authorization. Please try again.");
+        return;
+      }
+
+      if (gate && gate.profile_exists === false) {
         await signOut();
         setError("This account is not an admin. Use the regular sign-in page.");
         return;
       }
 
-      setError("Incorrect admin email or password. Please try again.");
+      if (gate?.role !== "admin") {
+        await signOut();
+        setError("This account is not an admin. Use the regular sign-in page.");
+        return;
+      }
+
+      if (gate?.is_suspended) {
+        navigate("/account-suspended");
+        return;
+      }
+
+      // 2. Adaptive Device Trust Check
+      const deviceToken = getOrCreateDeviceToken();
+      const { data: trustData, error: trustError } = await checkSessionTrust(deviceToken);
+
+      if (trustError) {
+        setError("Security check failed. Please try again.");
+        return;
+      }
+
+      if (trustData?.is_trusted === true && trustData?.requires_otp === false) {
+        // TRUSTED DEVICE: Complete sign in immediately
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role, full_name, email")
+          .eq("id", authData.user.id)
+          .maybeSingle();
+
+        setCurrentUser({
+          id: authData.user.id,
+          email: profile?.email || authData.user.email,
+          role: "admin",
+          full_name: profile?.full_name || "Administrator",
+        });
+        navigate("/admin/dashboard");
+        return;
+      }
+
+      // 3. UNTRUSTED DEVICE: Trigger Adaptive Step-Up OTP
+      const { data: reqData, error: reqError } = await requestLoginVerification();
+
+      if (reqError) {
+        if (reqError.status === 429 || reqError.message?.includes("RESEND_COOLDOWN_ACTIVE")) {
+          setError("Too many requests. Please wait a moment before trying again.");
+        } else {
+          setError(reqError.message || "Failed to send verification code. Please try again.");
+        }
+        return;
+      }
+
+      setChallengeId(reqData.challenge_id);
+      setMaskedEmail(maskEmail(reqData.recipient_email || "hanseecorbo@gmail.com"));
+      setOtpCooldown(reqData.cooldown_seconds || 60);
+      setViewMode("verify_otp");
+      setError("");
     } catch (err) {
       console.error("Admin login error:", err);
       setError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleOtpSubmit(e) {
+    e.preventDefault();
+    const cleanOtp = otpCode.trim();
+
+    if (!cleanOtp || cleanOtp.length !== 6 || !/^\d{6}$/.test(cleanOtp)) {
+      setError("Please enter a valid 6-digit numeric verification code.");
+      return;
+    }
+
+    if (!challengeId) {
+      setError("Verification challenge expired. Please start over.");
+      setViewMode("credentials");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const { data: verifyData, error: verifyError } = await verifyLoginVerification({
+        challengeId,
+        otp: cleanOtp,
+        rememberDevice,
+        deviceName: getDeviceName(),
+      });
+
+      if (verifyError || !verifyData?.verified) {
+        const remaining = verifyError?.remaining_attempts;
+        if (remaining !== undefined && remaining > 0) {
+          setError(`Invalid code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`);
+        } else if (remaining === 0) {
+          setError("Too many incorrect attempts. This code has been invalidated. Please request a new code.");
+        } else {
+          setError(verifyError?.message || "Verification failed. Please try again.");
+        }
+        return;
+      }
+
+      // OTP Verified -> fetch authoritative profile and proceed to Admin Dashboard
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role, full_name, email")
+        .eq("id", user?.id)
+        .maybeSingle();
+
+      setCurrentUser({
+        id: user?.id,
+        email: profile?.email || user?.email,
+        role: "admin",
+        full_name: profile?.full_name || "Administrator",
+      });
+
+      navigate("/admin/dashboard");
+    } catch (err) {
+      console.error("Admin OTP verification error:", err);
+      setError("Something went wrong during verification. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResendOtp() {
+    if (otpCooldown > 0 || loading) return;
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const { data: reqData, error: reqError } = await requestLoginVerification();
+
+      if (reqError) {
+        if (reqError.status === 429 || reqError.message?.includes("RESEND_COOLDOWN_ACTIVE")) {
+          setError("Please wait before requesting another code.");
+        } else {
+          setError(reqError.message || "Failed to resend verification code.");
+        }
+        return;
+      }
+
+      setChallengeId(reqData.challenge_id);
+      setOtpCooldown(reqData.cooldown_seconds || 60);
+      setOtpCode("");
+    } catch (err) {
+      console.error("Admin OTP resend error:", err);
+      setError("Failed to resend code. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleBackToCredentials() {
+    try {
+      await signOut();
+    } catch {
+      // ignore
+    }
+    setViewMode("credentials");
+    setOtpCode("");
+    setChallengeId(null);
+    setError("");
   }
 
   return (
@@ -125,44 +340,114 @@ export default function AdminLogin() {
 
         <div className="admin-login-form-side">
           <div className="admin-login-form-wrap">
-            <h1>Admin access</h1>
-            <p>Sign in to manage users, jobs, employers, and reports.</p>
+            {viewMode === "credentials" ? (
+              <>
+                <h1>Admin access</h1>
+                <p>Sign in to manage users, jobs, employers, and reports.</p>
 
-            {error && <div className="admin-login-error">{error}</div>}
+                {error && <div className="admin-login-error">{error}</div>}
 
-            <form className="admin-login-form" onSubmit={handleSubmit}>
-              <label>
-                <span>Admin email</span>
-                <input
-                  name="email"
-                  type="email"
-                  placeholder="admin@skillsync.com"
-                  autoComplete="email"
-                  required
-                />
-              </label>
+                <form className="admin-login-form" onSubmit={handleCredentialsSubmit}>
+                  <label>
+                    <span>Admin email</span>
+                    <input
+                      name="email"
+                      type="email"
+                      placeholder="admin@skillsync.com"
+                      value={formData.email}
+                      onChange={handleChange}
+                      autoComplete="email"
+                      required
+                    />
+                  </label>
 
-              <label>
-                <span>Password</span>
-                <input
-                  name="password"
-                  type="password"
-                  placeholder="Enter admin password"
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
+                  <label>
+                    <span>Password</span>
+                    <input
+                      name="password"
+                      type="password"
+                      placeholder="Enter admin password"
+                      value={formData.password}
+                      onChange={handleChange}
+                      autoComplete="current-password"
+                      required
+                    />
+                  </label>
 
-              <button type="submit" disabled={loading}>
-                {loading ? "Logging in..." : "Login as Admin"}
-              </button>
-            </form>
+                  <button type="submit" disabled={loading}>
+                    {loading ? "Verifying..." : "Login as Admin"}
+                  </button>
+                </form>
 
-            <div className="admin-login-footer">
-              <p>
-                Not an admin? <Link to="/sign-in">Go to user sign in</Link>
-              </p>
-            </div>
+                <div className="admin-login-footer">
+                  <p>
+                    Not an admin? <Link to="/sign-in">Go to user sign in</Link>
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <h1>Step-up verification</h1>
+                <p>
+                  We sent a 6-digit security code to your registered admin security email{" "}
+                  <strong>{maskedEmail}</strong>.
+                </p>
+
+                {error && <div className="admin-login-error">{error}</div>}
+
+                <form className="admin-login-form" onSubmit={handleOtpSubmit}>
+                  <label>
+                    <span>Enter 6-Digit Code</span>
+                    <input
+                      name="otp"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      placeholder="000000"
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      className="admin-otp-input"
+                      autoFocus
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-remember-label">
+                    <input
+                      type="checkbox"
+                      checked={rememberDevice}
+                      onChange={(e) => setRememberDevice(e.target.checked)}
+                      className="admin-remember-checkbox"
+                    />
+                    <span>Remember this device for 14 days</span>
+                  </label>
+
+                  <button type="submit" disabled={loading || otpCode.length !== 6}>
+                    {loading ? "Verifying..." : "Verify & Enter Admin"}
+                  </button>
+
+                  <div className="admin-otp-resend-row">
+                    <button
+                      type="button"
+                      className="admin-resend-btn"
+                      onClick={handleResendOtp}
+                      disabled={otpCooldown > 0 || loading}
+                    >
+                      {otpCooldown > 0 ? `Resend code in ${otpCooldown}s` : "Resend code"}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="admin-back-credentials-btn"
+                      onClick={handleBackToCredentials}
+                    >
+                      Sign in as different user
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
           </div>
         </div>
       </section>

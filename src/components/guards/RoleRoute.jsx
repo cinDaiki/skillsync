@@ -72,6 +72,23 @@ export default function RoleRoute({ allowedRoles, children }) {
         return;
       }
 
+      // Enforce Phase 6.5 Adaptive Session Verification
+      const deviceToken = localStorage.getItem("skillsync_device_token");
+      try {
+        const { data: trustData } = await supabase.rpc("check_session_trust_status", {
+          p_device_token: deviceToken || "",
+        });
+
+        if (trustData && (trustData.requires_otp === true || trustData.is_trusted === false)) {
+          setStatus("unauthenticated");
+          return;
+        }
+      } catch {
+        // If trust check fails, safely block private access
+        setStatus("unauthenticated");
+        return;
+      }
+
       const { data: profile } = await supabase
         .from("profiles")
         .select("role, full_name, email, profile_picture_url, is_suspended, verification_status, suspension_reason_code, suspension_expires_at, suspended_at")
