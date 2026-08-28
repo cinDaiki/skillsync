@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { getResumeViewUrl, getCertificateSignedUrl } from "../../services/api.js";
+import { getResumeViewUrl, getCertificateSignedUrl, extractResumeStoragePath } from "../../services/api.js";
+import { supabase } from "../../services/supabase.js";
 import { isTerminalApplication, isScreeningStatus } from "../../services/recruitmentStatus.js";
 
 function getFileName(resume) {
@@ -111,6 +112,66 @@ export default function ResumeViewerModal({
       setLoading(true);
       setError("");
 
+      // ── Employer: use server-authoritative RPC ──────────────────────────────
+      // applicant.id is the *application* UUID (not the user UUID).
+      // When present, this is an employer viewing an applicant's resume.
+      // Authorization is enforced server-side. On any auth error: hard stop.
+      if (applicant?.id) {
+        const { data: rpcData, error: rpcErr } = await supabase.rpc(
+          "create_applicant_resume_signed_url",
+          { p_application_id: applicant.id }
+        );
+
+        if (!active) return;
+
+        if (rpcErr || !rpcData?.storage_path) {
+          // Check for authorization errors — hard stop, no fallback
+          const msg = (rpcErr?.message || "").toUpperCase();
+          const isAuthError = msg.includes("FORBIDDEN") ||
+            msg.includes("AUTHENTICATION_REQUIRED") ||
+            msg.includes("ACCOUNT_SUSPENDED");
+
+          if (isAuthError) {
+            setError("Access denied. You do not have permission to view this resume.");
+          } else if (msg.includes("RESUME_NOT_FOUND") || msg.includes("APPLICATION_NOT_FOUND")) {
+            setError("Resume not found for this applicant.");
+          } else {
+            setError("Could not load resume preview. Please try again.");
+          }
+          setViewUrl("");
+          setLoading(false);
+          return;
+        }
+
+        // Normalize the storage_path — older snapshot rows may contain a full Supabase URL
+        const rawPath = rpcData.storage_path;
+        const storagePath = extractResumeStoragePath(rawPath);
+        if (!storagePath) {
+          setError("Resume path is invalid or inaccessible.");
+          setViewUrl("");
+          setLoading(false);
+          return;
+        }
+
+        const { data: signedData, error: signedErr } = await supabase.storage
+          .from("resumes")
+          .createSignedUrl(storagePath, rpcData.expires_in_seconds || 900);
+
+        if (!active) return;
+
+        if (signedErr || !signedData?.signedUrl) {
+          setError("Could not generate a secure preview link for this resume.");
+          setViewUrl("");
+        } else {
+          setViewUrl(signedData.signedUrl);
+        }
+
+        setLoading(false);
+        return;
+      }
+
+      // ── Candidate self-view / Admin context ────────────────────────────
+      // No application ID — fall through to the generic signed URL helper.
       const { url, error: urlError } = await getResumeViewUrl(resume.file_url);
       if (!active) return;
 
@@ -126,7 +187,7 @@ export default function ResumeViewerModal({
 
     loadViewUrl();
     return () => { active = false; };
-  }, [resume?.file_url]);
+  }, [resume?.file_url, applicant?.id]);
 
   // Accessibility: Focus management and Escape key
   useEffect(() => {

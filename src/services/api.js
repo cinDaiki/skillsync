@@ -1,27 +1,120 @@
 import { supabase } from './supabase.js'
 
-function extractResumeStoragePath(fileUrl) {
-  if (!fileUrl) return null
+// ---------------------------------------------------------------------------
+// Derive the configured Supabase Storage origin so we can validate that any
+// full URL in a resume record belongs to THIS project, not an external host.
+// Example: 'https://blekdvuovbfpuaepjvfq.supabase.co'
+// ---------------------------------------------------------------------------
+const _metaEnv = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
+const _procEnv = (typeof process !== 'undefined' && process.env) ? process.env : {};
+const _rawSupabaseUrl = (_metaEnv.VITE_SUPABASE_URL || _procEnv.VITE_SUPABASE_URL || '').trim();
+let _supabaseStorageOrigin = '';
+try {
+  if (_rawSupabaseUrl) {
+    _supabaseStorageOrigin = new URL(_rawSupabaseUrl).origin.toLowerCase();
+  }
+} catch (_) { /* ignore parse error */ }
 
-  const markers = [
+/**
+ * Accepts:
+ *   1. New relative paths:          <uuid>/<filename>.pdf
+ *   2. Legacy Supabase public URLs: https://<project>.supabase.co/storage/v1/object/public/resumes/...
+ *   3. Legacy signed URLs:          https://<project>.supabase.co/storage/v1/object/sign/resumes/...
+ *   4. Authenticated URLs:          https://<project>.supabase.co/storage/v1/object/authenticated/resumes/...
+ *
+ * For any full URL: ONLY accepted if the host matches the configured SkillSync
+ * Supabase project and the path is within the /resumes/ bucket.
+ *
+ * Rejects:
+ *   - Path traversal (..) 
+ *   - Backslashes
+ *   - External HTTPS URLs that don't belong to this project's storage
+ *
+ * Returns: clean storage object path, or null if invalid.
+ */
+export function extractResumeStoragePath(fileUrl) {
+  if (!fileUrl || typeof fileUrl !== 'string') return null;
+
+  // Strip query and hash
+  const clean = fileUrl.trim().split('?')[0].split('#')[0];
+  if (!clean) return null;
+
+  // Reject backslashes (malformed paths)
+  if (clean.includes('\\')) return null;
+
+  // Reject any non-http(s) scheme (file://, data://, blob://, etc.)
+  if (clean.includes('://') && !clean.startsWith('http://') && !clean.startsWith('https://')) return null;
+
+  const RESUMES_MARKERS = [
     '/storage/v1/object/public/resumes/',
     '/storage/v1/object/sign/resumes/',
     '/storage/v1/object/authenticated/resumes/',
-  ]
+  ];
 
-  for (const marker of markers) {
-    const index = fileUrl.indexOf(marker)
-    if (index !== -1) {
-      return decodeURIComponent(fileUrl.slice(index + marker.length).split('?')[0])
+  // ── Case 1: Full URL (starts with http:// or https://) ──────────────────
+  if (clean.startsWith('http://') || clean.startsWith('https://')) {
+    // Must belong to this project's Supabase Storage origin
+    if (_supabaseStorageOrigin) {
+      let urlOrigin = '';
+      try { urlOrigin = new URL(clean).origin.toLowerCase(); } catch (_) { return null; }
+      if (urlOrigin !== _supabaseStorageOrigin) {
+        // Belongs to a different host — reject
+        return null;
+      }
+    }
+    // Extract from known Supabase resumes bucket markers
+    for (const marker of RESUMES_MARKERS) {
+      const idx = clean.indexOf(marker);
+      if (idx !== -1) {
+        const extracted = decodeURIComponent(clean.slice(idx + marker.length));
+        if (extracted.includes('..') || extracted.includes('\\')) return null;
+        return extracted || null;
+      }
+    }
+    // Full URL from configured host but not within resumes bucket markers
+    // Try generic /resumes/ fallback for project-specific URLs
+    const fallbackIdx = clean.indexOf('/resumes/');
+    if (fallbackIdx !== -1) {
+      const extracted = decodeURIComponent(clean.slice(fallbackIdx + '/resumes/'.length));
+      if (extracted.includes('..') || extracted.includes('\\')) return null;
+      return extracted || null;
+    }
+    // Host matches but no recognizable bucket path — reject
+    return null;
+  }
+
+  // ── Case 2: Relative path (no scheme) ───────────────────────────────────
+  // Could be a plain storage object path like: <uuid>/<filename>.pdf
+  // Or could be a relative URL path like: /storage/v1/object/.../resumes/...
+
+  // Check for Supabase path markers in relative form
+  for (const marker of RESUMES_MARKERS) {
+    const idx = clean.indexOf(marker);
+    if (idx !== -1) {
+      const extracted = decodeURIComponent(clean.slice(idx + marker.length));
+      if (extracted.includes('..') || extracted.includes('\\')) return null;
+      return extracted || null;
     }
   }
-
-  const fallback = fileUrl.indexOf('/resumes/')
-  if (fallback !== -1) {
-    return decodeURIComponent(fileUrl.slice(fallback + '/resumes/'.length).split('?')[0])
+  const fallbackIdx = clean.indexOf('/resumes/');
+  if (fallbackIdx !== -1) {
+    const extracted = decodeURIComponent(clean.slice(fallbackIdx + '/resumes/'.length));
+    if (extracted.includes('..') || extracted.includes('\\')) return null;
+    return extracted || null;
   }
 
-  return null
+  // Plain relative storage path (new canonical format: uuid/timestamp_file.pdf)
+  // Remove any accidental leading slash or 'resumes/' prefix
+  let path = clean.startsWith('/') ? clean.slice(1) : clean;
+  if (path.toLowerCase().startsWith('resumes/')) {
+    path = path.slice('resumes/'.length);
+  }
+  // Security: reject path traversal
+  if (path.includes('..') || path.includes('\\')) return null;
+  // Must look like a valid relative object path (contains at least one non-empty segment)
+  if (!path || path.trim() === '') return null;
+
+  return path;
 }
 
 export async function getResumeViewUrl(fileUrl, expiresSec = 900) {
@@ -29,10 +122,7 @@ export async function getResumeViewUrl(fileUrl, expiresSec = 900) {
 
   const storagePath = extractResumeStoragePath(fileUrl);
   if (!storagePath) {
-    if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
-      return { url: fileUrl, error: null };
-    }
-    return { url: null, error: new Error('Invalid resume storage path') };
+    return { url: null, error: new Error('Invalid or disallowed resume storage path') };
   }
 
   const { data, error } = await supabase.storage

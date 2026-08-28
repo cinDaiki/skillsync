@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
-import { uploadResume, saveResumeRecord, getResume } from "../../services/api";
+import { uploadResume, saveResumeRecord, getResume, getResumeViewUrl } from "../../services/api";
 import { syncApplicantSnapshot } from "../../services/applicationService";
 import { supabase } from "../../services/supabase";
 import { parseResumeFile } from "../../services/resumeParser";
@@ -77,6 +77,58 @@ export default function Resume() {
 
   // Preview state
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const previewBlobRef = useRef(null);
+
+  async function openPreview() {
+    if (!resumeFile?.file_url) return;
+    setShowPreviewModal(true);
+    setPreviewUrl("");
+    setPreviewError("");
+    setPreviewLoading(true);
+    try {
+      const { url, error } = await getResumeViewUrl(resumeFile.file_url, 900);
+      if (error || !url) {
+        setPreviewError("Could not generate a preview link. Please try downloading the file instead.");
+      } else {
+        setPreviewUrl(url);
+      }
+    } catch (err) {
+      setPreviewError("Unexpected error loading preview.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function closePreview() {
+    setShowPreviewModal(false);
+    setPreviewUrl("");
+    setPreviewError("");
+    // Revoke blob URL if one was created
+    if (previewBlobRef.current) {
+      URL.revokeObjectURL(previewBlobRef.current);
+      previewBlobRef.current = null;
+    }
+  }
+
+  async function handleDownloadResume() {
+    if (!resumeFile?.file_url) return;
+    try {
+      const { url } = await getResumeViewUrl(resumeFile.file_url, 900);
+      if (url) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = resumeFile.file_name || "resume.pdf";
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } catch (_) { /* silent — user can retry */ }
+  }
 
   useEffect(() => {
     loadResume();
@@ -497,20 +549,18 @@ export default function Resume() {
                     <button
                       type="button"
                       className="resume-view-btn"
-                      onClick={() => setShowPreviewModal(true)}
+                      onClick={openPreview}
                     >
                       Quick Preview
                     </button>
-                    <a
-                      href={resumeFile.file_url}
-                      download={resumeFile.file_name || "resume.pdf"}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={handleDownloadResume}
                       className="resume-view-btn secondary"
-                      style={{ display: "inline-grid", placeItems: "center", textDecoration: "none" }}
+                      style={{ display: "inline-grid", placeItems: "center" }}
                     >
                       Download
-                    </a>
+                    </button>
                   </>
                 )}
                 <button
@@ -548,17 +598,35 @@ export default function Resume() {
 
       {/* PDF Quick Preview Modal Overlay */}
       {showPreviewModal && resumeFile?.file_url && (
-        <div className="preview-modal-overlay" onClick={() => setShowPreviewModal(false)}>
+        <div className="preview-modal-overlay" onClick={closePreview}>
           <div className="preview-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="preview-modal-header">
               <h3>Resume Preview: {resumeFile.file_name}</h3>
-              <button className="preview-modal-close" onClick={() => setShowPreviewModal(false)}>×</button>
+              <button className="preview-modal-close" onClick={closePreview}>×</button>
             </div>
             <div className="preview-modal-body">
-              {resumeFile.file_name.toLowerCase().endsWith(".pdf") ? (
+              {previewLoading ? (
+                <div style={{ textAlign: "center", padding: "80px 20px" }}>
+                  <h3>Generating secure preview link...</h3>
+                </div>
+              ) : previewError ? (
+                <div style={{ textAlign: "center", padding: "80px 20px" }}>
+                  <span style={{ fontSize: "48px" }}>⚠️</span>
+                  <h3>Preview unavailable</h3>
+                  <p>{previewError}</p>
+                  <button
+                    type="button"
+                    className="panel-action"
+                    style={{ marginTop: "12px" }}
+                    onClick={handleDownloadResume}
+                  >
+                    Download Resume
+                  </button>
+                </div>
+              ) : resumeFile.file_name.toLowerCase().endsWith(".pdf") ? (
                 <iframe
                   title="Resume PDF Preview"
-                  src={resumeFile.file_url}
+                  src={previewUrl}
                   className="preview-iframe"
                 />
               ) : (
@@ -566,14 +634,14 @@ export default function Resume() {
                   <span style={{ fontSize: "64px" }}>📄</span>
                   <h3>In-browser preview is only available for PDF documents.</h3>
                   <p>For Word files, please click download to review the content locally.</p>
-                  <a
-                    href={resumeFile.file_url}
-                    download={resumeFile.file_name}
+                  <button
+                    type="button"
                     className="panel-action"
                     style={{ textDecoration: "none", display: "inline-flex", marginTop: "12px" }}
+                    onClick={handleDownloadResume}
                   >
                     Download Resume
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
