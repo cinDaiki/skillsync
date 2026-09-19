@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import AuthTransitionLink from "../../../components/common/AuthTransitionLink";
 
 export default function HeroSection() {
   return (
@@ -24,9 +25,9 @@ export default function HeroSection() {
           </p>
 
           <div className="hero-buttons">
-            <Link to="/sign-up" className="btn btn-primary">
+            <AuthTransitionLink to="/sign-up" type="signup" className="btn btn-primary">
               Get Started
-            </Link>
+            </AuthTransitionLink>
 
             <Link to="/browse-jobs" className="btn btn-outline">
               Browse Jobs

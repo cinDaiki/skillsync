@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
+import AuthTransitionLink from "../../components/common/AuthTransitionLink";
 import { supabase } from "../../services/supabase";
 import { fetchSuspendedEmployerIds, filterAvailableJobs } from "../../services/jobAvailability";
 import "./BrowseJobs.css";
@@ -201,12 +202,12 @@ export default function BrowseJobs() {
             </Link>
           ) : (
             <>
-              <Link className="browse-btn browse-btn-outline" to="/sign-in">
+              <AuthTransitionLink className="browse-btn browse-btn-outline" to="/sign-in" type="signin">
                 Sign In
-              </Link>
-              <Link className="browse-btn browse-btn-pink" to="/sign-up">
+              </AuthTransitionLink>
+              <AuthTransitionLink className="browse-btn browse-btn-pink" to="/sign-up" type="signup">
                 Sign Up
-              </Link>
+              </AuthTransitionLink>
             </>
           )}
         </div>

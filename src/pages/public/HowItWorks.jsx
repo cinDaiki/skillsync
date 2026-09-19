@@ -1,4 +1,5 @@
 import { Link, NavLink } from "react-router-dom";
+import AuthTransitionLink from "../../components/common/AuthTransitionLink";
 import "./HowItWorks.css";
 
 export default function HowItWorks() {
@@ -21,13 +22,13 @@ export default function HowItWorks() {
         </div>
 
         <div className="how-nav-actions">
-          <Link to="/sign-in" className="how-btn how-btn-outline">
+          <AuthTransitionLink to="/sign-in" type="signin" className="how-btn how-btn-outline">
             Sign In
-          </Link>
+          </AuthTransitionLink>
 
-          <Link to="/sign-up" className="how-btn how-btn-primary">
+          <AuthTransitionLink to="/sign-up" type="signup" className="how-btn how-btn-primary">
             Sign Up
-          </Link>
+          </AuthTransitionLink>
         </div>
       </nav>
 
@@ -45,9 +46,9 @@ export default function HowItWorks() {
             </p>
 
             <div className="how-hero-actions">
-              <Link to="/sign-up" className="how-primary-btn">
+              <AuthTransitionLink to="/sign-up" type="signup" className="how-primary-btn">
                 Get Started
-              </Link>
+              </AuthTransitionLink>
 
               <Link to="/browse-jobs" className="how-outline-btn">
                 Browse Jobs

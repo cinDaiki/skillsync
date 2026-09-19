@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import AuthTransitionLink from "../../../components/common/AuthTransitionLink";
 import HeroSection from "./HeroSection";
 import JobSearchSection from "./JobSearchSection";
 import FeatureCards from "./FeatureCards";
@@ -27,12 +28,12 @@ export default function Home() {
         </nav>
 
         <div className="nav-actions">
-          <Link className="btn btn-outline" to="/sign-in">
+          <AuthTransitionLink className="btn btn-outline" to="/sign-in" type="signin">
             Sign In
-          </Link>
-          <Link className="btn btn-pink" to="/sign-up">
+          </AuthTransitionLink>
+          <AuthTransitionLink className="btn btn-pink" to="/sign-up" type="signup">
             Sign Up
-          </Link>
+          </AuthTransitionLink>
         </div>
       </header>
 

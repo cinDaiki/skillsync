@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import AuthTransitionLink from "../../components/common/AuthTransitionLink";
 import hansImg from "../../assets/images/team/hans.jpg";
 import alexisImg from "../../assets/images/team/alexis.png";
 import "./AboutUs.css";
@@ -51,12 +52,12 @@ export default function AboutUs() {
         </nav>
 
         <div className="about-nav-actions">
-          <Link className="about-btn about-btn-outline" to="/sign-in">
+          <AuthTransitionLink className="about-btn about-btn-outline" to="/sign-in" type="signin">
             Sign In
-          </Link>
-          <Link className="about-btn about-btn-pink" to="/sign-up">
+          </AuthTransitionLink>
+          <AuthTransitionLink className="about-btn about-btn-pink" to="/sign-up" type="signup">
             Sign Up
-          </Link>
+          </AuthTransitionLink>
         </div>
       </header>
 
@@ -215,12 +216,12 @@ export default function AboutUs() {
             </div>
 
             <div className="about-cta-actions">
-              <Link to="/sign-up" className="about-primary-btn">
+              <AuthTransitionLink to="/sign-up" type="signup" className="about-primary-btn">
                 Create Account
-              </Link>
-              <Link to="/sign-in" className="about-outline-btn">
+              </AuthTransitionLink>
+              <AuthTransitionLink to="/sign-in" type="signin" className="about-outline-btn">
                 Sign In
-              </Link>
+              </AuthTransitionLink>
             </div>
           </div>
         </div>

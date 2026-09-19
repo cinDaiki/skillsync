@@ -14,6 +14,14 @@
     #fbf8ff;
   font-family: Inter, Arial, Helvetica, sans-serif;
   color: #101828;
+  animation: authPageFadeIn 320ms ease-out both;
+}
+
+.signin-page.signup-page-theme {
+  background:
+    radial-gradient(circle at top left, rgba(241, 48, 147, 0.14), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(139, 24, 255, 0.14), transparent 30%),
+    #fff9fc;
 }
 
 .signin-shell {
@@ -38,6 +46,7 @@
     radial-gradient(circle at 86% 10%, rgba(255, 255, 255, 0.17), transparent 28%),
     radial-gradient(circle at 6% 96%, rgba(241, 48, 147, 0.45), transparent 26%),
     linear-gradient(135deg, #58158f, #8b18ff);
+  animation: authLeftPanelSlide 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .signin-left::before {
@@ -163,6 +172,7 @@
   max-width: 440px;
   display: grid;
   gap: 18px;
+  animation: authCardEntrance 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .signin-card-header {
@@ -466,5 +476,71 @@
 
   .signin-card-header h2 {
     font-size: 30px;
+  }
+}
+
+/* ==========================================================================
+   Auth Page Entrance Animations & Keyframes (Phases 5 & 6)
+   ========================================================================== */
+
+@keyframes authPageFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes authLeftPanelSlide {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes authCardEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Prevent any horizontal shift/overflow on mobile viewports */
+@media (max-width: 900px) {
+  .signin-left {
+    animation: authMobileFadeUp 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+@keyframes authMobileFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Reduced Motion Accessibility (Phase 7 / 9)
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .signin-page,
+  .signin-left,
+  .signin-card {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
   }
 }

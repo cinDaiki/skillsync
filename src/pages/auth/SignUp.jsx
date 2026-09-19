@@ -198,7 +198,7 @@ export default function SignUp() {
   }
 
   return (
-    <main className="signin-page">
+    <main className="signin-page signup-page-theme">
       <section className="signin-shell">
         <section className="signin-left">
           <Link to="/" className="signin-back-btn">
