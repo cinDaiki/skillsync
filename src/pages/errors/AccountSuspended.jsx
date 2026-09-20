@@ -15,10 +15,12 @@ import {
   APPEAL_STATUS_LABELS,
 } from "../../services/suspensionAppealService";
 import { getDashboardPath } from "../../utils/getDashboardPath";
+import { useAuthAction } from "../../context/AuthActionContext";
 import "./AccountSuspended.css";
 
 export default function AccountSuspended() {
   const navigate = useNavigate();
+  const { executeLogout } = useAuthAction();
   const [profileData, setProfileData] = useState(null);
   const [remainingTime, setRemainingTime] = useState("");
   const [loading, setLoading] = useState(true);
@@ -122,18 +124,15 @@ export default function AccountSuspended() {
   }, [fetchProfile]);
 
   async function handleSignOut() {
-    try {
-      await signOut();
-    } catch (err) {
-      console.warn("Error signing out from Supabase:", err);
-    } finally {
-      setCurrentUser(null);
+    await executeLogout(async () => {
       try {
-        localStorage.removeItem("skillsync_user");
-        localStorage.removeItem("skillsync_session");
-      } catch {}
-      navigate("/sign-in", { replace: true });
-    }
+        await signOut();
+      } catch (err) {
+        console.warn("Error signing out from Supabase:", err);
+      } finally {
+        setCurrentUser(null);
+      }
+    }, "/");
   }
 
   async function handleSubmitAppeal(e) {

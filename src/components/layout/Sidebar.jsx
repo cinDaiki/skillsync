@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { signOut } from "../../services/authService";
+import { useAuthAction } from "../../context/AuthActionContext";
 
 const sidebarLinks = {
   admin: [
@@ -40,6 +41,7 @@ const sidebarLinks = {
 
 export default function Sidebar({ role }) {
   const navigate = useNavigate();
+  const { executeLogout } = useAuthAction();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -57,12 +59,11 @@ export default function Sidebar({ role }) {
 
   async function handleLogout() {
     setLoggingOut(true);
+    setShowLogoutConfirm(false);
     try {
-      await signOut();
-      navigate("/sign-in", { replace: true });
+      await executeLogout(signOut, "/");
     } finally {
       setLoggingOut(false);
-      setShowLogoutConfirm(false);
     }
   }
 

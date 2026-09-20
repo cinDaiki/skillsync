@@ -12,6 +12,7 @@ import {
 import { supabase } from "../../services/supabase";
 import { setCurrentUser } from "../../services/localStorageService";
 import { isDevMode } from "../../services/devMode";
+import { useAuthAction } from "../../context/AuthActionContext";
 import "./AdminLogin.css";
 
 function maskEmail(email) {
@@ -37,6 +38,7 @@ function getDeviceName() {
 
 export default function AdminLogin() {
   const navigate = useNavigate();
+  const { executeLogin } = useAuthAction();
 
   // View mode: "credentials" | "verify_otp"
   const [viewMode, setViewMode] = useState("credentials");
@@ -82,111 +84,126 @@ export default function AdminLogin() {
     const password = formData.password;
 
     try {
-      const { data: authData, error: signInError } = await signIn(email, password);
+      await executeLogin(async () => {
+        const { data: authData, error: signInError } = await signIn(email, password);
 
-      // ── DEV MODE ──────────────────────────────────────────────────────────
-      if (isDevMode()) {
-        if (signInError || !authData?.user) {
+        // ── DEV MODE ──────────────────────────────────────────────────────────
+        if (isDevMode()) {
+          if (signInError || !authData?.user) {
+            setError("Incorrect admin email or password. Please try again.");
+            return { success: false, error: signInError };
+          }
+          const devRole = authData.user?.role || authData.user?.user_metadata?.role;
+          if (devRole === "admin") {
+            return {
+              success: true,
+              onSuccess: () => {
+                setCurrentUser({
+                  id:        authData.user.id,
+                  email:     authData.user.email,
+                  role:      "admin",
+                  full_name: authData.user.full_name || authData.user?.user_metadata?.full_name || "",
+                });
+                navigate("/admin/dashboard");
+              },
+            };
+          } else {
+            setError("This dev account is not an admin. Use admin@test.com with password SkillSync#Admin1.");
+            return { success: false };
+          }
+        }
+        // ── END DEV MODE ───────────────────────────────────────────────────────
+
+        if (signInError) {
           setError("Incorrect admin email or password. Please try again.");
-          return;
+          return { success: false, error: signInError };
         }
-        const devRole = authData.user?.role || authData.user?.user_metadata?.role;
-        if (devRole === "admin") {
-          setCurrentUser({
-            id:        authData.user.id,
-            email:     authData.user.email,
-            role:      "admin",
-            full_name: authData.user.full_name || authData.user?.user_metadata?.full_name || "",
-          });
-          navigate("/admin/dashboard");
-        } else {
-          setError("This dev account is not an admin. Use admin@test.com with password SkillSync#Admin1.");
+
+        if (!authData?.user) {
+          setError("Unable to authenticate session. Please try again.");
+          return { success: false };
         }
-        return;
-      }
-      // ── END DEV MODE ───────────────────────────────────────────────────────
 
-      if (signInError) {
-        setError("Incorrect admin email or password. Please try again.");
-        return;
-      }
+        // 1. Authoritative Login Gate Check
+        const { data: gate, error: gateError } = await getLoginGateStatus();
 
-      if (!authData?.user) {
-        setError("Unable to authenticate session. Please try again.");
-        return;
-      }
-
-      // 1. Authoritative Login Gate Check
-      const { data: gate, error: gateError } = await getLoginGateStatus();
-
-      if (gateError) {
-        console.error("Admin gate error:", gateError);
-        await signOut();
-        setError("Unable to verify administrator authorization. Please try again.");
-        return;
-      }
-
-      if (gate && gate.profile_exists === false) {
-        await signOut();
-        setError("This account is not an admin. Use the regular sign-in page.");
-        return;
-      }
-
-      if (gate?.role !== "admin") {
-        await signOut();
-        setError("This account is not an admin. Use the regular sign-in page.");
-        return;
-      }
-
-      if (gate?.is_suspended) {
-        navigate("/account-suspended");
-        return;
-      }
-
-      // 2. Adaptive Device Trust Check
-      const deviceToken = getOrCreateDeviceToken();
-      const { data: trustData, error: trustError } = await checkSessionTrust(deviceToken);
-
-      if (trustError) {
-        setError("Security check failed. Please try again.");
-        return;
-      }
-
-      if (trustData?.is_trusted === true && trustData?.requires_otp === false) {
-        // TRUSTED DEVICE: Complete sign in immediately
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role, full_name, email")
-          .eq("id", authData.user.id)
-          .maybeSingle();
-
-        setCurrentUser({
-          id: authData.user.id,
-          email: profile?.email || authData.user.email,
-          role: "admin",
-          full_name: profile?.full_name || "Administrator",
-        });
-        navigate("/admin/dashboard");
-        return;
-      }
-
-      // 3. UNTRUSTED DEVICE: Trigger Adaptive Step-Up OTP
-      const { data: reqData, error: reqError } = await requestLoginVerification();
-
-      if (reqError) {
-        if (reqError.status === 429 || reqError.message?.includes("RESEND_COOLDOWN_ACTIVE")) {
-          setError("Too many requests. Please wait a moment before trying again.");
-        } else {
-          setError(reqError.message || "Failed to send verification code. Please try again.");
+        if (gateError) {
+          console.error("Admin gate error:", gateError);
+          await signOut();
+          setError("Unable to verify administrator authorization. Please try again.");
+          return { success: false, error: gateError };
         }
-        return;
-      }
 
-      setChallengeId(reqData.challenge_id);
-      setMaskedEmail(maskEmail(reqData.recipient_email || "hanseecorbo@gmail.com"));
-      setOtpCooldown(reqData.cooldown_seconds || 60);
-      setViewMode("verify_otp");
-      setError("");
+        if (gate && gate.profile_exists === false) {
+          await signOut();
+          setError("This account is not an admin. Use the regular sign-in page.");
+          return { success: false };
+        }
+
+        if (gate?.role !== "admin") {
+          await signOut();
+          setError("This account is not an admin. Use the regular sign-in page.");
+          return { success: false };
+        }
+
+        if (gate?.is_suspended) {
+          return {
+            success: true,
+            onSuccess: () => navigate("/account-suspended"),
+          };
+        }
+
+        // 2. Adaptive Device Trust Check
+        const deviceToken = getOrCreateDeviceToken();
+        const { data: trustData, error: trustError } = await checkSessionTrust(deviceToken);
+
+        if (trustError) {
+          setError("Security check failed. Please try again.");
+          return { success: false, error: trustError };
+        }
+
+        if (trustData?.is_trusted === true && trustData?.requires_otp === false) {
+          // TRUSTED DEVICE: Complete sign in immediately
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role, full_name, email")
+            .eq("id", authData.user.id)
+            .maybeSingle();
+
+          return {
+            success: true,
+            onSuccess: () => {
+              setCurrentUser({
+                id: authData.user.id,
+                email: profile?.email || authData.user.email,
+                role: "admin",
+                full_name: profile?.full_name || "Administrator",
+              });
+              navigate("/admin/dashboard");
+            },
+          };
+        }
+
+        // 3. UNTRUSTED DEVICE: Trigger Adaptive Step-Up OTP
+        const { data: reqData, error: reqError } = await requestLoginVerification();
+
+        if (reqError) {
+          if (reqError.status === 429 || reqError.message?.includes("RESEND_COOLDOWN_ACTIVE")) {
+            setError("Too many requests. Please wait a moment before trying again.");
+          } else {
+            setError(reqError.message || "Failed to send verification code. Please try again.");
+          }
+          return { success: false, error: reqError };
+        }
+
+        setChallengeId(reqData.challenge_id);
+        setMaskedEmail(maskEmail(reqData.recipient_email || "hanseecorbo@gmail.com"));
+        setOtpCooldown(reqData.cooldown_seconds || 60);
+        setViewMode("verify_otp");
+        setError("");
+
+        return { success: false, requiresOtp: true };
+      });
     } catch (err) {
       console.error("Admin login error:", err);
       setError("Something went wrong. Please try again.");
@@ -214,41 +231,47 @@ export default function AdminLogin() {
     setError("");
 
     try {
-      const { data: verifyData, error: verifyError } = await verifyLoginVerification({
-        challengeId,
-        otp: cleanOtp,
-        rememberDevice,
-        deviceName: getDeviceName(),
-      });
+      await executeLogin(async () => {
+        const { data: verifyData, error: verifyError } = await verifyLoginVerification({
+          challengeId,
+          otp: cleanOtp,
+          rememberDevice,
+          deviceName: getDeviceName(),
+        });
 
-      if (verifyError || !verifyData?.verified) {
-        const remaining = verifyError?.remaining_attempts;
-        if (remaining !== undefined && remaining > 0) {
-          setError(`Invalid code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`);
-        } else if (remaining === 0) {
-          setError("Too many incorrect attempts. This code has been invalidated. Please request a new code.");
-        } else {
-          setError(verifyError?.message || "Verification failed. Please try again.");
+        if (verifyError || !verifyData?.verified) {
+          const remaining = verifyError?.remaining_attempts;
+          if (remaining !== undefined && remaining > 0) {
+            setError(`Invalid code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`);
+          } else if (remaining === 0) {
+            setError("Too many incorrect attempts. This code has been invalidated. Please request a new code.");
+          } else {
+            setError(verifyError?.message || "Verification failed. Please try again.");
+          }
+          return { success: false, error: verifyError };
         }
-        return;
-      }
 
-      // OTP Verified -> fetch authoritative profile and proceed to Admin Dashboard
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role, full_name, email")
-        .eq("id", user?.id)
-        .maybeSingle();
+        // OTP Verified -> fetch authoritative profile and proceed to Admin Dashboard
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role, full_name, email")
+          .eq("id", user?.id)
+          .maybeSingle();
 
-      setCurrentUser({
-        id: user?.id,
-        email: profile?.email || user?.email,
-        role: "admin",
-        full_name: profile?.full_name || "Administrator",
+        return {
+          success: true,
+          onSuccess: () => {
+            setCurrentUser({
+              id: user?.id,
+              email: profile?.email || user?.email,
+              role: "admin",
+              full_name: profile?.full_name || "Administrator",
+            });
+            navigate("/admin/dashboard");
+          },
+        };
       });
-
-      navigate("/admin/dashboard");
     } catch (err) {
       console.error("Admin OTP verification error:", err);
       setError("Something went wrong during verification. Please try again.");
