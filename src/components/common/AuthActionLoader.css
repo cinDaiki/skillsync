@@ -1,0 +1,331 @@
+/* ==========================================================================
+   SkillSync — Auth Action Loader (Login & Logout Buffer)
+   Polished, state-aware visual buffer for real authentication transactions
+   ========================================================================== */
+
+/* Fullscreen High-Z-Index Overlay */
+.auth-action-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: authActionOverlayEnter 220ms ease-out forwards;
+  pointer-events: all;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Login Theme: Soft Lavender Aura */
+.auth-action-overlay.theme-login {
+  background:
+    radial-gradient(circle at 50% 34%, rgba(139, 24, 255, 0.12), transparent 58%),
+    radial-gradient(circle at 20% 80%, rgba(155, 36, 255, 0.08), transparent 45%),
+    linear-gradient(180deg, #ffffff 0%, #f7f3ff 100%);
+}
+
+/* Logout Theme: Soft Slate / Neutral Purple Aura */
+.auth-action-overlay.theme-logout {
+  background:
+    radial-gradient(circle at 50% 34%, rgba(102, 112, 133, 0.10), transparent 58%),
+    radial-gradient(circle at 80% 80%, rgba(139, 24, 255, 0.08), transparent 45%),
+    linear-gradient(180deg, #ffffff 0%, #f8f9fc 100%);
+}
+
+/* Centered Card Content */
+.auth-action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 360px;
+  width: 100%;
+  padding: 34px 28px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  box-shadow:
+    0 24px 50px rgba(16, 24, 40, 0.08),
+    0 4px 18px rgba(16, 24, 40, 0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: authActionCardEnter 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Brand Logo Container */
+.auth-action-logo-wrap {
+  margin-bottom: 22px;
+  animation: authActionLogoPop 440ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Spinner Container */
+.auth-action-spinner-wrap {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Outer Rotating Spinner Ring (0.85s) */
+.auth-action-spinner-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3.5px solid rgba(139, 24, 255, 0.16);
+  border-top-color: #8b18ff;
+  animation: authActionSpin 0.85s linear infinite;
+}
+
+.theme-logout .auth-action-spinner-ring {
+  border-color: rgba(102, 112, 133, 0.2);
+  border-top-color: #8b18ff;
+}
+
+/* Inner Pulsing Core Dot */
+.auth-action-spinner-core {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #8b18ff;
+  animation: authActionCorePulse 1.1s ease-in-out infinite alternate;
+}
+
+/* Typography Section */
+.auth-action-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 56px;
+  justify-content: center;
+}
+
+.auth-action-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #101828;
+  letter-spacing: -0.2px;
+}
+
+.auth-action-subtext {
+  margin: 0;
+  font-size: 13.5px;
+  color: #667085;
+  font-weight: 500;
+}
+
+.auth-action-copy .text-step-change {
+  animation: authActionStepFade 240ms ease-out forwards;
+}
+
+/* Sequential Animated Loading Dots */
+.auth-action-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.auth-action-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8b18ff;
+  animation: authActionDotPulse 950ms ease-in-out infinite;
+}
+
+.auth-action-dot-1 {
+  animation-delay: 0ms;
+}
+
+.auth-action-dot-2 {
+  animation-delay: 160ms;
+}
+
+.auth-action-dot-3 {
+  animation-delay: 320ms;
+}
+
+/* Screen Reader Accessible Utility */
+.auth-action-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Exit Animations */
+.auth-action-overlay.is-exiting {
+  animation: authActionOverlayExit 260ms ease-in forwards !important;
+}
+
+.auth-action-card.is-exiting {
+  animation: authActionCardExit 240ms ease-in forwards !important;
+}
+
+/* ==========================================================================
+   Keyframes
+   ========================================================================== */
+
+@keyframes authActionOverlayEnter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes authActionCardEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes authActionLogoPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes authActionSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes authActionCorePulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+
+@keyframes authActionStepFade {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes authActionDotPulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-3.5px) scale(1.05);
+  }
+}
+
+@keyframes authActionOverlayExit {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes authActionCardExit {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98) translateY(4px);
+  }
+}
+
+/* ==========================================================================
+   Reduced Motion Support
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-action-overlay,
+  .auth-action-card,
+  .auth-action-logo-wrap,
+  .auth-action-title,
+  .auth-action-subtext,
+  .auth-action-dots,
+  .auth-action-dot {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  .auth-action-spinner-ring {
+    animation: none !important;
+    border-top-color: transparent !important;
+    border-color: #8b18ff !important;
+    opacity: 0.6;
+  }
+
+  .auth-action-spinner-core {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+/* ==========================================================================
+   Mobile Responsive Adjustments
+   ========================================================================== */
+
+@media (max-width: 480px) {
+  .auth-action-card {
+    padding: 26px 20px;
+    max-width: 320px;
+  }
+
+  .auth-action-title {
+    font-size: 16.5px;
+  }
+
+  .auth-action-subtext {
+    font-size: 13px;
+  }
+
+  .auth-action-spinner-wrap {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 16px;
+  }
+}

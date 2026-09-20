@@ -14,6 +14,7 @@ import { setCurrentUser } from "../../services/localStorageService";
 import { getDashboardPath } from "../../utils/getDashboardPath";
 import { isDevMode } from "../../services/devMode";
 import { isAccountSuspended } from "../../services/adminService";
+import { useAuthAction } from "../../context/AuthActionContext";
 import "./SignIn.css";
 
 function resolveRole(profileRole, metadataRole) {
@@ -50,6 +51,7 @@ function getDeviceName() {
 
 export default function SignIn() {
   const navigate = useNavigate();
+  const { executeLogin } = useAuthAction();
   const [searchParams] = useSearchParams();
   const redirectTo = safeRedirectPath(searchParams.get("redirect"));
 
@@ -214,88 +216,100 @@ export default function SignIn() {
     setInfoMessage("");
 
     try {
-      // 1. Authenticate password with GoTrue
-      const { data: authData, error: signInError } = await signIn(formData.email, formData.password);
+      await executeLogin(async () => {
+        // 1. Authenticate password with GoTrue
+        const { data: authData, error: signInError } = await signIn(formData.email, formData.password);
 
-      if (signInError) {
-        if (signInError.message?.toLowerCase().includes("email not confirmed")) {
-          setError("Please confirm your email before signing in. Check your inbox for the confirmation link.");
-        } else if (signInError.message?.toLowerCase().includes("invalid login credentials")) {
-          setError("Invalid email or password. Please try again.");
-        } else {
-          setError("Invalid email or password. Please try again.");
+        if (signInError) {
+          if (signInError.message?.toLowerCase().includes("email not confirmed")) {
+            setError("Please confirm your email before signing in. Check your inbox for the confirmation link.");
+          } else if (signInError.message?.toLowerCase().includes("invalid login credentials")) {
+            setError("Invalid email or password. Please try again.");
+          } else {
+            setError("Invalid email or password. Please try again.");
+          }
+          return { success: false, error: signInError };
         }
-        return;
-      }
 
-      if (!authData?.user) {
-        setError("Unable to authenticate session. Please try again.");
-        return;
-      }
-
-      // 2. Authoritative Login Gate Check
-      const { data: gate } = await getLoginGateStatus();
-
-      // REJECT ADMIN FROM REGULAR SIGN-IN
-      if (gate?.role === "admin") {
-        try {
-          await signOut();
-        } catch {
-          // ignore
+        if (!authData?.user) {
+          setError("Unable to authenticate session. Please try again.");
+          return { success: false };
         }
-        setError("This is an administrator account. Please use the Admin sign-in page.");
-        return;
-      }
 
-      if (gate?.is_suspended) {
-        navigate("/account-suspended");
-        return;
-      }
+        // 2. Authoritative Login Gate Check
+        const { data: gate } = await getLoginGateStatus();
 
-      if (gate && gate.profile_exists === false) {
-        // Safe redirect to onboarding if profile is not initialized
-        navigate("/sign-up");
-        return;
-      }
-
-      // 3. Adaptive Device Trust Check
-      const deviceToken = getOrCreateDeviceToken();
-      const { data: trustData, error: trustError } = await checkSessionTrust(deviceToken);
-
-      if (trustError) {
-        setError("Security check failed. Please try again.");
-        return;
-      }
-
-      if (trustData?.is_trusted === true && trustData?.requires_otp === false) {
-        // TRUSTED DEVICE: Route directly to dashboard without OTP
-        await handleAuthenticatedUser(authData.user);
-        return;
-      }
-
-      // 4. UNTRUSTED DEVICE: Trigger Adaptive Email Verification Challenge
-      const { data: reqData, error: reqError } = await requestLoginVerification();
-
-      if (reqError) {
-        if (reqError.status === 429 || reqError.message?.includes("RESEND_COOLDOWN_ACTIVE")) {
-          setError("Please wait a moment before requesting another verification code.");
-        } else {
-          setError("We couldn't send the verification code. Please try again.");
+        // REJECT ADMIN FROM REGULAR SIGN-IN
+        if (gate?.role === "admin") {
+          try {
+            await signOut();
+          } catch {
+            // ignore
+          }
+          setError("This is an administrator account. Please use the Admin sign-in page.");
+          return { success: false };
         }
-        return;
-      }
 
-      if (!reqData?.challenge_id) {
-        setError("Failed to initialize verification challenge. Please try again.");
-        return;
-      }
+        if (gate?.is_suspended) {
+          return {
+            success: true,
+            onSuccess: () => navigate("/account-suspended"),
+          };
+        }
 
-      setChallengeId(reqData.challenge_id);
-      setOtpCooldown(reqData.cooldown_seconds || 60);
-      setMaskedEmail(maskEmail(formData.email));
-      setOtpCode("");
-      setRememberDevice(true);
-      setViewMode("verify_otp");
+        if (gate && gate.profile_exists === false) {
+          // Safe redirect to onboarding if profile is not initialized
+          return {
+            success: true,
+            onSuccess: () => navigate("/sign-up"),
+          };
+        }
+
+        // 3. Adaptive Device Trust Check
+        const deviceToken = getOrCreateDeviceToken();
+        const { data: trustData, error: trustError } = await checkSessionTrust(deviceToken);
+
+        if (trustError) {
+          setError("Security check failed. Please try again.");
+          return { success: false, error: trustError };
+        }
+
+        if (trustData?.is_trusted === true && trustData?.requires_otp === false) {
+          // TRUSTED DEVICE: Route directly to dashboard without OTP
+          return {
+            success: true,
+            onSuccess: async () => {
+              await handleAuthenticatedUser(authData.user);
+            },
+          };
+        }
+
+        // 4. UNTRUSTED DEVICE: Trigger Adaptive Email Verification Challenge
+        const { data: reqData, error: reqError } = await requestLoginVerification();
+
+        if (reqError) {
+          if (reqError.status === 429 || reqError.message?.includes("RESEND_COOLDOWN_ACTIVE")) {
+            setError("Please wait a moment before requesting another verification code.");
+          } else {
+            setError("We couldn't send the verification code. Please try again.");
+          }
+          return { success: false, error: reqError };
+        }
+
+        if (!reqData?.challenge_id) {
+          setError("Failed to initialize verification challenge. Please try again.");
+          return { success: false };
+        }
+
+        setChallengeId(reqData.challenge_id);
+        setOtpCooldown(reqData.cooldown_seconds || 60);
+        setMaskedEmail(maskEmail(formData.email));
+        setOtpCode("");
+        setRememberDevice(true);
+        setViewMode("verify_otp");
+
+        return { success: false, requiresOtp: true };
+      });
     } catch (unexpectedError) {
       console.error("Unexpected error during login:", unexpectedError);
       setError("Something went wrong. Please try again.");
@@ -325,31 +339,38 @@ export default function SignIn() {
     setInfoMessage("");
 
     try {
-      const deviceToken = getOrCreateDeviceToken();
-      const deviceName = getDeviceName();
+      await executeLogin(async () => {
+        const deviceToken = getOrCreateDeviceToken();
+        const deviceName = getDeviceName();
 
-      const { data: verifyData, error: verifyError } = await verifyLoginVerification({
-        challengeId,
-        otp: cleanCode,
-        rememberDevice,
-        deviceToken,
-        deviceName,
+        const { data: verifyData, error: verifyError } = await verifyLoginVerification({
+          challengeId,
+          otp: cleanCode,
+          rememberDevice,
+          deviceToken,
+          deviceName,
+        });
+
+        if (verifyError) {
+          setError("The verification code is invalid or has expired.");
+          return { success: false, error: verifyError };
+        }
+
+        if (!verifyData || verifyData.verified !== true) {
+          setError("The verification code is invalid or has expired.");
+          return { success: false };
+        }
+
+        // Step-Up Verification Succeeded -> Refresh session and route to dashboard
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUser = session?.user || { email: formData.email };
+        return {
+          success: true,
+          onSuccess: async () => {
+            await handleAuthenticatedUser(currentUser);
+          },
+        };
       });
-
-      if (verifyError) {
-        setError("The verification code is invalid or has expired.");
-        return;
-      }
-
-      if (!verifyData || verifyData.verified !== true) {
-        setError("The verification code is invalid or has expired.");
-        return;
-      }
-
-      // Step-Up Verification Succeeded -> Refresh session and route to dashboard
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUser = session?.user || { email: formData.email };
-      await handleAuthenticatedUser(currentUser);
     } catch (unexpectedError) {
       console.error("Unexpected error during OTP verification:", unexpectedError);
       setError("Verification failed. Please try again.");

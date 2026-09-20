@@ -1,0 +1,63 @@
+/* ==========================================================================
+   SkillSync — SkillSyncLogo Component Styles
+   Exact canonical brand logo reproduction matching live production
+   ========================================================================== */
+
+.skillsync-brand-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.skillsync-brand-icon {
+  width: 36px;
+  height: 36px;
+  border: 2px solid #101828;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 900;
+  color: #101828;
+  background: #ffffff;
+  box-shadow: 0 3px 8px rgba(16, 24, 40, 0.06);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.skillsync-brand-logo.variant-purple .skillsync-brand-icon {
+  border-color: #8b18ff;
+  color: #8b18ff;
+}
+
+.skillsync-brand-logo.variant-pink .skillsync-brand-icon {
+  border-color: #f13093;
+  color: #f13093;
+}
+
+.skillsync-brand-logo.variant-dark .skillsync-brand-icon {
+  border-color: #101828;
+  color: #101828;
+}
+
+.skillsync-brand-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  line-height: 1.15;
+}
+
+.skillsync-brand-text strong {
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: -0.3px;
+  color: #101828;
+}
+
+.skillsync-brand-text small {
+  font-size: 12px;
+  color: #667085;
+  font-weight: 500;
+}

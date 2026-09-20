@@ -49,12 +49,14 @@ import AccountSuspended from "./pages/errors/AccountSuspended";
 import RoleRoute from "./components/guards/RoleRoute";
 import { ROLES } from "./utils/roles";
 import { AuthTransitionProvider } from "./context/AuthTransitionContext";
+import { AuthActionProvider } from "./context/AuthActionContext";
 
 function App() {
   return (
     <BrowserRouter>
       <AuthTransitionProvider>
-        <Routes>
+        <AuthActionProvider>
+          <Routes>
         {/* Public pages */}
         <Route path="/" element={<Home />} />
         <Route path="/browse-jobs" element={<BrowseJobs />} />
@@ -329,6 +331,7 @@ function App() {
         <Route path="/unauthorized" element={<Unauthorized />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
+        </AuthActionProvider>
       </AuthTransitionProvider>
     </BrowserRouter>
   );
