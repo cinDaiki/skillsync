@@ -119,6 +119,13 @@ export default function RecommendedJobs({
       }
       return;
     }
+
+    const threshold = job.minimum_match_percentage ?? 70;
+    if ((job.matchScore || 0) < threshold) {
+      if (toast) toast.error(`Your current match is ${job.matchScore || 0}%. This job requires at least ${threshold}%.`);
+      return;
+    }
+
     setConfirmApplyJob(job);
   };
 
@@ -126,8 +133,14 @@ export default function RecommendedJobs({
     if (confirmApplyJob && onApply) {
       try {
         const res = await onApply(confirmApplyJob);
-        if (res?.error && res.error.code === "IDENTITY_VERIFICATION_REQUIRED") {
-          if (toast) toast.error("Identity verification required to apply for jobs.");
+        if (res?.error) {
+          if (res.error.code === "APPLICATION_THRESHOLD_NOT_MET") {
+            if (toast) toast.error(res.error.message);
+          } else if (res.error.code === "IDENTITY_VERIFICATION_REQUIRED") {
+            if (toast) toast.error("Identity verification required to apply for jobs.");
+          } else {
+            if (toast) toast.error(res.error.message || "Failed to submit application.");
+          }
         }
       } catch (err) {
         if (toast) toast.error(err?.message || "Failed to submit application.");
@@ -380,24 +393,32 @@ export default function RecommendedJobs({
                   </div>
 
                   {/* Footer Actions */}
-                  <div className="rec-job-card-footer">
-                    <button
-                      type="button"
-                      className="rec-job-btn secondary"
-                      onClick={() => setSelectedJob(job)}
-                    >
-                      View Details
-                    </button>
-                    <button
-                      type="button"
-                      className="rec-job-btn primary"
-                      disabled={!isVerified || isApplied || isApplying}
-                      onClick={() => handlePromptApply(job)}
-                      style={!isVerified ? { opacity: 0.65, cursor: "not-allowed", background: "#94a3b8" } : {}}
-                    >
-                      {isApplied ? '✓ Applied' : isApplying ? 'Applying...' : !isVerified ? '🔒 Verification Required' : 'Apply Now'}
-                    </button>
-                  </div>
+                  {(() => {
+                    const threshold = job.minimum_match_percentage ?? 70;
+                    const isEligible = (job.matchScore || 0) >= threshold;
+
+                    return (
+                      <div className="rec-job-card-footer">
+                        <button
+                          type="button"
+                          className="rec-job-btn secondary"
+                          onClick={() => setSelectedJob(job)}
+                        >
+                          View Details
+                        </button>
+                        <button
+                          type="button"
+                          className="rec-job-btn primary"
+                          disabled={!isVerified || isApplied || isApplying || !isEligible}
+                          onClick={() => handlePromptApply(job)}
+                          style={(!isVerified || !isEligible) && !isApplied ? { opacity: 0.65, cursor: "not-allowed", background: !isEligible ? "#f43f5e" : "#94a3b8" } : {}}
+                          title={!isEligible ? `Match score (${job.matchScore || 0}%) is below the required ${threshold}%` : ''}
+                        >
+                          {isApplied ? '✓ Applied' : isApplying ? 'Applying...' : !isVerified ? '🔒 Verification Required' : !isEligible ? 'Below Requirement' : 'Apply Now'}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -521,6 +542,7 @@ export default function RecommendedJobs({
                 </div>
 
                 {/* ── AI JOB FIT SUMMARY ── */}
+                {/* ── AI JOB FIT SUMMARY ── */}
                 <div className="rec-modal-section" style={{ marginTop: "16px" }}>
                   <h4>🎯 AI Job Fit Breakdown</h4>
                   <div className="rec-modal-score-banner" style={{ marginTop: "8px" }}>
@@ -529,6 +551,37 @@ export default function RecommendedJobs({
                       <p><strong>Match Reason:</strong> {selectedJob.matchReason || 'Strong alignment with your profile.'}</p>
                     </div>
                   </div>
+
+                  {/* ── APPLICATION ELIGIBILITY STATUS ── */}
+                  {(() => {
+                    const reqScore = typeof selectedJob.minimum_match_percentage === 'number' ? selectedJob.minimum_match_percentage : 70;
+                    const isEligible = (selectedJob.matchScore || 0) >= reqScore;
+                    const gap = Math.max(0, reqScore - (selectedJob.matchScore || 0));
+
+                    return (
+                      <div style={{
+                        marginTop: "12px",
+                        padding: "12px 16px",
+                        borderRadius: "8px",
+                        background: isEligible ? "#f0fdf4" : "#fef2f2",
+                        border: `1px solid ${isEligible ? "#bbf7d0" : "#fecaca"}`
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: "700", color: isEligible ? "#166534" : "#991b1b" }}>
+                            {isEligible ? "✓ Eligible to Apply" : "⚠ Minimum Match Required"}
+                          </span>
+                          <span style={{ fontSize: "12px", color: isEligible ? "#15803d" : "#b91c1c" }}>
+                            Your Match: <strong>{selectedJob.matchScore || 0}%</strong> · Required: <strong>{reqScore}%</strong>
+                          </span>
+                        </div>
+                        {!isEligible && (
+                          <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#b91c1c", lineHeight: "1.4" }}>
+                            You currently do not meet this job's minimum match requirement. You need <strong>{gap} percentage point{gap === 1 ? '' : 's'}</strong> more compatibility. Review the Skill Gap Analysis below and explore recommended microcredentials to improve your skills.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
@@ -557,15 +610,29 @@ export default function RecommendedJobs({
                 <button type="button" className="rec-job-btn secondary" onClick={() => setSelectedJob(null)}>
                   Close
                 </button>
-                <button
-                  type="button"
-                  className="rec-job-btn primary"
-                  disabled={!isVerified || applications.includes(selectedJob.id) || applyingJobId === selectedJob.id}
-                  onClick={() => handlePromptApply(selectedJob)}
-                  style={!isVerified ? { opacity: 0.65, cursor: "not-allowed", background: "#94a3b8" } : {}}
-                >
-                  {applications.includes(selectedJob.id) ? '✓ Applied' : !isVerified ? '🔒 Verification Required' : 'Apply Now'}
-                </button>
+                {(() => {
+                  const reqScore = typeof selectedJob.minimum_match_percentage === 'number' ? selectedJob.minimum_match_percentage : 70;
+                  const isBelowThreshold = (selectedJob.matchScore || 0) < reqScore;
+                  const isBlocked = !isVerified || applications.includes(selectedJob.id) || applyingJobId === selectedJob.id || isBelowThreshold;
+
+                  return (
+                    <button
+                      type="button"
+                      className="rec-job-btn primary"
+                      disabled={isBlocked}
+                      onClick={() => handlePromptApply(selectedJob)}
+                      style={!isVerified || isBelowThreshold ? { opacity: 0.65, cursor: "not-allowed", background: "#94a3b8" } : {}}
+                    >
+                      {applications.includes(selectedJob.id)
+                        ? '✓ Applied'
+                        : !isVerified
+                        ? '🔒 Verification Required'
+                        : isBelowThreshold
+                        ? 'Match Too Low to Apply'
+                        : 'Apply Now'}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           </div>

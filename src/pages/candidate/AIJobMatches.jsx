@@ -113,6 +113,13 @@ export default function AIJobMatches() {
       }
       return
     }
+
+    const threshold = job.minimum_match_percentage ?? 70;
+    if ((job.matchScore || 0) < threshold) {
+      toast.error(`Your match score (${job.matchScore || 0}%) is below this employer's requirement (${threshold}%).`);
+      return;
+    }
+
     setApplying(job.id)
     try {
       const { error } = await applyForJobWithSnapshot(job.id, userId)
@@ -279,27 +286,39 @@ export default function AIJobMatches() {
                     </div>
                   )}
 
-                  <div className="ai-job-card-footer">
-                    <div className="ai-job-mini-scores">
-                      <span>Semantic: <strong>{job.semanticScore}%</strong></span>
-                      <span>Skills: <strong>{job.skillsScore}%</strong></span>
-                    </div>
-                    <div className="ai-job-card-actions">
-                      <button
-                        className="ai-job-btn-report"
-                        onClick={() => setReportJob(job)}
-                      >
-                        View AI Report
-                      </button>
-                      <button
-                        className="ai-job-btn-apply"
-                        disabled={applied || applying === job.id}
-                        onClick={() => handleApply(job)}
-                      >
-                        {applied ? '✓ Applied' : applying === job.id ? 'Applying…' : 'Apply'}
-                      </button>
-                    </div>
-                  </div>
+                  {(() => {
+                    const threshold = job.minimum_match_percentage ?? 70;
+                    const isEligible = (job.matchScore || 0) >= threshold;
+
+                    return (
+                      <div className="ai-job-card-footer">
+                        <div className="ai-job-mini-scores">
+                          <span>Semantic: <strong>{job.semanticScore}%</strong></span>
+                          <span>Skills: <strong>{job.skillsScore}%</strong></span>
+                          <span style={{ color: isEligible ? "#15803d" : "#be123c", fontWeight: "600" }}>
+                            Req: <strong>{threshold}%</strong>
+                          </span>
+                        </div>
+                        <div className="ai-job-card-actions">
+                          <button
+                            className="ai-job-btn-report"
+                            onClick={() => setReportJob(job)}
+                          >
+                            View AI Report
+                          </button>
+                          <button
+                            className="ai-job-btn-apply"
+                            disabled={applied || applying === job.id || !isEligible}
+                            onClick={() => handleApply(job)}
+                            style={!isEligible && !applied ? { opacity: 0.65, cursor: "not-allowed", background: "#f43f5e" } : {}}
+                            title={!isEligible ? `Match score (${job.matchScore || 0}%) is below the required ${threshold}%` : ''}
+                          >
+                            {applied ? '✓ Applied' : applying === job.id ? 'Applying…' : !isEligible ? 'Below Req' : 'Apply'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )

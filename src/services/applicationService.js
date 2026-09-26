@@ -237,15 +237,34 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
     return { data: rpcData, error: null };
   }
 
-  if (rpcError && !rpcError.message?.includes("function") && !rpcError.message?.includes("does not exist") && !rpcError.message?.includes("not found")) {
-    const isSuspended = rpcError.message?.includes("EMPLOYER_SUSPENDED") || rpcError.message?.includes("ACCOUNT_SUSPENDED");
-    const err = new Error(
-      isSuspended || rpcError.message?.includes("JOB_UNAVAILABLE")
-        ? "This position is temporarily unavailable for applications."
-        : rpcError.message
-    );
-    err.code = isSuspended ? "EMPLOYER_SUSPENDED" : "APPLICATION_FAILED";
-    return { data: null, error: err };
+  if (rpcError) {
+    if (rpcError.message?.includes("APPLICATION_THRESHOLD_NOT_MET")) {
+      const err = new Error(rpcError.message);
+      err.code = "APPLICATION_THRESHOLD_NOT_MET";
+      const match = rpcError.message.match(/(\d+)%.*?(\d+)%/);
+      if (match) {
+        err.currentMatch = parseInt(match[1], 10);
+        err.requiredMatch = parseInt(match[2], 10);
+      }
+      return { data: null, error: err };
+    }
+
+    if (rpcError.message?.includes("DUPLICATE_APPLICATION")) {
+      const err = new Error("You have already applied for this position.");
+      err.code = "DUPLICATE_APPLICATION";
+      return { data: null, error: err };
+    }
+
+    if (!rpcError.message?.includes("function") && !rpcError.message?.includes("does not exist") && !rpcError.message?.includes("not found")) {
+      const isSuspended = rpcError.message?.includes("EMPLOYER_SUSPENDED") || rpcError.message?.includes("ACCOUNT_SUSPENDED");
+      const err = new Error(
+        isSuspended || rpcError.message?.includes("JOB_UNAVAILABLE")
+          ? "This position is temporarily unavailable for applications."
+          : rpcError.message
+      );
+      err.code = isSuspended ? "EMPLOYER_SUSPENDED" : "APPLICATION_FAILED";
+      return { data: null, error: err };
+    }
   }
 
   // 2. Direct table insert fallback (if RPC is not yet deployed)
@@ -563,3 +582,81 @@ export async function updateApplicationStage(applicationId, targetStatus, reject
     return { data: null, error: err };
   }
 }
+
+/**
+ * Server-Authoritative Candidate Application Eligibility RPC Caller
+ * Fetches authoritative match score and evaluates against job minimum threshold.
+ *
+ * @param {string} jobId
+ * @returns {Promise<{
+ *   jobId: string|null,
+ *   matchScore: number,
+ *   requiredMatch: number,
+ *   eligible: boolean,
+ *   alreadyApplied: boolean,
+ *   matchingSkills: string[],
+ *   missingSkills: string[],
+ *   matchStatus: string,
+ *   error: Error|null
+ * }>}
+ */
+export async function getJobApplicationEligibility(jobId) {
+  if (!jobId) {
+    return {
+      jobId: null,
+      matchScore: 0,
+      requiredMatch: 70,
+      eligible: false,
+      alreadyApplied: false,
+      matchingSkills: [],
+      missingSkills: [],
+      matchStatus: "Skills Gap",
+      error: new Error("Job ID is required.")
+    };
+  }
+
+  try {
+    const { data, error } = await supabase.rpc("get_job_application_eligibility", {
+      p_job_id: jobId
+    });
+
+    if (error) {
+      return {
+        jobId,
+        matchScore: 0,
+        requiredMatch: 70,
+        eligible: false,
+        alreadyApplied: false,
+        matchingSkills: [],
+        missingSkills: [],
+        matchStatus: "Skills Gap",
+        error
+      };
+    }
+
+    return {
+      jobId: data.job_id,
+      matchScore: data.match_score ?? 0,
+      requiredMatch: data.minimum_match_percentage ?? 70,
+      eligible: Boolean(data.eligible),
+      alreadyApplied: Boolean(data.already_applied),
+      matchingSkills: Array.isArray(data.matching_skills) ? data.matching_skills : [],
+      missingSkills: Array.isArray(data.missing_skills) ? data.missing_skills : [],
+      matchStatus: data.match_status || "Skills Gap",
+      error: null
+    };
+  } catch (err) {
+    return {
+      jobId,
+      matchScore: 0,
+      requiredMatch: 70,
+      eligible: false,
+      alreadyApplied: false,
+      matchingSkills: [],
+      missingSkills: [],
+      matchStatus: "Skills Gap",
+      error: err
+    };
+  }
+}
+

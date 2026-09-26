@@ -104,6 +104,34 @@ export default function AIMatchReport({
           </div>
         </div>
 
+        {/* ── Eligibility Badge for Candidate ── */}
+        {mode === 'candidate' && (() => {
+          const reqScore = typeof job?.minimum_match_percentage === 'number' ? job.minimum_match_percentage : 70;
+          const isEligible = matchScore >= reqScore;
+          const gap = Math.max(0, reqScore - matchScore);
+          return (
+            <div style={{
+              margin: "12px 0 16px 0",
+              padding: "10px 14px",
+              borderRadius: "8px",
+              background: isEligible ? "#f0fdf4" : "#fef2f2",
+              border: `1px solid ${isEligible ? "#bbf7d0" : "#fecaca"}`,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              fontSize: "13px"
+            }}>
+              <span style={{ fontWeight: "700", color: isEligible ? "#166534" : "#991b1b" }}>
+                {isEligible ? "✓ Eligible to Apply" : "⚠ Below Minimum Requirement"}
+              </span>
+              <span style={{ color: isEligible ? "#15803d" : "#b91c1c" }}>
+                Your Match: <strong>{matchScore}%</strong> · Required: <strong>{reqScore}%</strong>
+                {!isEligible && ` (${gap}% needed)`}
+              </span>
+            </div>
+          );
+        })()}
+
         {/* ── Skills Grid ─────────────────────────────────────────────── */}
         <div className="ai-report-skills-grid">
           {/* Matching Skills */}
@@ -207,15 +235,20 @@ export default function AIMatchReport({
           <button className="ai-report-btn-secondary" onClick={onClose}>
             Close
           </button>
-          {mode === 'candidate' && onApply && (
-            <button
-              className="ai-report-btn-primary"
-              onClick={onApply}
-              disabled={applied}
-            >
-              {applied ? '✓ Applied' : 'Apply Now'}
-            </button>
-          )}
+          {mode === 'candidate' && onApply && (() => {
+            const reqScore = typeof job?.minimum_match_percentage === 'number' ? job.minimum_match_percentage : 70;
+            const isEligible = matchScore >= reqScore;
+            return (
+              <button
+                className="ai-report-btn-primary"
+                onClick={onApply}
+                disabled={applied || !isEligible}
+                style={!isEligible ? { opacity: 0.65, cursor: "not-allowed", background: "#94a3b8" } : {}}
+              >
+                {applied ? '✓ Applied' : !isEligible ? `Match Too Low (${matchScore}% / ${reqScore}% Req)` : 'Apply Now'}
+              </button>
+            );
+          })()}
         </div>
 
       </div>

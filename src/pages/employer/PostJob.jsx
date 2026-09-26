@@ -26,6 +26,7 @@ export default function PostJob() {
     number_of_openings: 1,
     deadline: "",
     description: "",
+    minimum_match_percentage: 70,
   });
 
   // Employer verification status state
@@ -140,6 +141,13 @@ export default function PostJob() {
     // Encode application document requirements into payload
     const encodedCerts = encodeApplicationRequirements(formData.required_certifications, appReqs);
 
+    const matchThreshold = parseInt(formData.minimum_match_percentage, 10);
+    if (isNaN(matchThreshold) || matchThreshold < 60 || matchThreshold > 90) {
+      toast.error("Minimum match percentage must be between 60% and 90%.");
+      setLoading(false);
+      return;
+    }
+
     const payload = {
       title: formData.title.trim(),
       department: formData.department.trim(),
@@ -152,6 +160,7 @@ export default function PostJob() {
       required_education: formData.required_education,
       experience_required: formData.experience_required,
       number_of_openings: parseInt(formData.number_of_openings, 10) || 1,
+      minimum_match_percentage: matchThreshold,
       description: formData.description.trim(),
       deadline: formData.deadline || null,
       status: "pending_review", // Newly created jobs require admin moderation
@@ -299,6 +308,26 @@ export default function PostJob() {
               </button>
             </div>
             <input type="text" name="required_skills" placeholder="e.g. React, Node.js (comma-separated)" value={formData.required_skills} onChange={handleChange} />
+          </label>
+
+          <label style={{ marginTop: "15px" }}>
+            <span>Minimum Candidate Match</span>
+            <select
+              name="minimum_match_percentage"
+              value={formData.minimum_match_percentage}
+              onChange={handleChange}
+            >
+              <option value={60}>60%</option>
+              <option value={65}>65%</option>
+              <option value={70}>70% — Recommended</option>
+              <option value={75}>75%</option>
+              <option value={80}>80%</option>
+              <option value={85}>85%</option>
+              <option value={90}>90%</option>
+            </select>
+            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "normal", marginTop: "2px", lineHeight: "1.4" }}>
+              Sets the minimum SkillSync match score a candidate must meet for application eligibility. 70% is the recommended default.
+            </span>
           </label>
 
           {/* ── APPLICATION DOCUMENT REQUIREMENTS ── */}

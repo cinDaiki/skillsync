@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
-import { applyForJobWithSnapshot } from "../../services/applicationService";
+import { applyForJobWithSnapshot, getJobApplicationEligibility } from "../../services/applicationService";
 import { triggerSimulationNotification } from "../../services/notificationService";
 import { useToast } from "../../contexts/ToastContext";
 import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
@@ -53,6 +53,27 @@ export default function JobMatches() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [confirmApplyJob, setConfirmApplyJob] = useState(null);
   const [reportingJob, setReportingJob] = useState(null);
+
+  // Authoritative Application Eligibility State (Phase 4B)
+  const [eligibility, setEligibility] = useState(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedJob?.id || !userId) {
+      setEligibility(null);
+      setEligibilityLoading(false);
+      return;
+    }
+    let isCancelled = false;
+    setEligibilityLoading(true);
+    getJobApplicationEligibility(selectedJob.id).then((res) => {
+      if (!isCancelled) {
+        setEligibility(res);
+        setEligibilityLoading(false);
+      }
+    });
+    return () => { isCancelled = true; };
+  }, [selectedJob?.id, userId]);
 
   useEffect(() => {
     loadData();
@@ -226,6 +247,12 @@ export default function JobMatches() {
       return;
     }
 
+    // Authoritative Match Threshold Gate (Phase 4B)
+    if (eligibility && !eligibility.eligible) {
+      toast.error(`Your match score (${eligibility.matchScore}%) is below this employer's requirement (${eligibility.requiredMatch}%).`);
+      return;
+    }
+
     setConfirmApplyJob(job);
   }
 
@@ -236,7 +263,11 @@ export default function JobMatches() {
     const { data, error } = await applyForJobWithSnapshot(job.id, userId);
 
     if (error) {
-      toast.error("Failed to apply: " + error.message);
+      if (error.code === "APPLICATION_THRESHOLD_NOT_MET") {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to apply: " + error.message);
+      }
       setConfirmApplyJob(null);
       return;
     }
@@ -543,6 +574,55 @@ export default function JobMatches() {
                   {selectedJob.salary_range && <div>💰 <strong>Salary:</strong> {selectedJob.salary_range}</div>}
                 </div>
 
+                {/* ── AUTHORITATIVE APPLICATION ELIGIBILITY BANNER (Phase 4B) ── */}
+                {eligibilityLoading ? (
+                  <div style={{ background: "#f1f5f9", padding: "12px 16px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13px", color: "#475569", display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ width: "12px", height: "12px", border: "2px solid #64748b", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", animation: "spin 1s linear infinite" }} />
+                    <span>Evaluating your authoritative match score against employer requirement...</span>
+                  </div>
+                ) : eligibility ? (
+                  eligibility.eligible ? (
+                    <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "12px 16px", borderRadius: "10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                        <div>
+                          <div style={{ fontWeight: "800", fontSize: "14px", color: "#166534", display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span>✓ Eligible to Apply</span>
+                          </div>
+                          <p style={{ margin: "3px 0 0 0", fontSize: "12px", color: "#15803d" }}>
+                            Your Match: <strong>{eligibility.matchScore}%</strong> · Required Minimum: <strong>{eligibility.requiredMatch}%</strong>
+                          </p>
+                        </div>
+                        <span style={{ fontSize: "11px", fontWeight: "700", background: "#dcfce7", color: "#15803d", padding: "4px 10px", borderRadius: "12px" }}>
+                          Meets Threshold
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", padding: "14px 16px", borderRadius: "10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "8px" }}>
+                        <div>
+                          <div style={{ fontWeight: "800", fontSize: "14px", color: "#be123c", display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span>⚠️ Match Requirement Not Met</span>
+                          </div>
+                          <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#9f1239", lineHeight: "1.5" }}>
+                            Your current SkillSync match is <strong>{eligibility.matchScore}%</strong>. This employer requires at least <strong>{eligibility.requiredMatch}%</strong>. You need <strong>{Math.max(0, eligibility.requiredMatch - eligibility.matchScore)}%</strong> more compatibility to apply.
+                          </p>
+                          <p style={{ margin: "6px 0 0 0", fontSize: "11px", color: "#e11d48", fontWeight: "600" }}>
+                            Improve the skills identified in your Skill Gap below or explore recommended microcredentials.
+                          </p>
+                        </div>
+                        <span style={{ fontSize: "11px", fontWeight: "700", background: "#ffe4e6", color: "#be123c", padding: "4px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
+                          Below Minimum
+                        </span>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div style={{ background: "#f8fafc", padding: "10px 14px", borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px", color: "#64748b" }}>
+                    <span>Required Match: <strong>{selectedJob.minimum_match_percentage ?? 70}%</strong></span>
+                  </div>
+                )}
+
                 <div className="job-detail-main">
                   <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Job Description</h4>
                   <p style={{ margin: 0, fontSize: "13px", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
@@ -618,8 +698,21 @@ export default function JobMatches() {
                     type="button"
                     className="job-apply-primary"
                     onClick={() => handlePromptApply(selectedJob)}
-                    disabled={hasApplied(selectedJob.id) || isApplyBlocked}
-                  >{hasApplied(selectedJob.id) ? "Applied ✓" : "Apply Now"}</button>
+                    disabled={
+                      hasApplied(selectedJob.id) ||
+                      isApplyBlocked ||
+                      eligibilityLoading ||
+                      (eligibility && !eligibility.eligible)
+                    }
+                  >
+                    {hasApplied(selectedJob.id)
+                      ? "Applied ✓"
+                      : eligibilityLoading
+                      ? "Checking Eligibility..."
+                      : eligibility && !eligibility.eligible
+                      ? "Match Too Low to Apply"
+                      : "Apply Now"}
+                  </button>
                 </div>
               </div>
             </div>

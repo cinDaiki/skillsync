@@ -10,7 +10,7 @@ import { generateAndStoreResumeEmbedding,
          buildResumeTextForEmbedding }             from "../../services/ai/embeddingService";
 import { runSemanticMatchingForCandidate }         from "../../services/ai/semanticMatchingService";
 import RecommendedJobs                           from "../../components/resume/RecommendedJobs.jsx";
-import { applyForJobWithSnapshot }                 from "../../services/applicationService";
+import { applyForJobWithSnapshot, getJobApplicationEligibility } from "../../services/applicationService";
 import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
 import { useToast }                                from "../../contexts/ToastContext";
 import ErrorBoundary                               from "../../components/guards/ErrorBoundary.jsx";
@@ -375,6 +375,12 @@ export default function Resume() {
     if (!userId || applyingJobId) return;
     setApplyingJobId(job.id);
     try {
+      const elig = await getJobApplicationEligibility(job.id);
+      if (elig && !elig.eligible) {
+        if (toast) toast.error(`Your current match is ${elig.matchScore}%. This job requires ${elig.requiredMatch}%.`);
+        return;
+      }
+
       const { error } = await applyForJobWithSnapshot(job.id, userId);
       if (error) {
         if (toast) toast.error(error.message || 'Failed to apply.');

@@ -26,6 +26,7 @@ export default function ManageJobs() {
     title: "", employment_type: "Full-time",
     location: "", required_skills: "", description: "",
     salary_range: "", deadline: "",
+    minimum_match_percentage: 70,
     appReqs: []
   });
 
@@ -73,6 +74,7 @@ export default function ManageJobs() {
       description: job.description || "",
       salary_range: job.salary_range || "",
       deadline: job.deadline ? job.deadline.substring(0,10) : "",
+      minimum_match_percentage: Number(job.minimum_match_percentage) || 70,
       appReqs: parsed.applicationRequirements || []
     });
   }
@@ -96,6 +98,13 @@ export default function ManageJobs() {
     setSaving(true);
     const encodedCerts = encodeApplicationRequirements(editForm.required_certifications, editForm.appReqs || []);
 
+    const matchThreshold = parseInt(editForm.minimum_match_percentage, 10);
+    if (isNaN(matchThreshold) || matchThreshold < 60 || matchThreshold > 90) {
+      toast.error("Minimum match percentage must be between 60% and 90%.");
+      setSaving(false);
+      return;
+    }
+
     const targetJob = jobs.find(j => j.id === jobId);
 
     // Resubmission rule: saving edits on a rejected, open, or pending job submits it for admin moderation (status: pending_review)
@@ -110,6 +119,7 @@ export default function ManageJobs() {
       required_education: editForm.required_education,
       experience_required: editForm.experience_required,
       number_of_openings: parseInt(editForm.number_of_openings, 10) || 1,
+      minimum_match_percentage: matchThreshold,
       description: editForm.description.trim(),
       status: "pending_review",
       rejection_reason: null,
@@ -345,6 +355,25 @@ export default function ManageJobs() {
                         Deadline
                         <input type="date" name="deadline" value={editForm.deadline} onChange={e => setEditForm(p => ({...p, deadline: e.target.value}))} />
                       </label>
+                      <label className="job-edit-label">
+                        Minimum Candidate Match
+                        <select
+                          name="minimum_match_percentage"
+                          value={editForm.minimum_match_percentage ?? 70}
+                          onChange={e => setEditForm(p => ({...p, minimum_match_percentage: parseInt(e.target.value, 10)}))}
+                        >
+                          <option value={60}>60%</option>
+                          <option value={65}>65%</option>
+                          <option value={70}>70% — Recommended</option>
+                          <option value={75}>75%</option>
+                          <option value={80}>80%</option>
+                          <option value={85}>85%</option>
+                          <option value={90}>90%</option>
+                        </select>
+                        <span style={{ fontSize: "11px", color: "#64748b", textTransform: "none", fontWeight: "normal", letterSpacing: "normal", marginTop: "2px" }}>
+                          Minimum match requirement for candidate eligibility. 70% is recommended.
+                        </span>
+                      </label>
                     </div>
 
                     {/* Edit Application Document Requirements */}
@@ -442,6 +471,9 @@ export default function ManageJobs() {
                       <span className="job-meta-chip">📍 {job.location || "Not specified"}</span>
                       {job.salary_range && <span className="job-meta-chip salary">💰 {job.salary_range}</span>}
                       {job.deadline && <span className="job-meta-chip deadline">⏰ Deadline: {formatDate(job.deadline)}</span>}
+                      <span className="job-meta-chip" style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }}>
+                        🎯 Min Match: {job.minimum_match_percentage ?? 70}%
+                      </span>
                       {job.required_skills && (
                         job.required_skills.split(",").slice(0,3).map(s => (
                           <span key={s.trim()} className="job-meta-chip" style={{ background: "#f5ecff", color: "#58158f" }}>
