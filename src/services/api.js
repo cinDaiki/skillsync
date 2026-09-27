@@ -186,7 +186,17 @@ export const uploadVerificationDocument = async (file, userId, type) => {
     return { data: null, error };
   }
 
-  return { data: fileName, storagePath: fileName, error: null };
+  // Generate private signed preview URL
+  const { data: signedData } = await supabase.storage
+    .from('resumes')
+    .createSignedUrl(fileName, 60 * 60 * 24);
+
+  return {
+    data: signedData?.signedUrl || fileName,
+    storagePath: fileName,
+    signedUrl: signedData?.signedUrl || null,
+    error: null
+  };
 };
 
 /**

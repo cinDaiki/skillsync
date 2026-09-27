@@ -643,12 +643,14 @@ export default function RecommendedJobs({
 
                 {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
                 {(() => {
-                  console.log('[SkillGapInput]', {
-                    surface: 'recommended',
-                    candidateSkills: candidate?.skills || [],
-                    jobId: selectedJob?.id,
-                    jobRequiredSkills: selectedJob?.required_skills || ''
-                  });
+                  if (import.meta.env.VITE_DEBUG_SKILL_GAP === 'true') {
+                    console.log('[SkillGapInput]', {
+                      surface: 'recommended',
+                      candidateSkills: candidate?.skills || [],
+                      jobId: selectedJob?.id,
+                      jobRequiredSkills: selectedJob?.required_skills || ''
+                    });
+                  }
                   return <SkillGapAnalysis job={selectedJob} candidate={candidate} />;
                 })()}
 

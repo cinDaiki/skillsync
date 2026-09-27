@@ -318,7 +318,14 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
           sec_registration_url: ep?.sec_registration_url || null,
           company_logo_url: ep?.company_logo_url || null,
           cover_photo_url: ep?.cover_photo_url || null,
-          verification_status: ep?.verification_status || p.verification_status || "Pending",
+          verification_status: (() => {
+            const raw = ep?.verification_status || p.verification_status || "Pending";
+            const s = String(raw).trim().toLowerCase();
+            if (s === "approved") return "Approved";
+            if (s === "verified") return "Verified";
+            if (s === "rejected") return "Rejected";
+            return "Pending";
+          })(),
           verification_reason: p.verification_reason || "",
           job_stats: stats,
         };
@@ -1417,18 +1424,27 @@ export const ALLOWED_EMPLOYER_VERIFICATION_STATUSES = new Set(["Pending", "Appro
 export async function updateEmployerVerification(userId, status, reasonNote = "") {
   if (!userId) return { error: new Error("Employer user ID is required") };
 
-  if (!ALLOWED_EMPLOYER_VERIFICATION_STATUSES.has(status)) {
+  let normalizedStatus = status;
+  if (typeof status === "string") {
+    const s = status.trim().toLowerCase();
+    if (s === "approved") normalizedStatus = "Approved";
+    else if (s === "verified") normalizedStatus = "Verified";
+    else if (s === "rejected") normalizedStatus = "Rejected";
+    else if (s === "pending" || s === "pending verification" || s === "under review") normalizedStatus = "Pending";
+  }
+
+  if (!ALLOWED_EMPLOYER_VERIFICATION_STATUSES.has(normalizedStatus)) {
     return {
       error: new Error(`Invalid employer verification status: "${status}". Allowed statuses: Pending, Approved, Verified, Rejected.`)
     };
   }
 
-  console.log(`[AdminService] Diagnostic: Attempting updateEmployerVerification for Target User ID: ${userId}, Status: ${status}, Reason: "${reasonNote}"`);
+  console.log(`[AdminService] Diagnostic: Attempting updateEmployerVerification for Target User ID: ${userId}, Status: ${normalizedStatus}, Reason: "${reasonNote}"`);
 
   try {
     const { error: rpcError } = await supabase.rpc("admin_update_employer_verification", {
       target_user_id: userId,
-      new_status: status,
+      new_status: normalizedStatus,
       reason_note: reasonNote || null,
     });
 
@@ -1448,7 +1464,7 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
 
     // Direct table fallback for authenticated admin user (modifies ONLY verification fields)
     const profileUpdates = {
-      verification_status: status,
+      verification_status: normalizedStatus,
       updated_at: new Date().toISOString()
     };
     if (reasonNote) profileUpdates.verification_reason = reasonNote;
@@ -1493,7 +1509,7 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
     // Also update employer_profiles table
     const { error: empError } = await supabase
       .from("employer_profiles")
-      .update({ verification_status: status, updated_at: new Date().toISOString() })
+      .update({ verification_status: normalizedStatus, updated_at: new Date().toISOString() })
       .eq("id", userId);
 
     if (empError && !empError.message?.includes("fetch failed")) {
@@ -1503,7 +1519,7 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
     // Primary direct table fallback succeeded -> write audit event
     try {
       await logAdminAction({
-        action: status === "Approved" || status === "Verified" ? "EMPLOYER_APPROVED" : status === "Rejected" ? "EMPLOYER_REJECTED" : "EMPLOYER_STATUS_UPDATED",
+        action: normalizedStatus === "Approved" || normalizedStatus === "Verified" ? "EMPLOYER_APPROVED" : normalizedStatus === "Rejected" ? "EMPLOYER_REJECTED" : "EMPLOYER_STATUS_UPDATED",
         targetType: "employer",
         targetId: userId,
         reason: reasonNote

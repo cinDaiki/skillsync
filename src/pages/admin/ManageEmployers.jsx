@@ -13,6 +13,7 @@ import {
   SUSPENSION_REASON_OPTIONS,
   SUSPENSION_DURATION_PRESETS,
 } from "../../services/adminService";
+import { normalizeVerificationStatus, isEmployerVerified } from "../../utils/employerVerification";
 
 export default function ManageEmployers() {
   const toast = useToast();
@@ -301,8 +302,8 @@ export default function ManageEmployers() {
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {employers.map((employer) => {
               const isSuspended = isAccountSuspended(employer);
-              const status = employer.verification_status || "Pending";
-              const isApproved = status === "Approved" || status === "Verified";
+              const status = normalizeVerificationStatus(employer.verification_status);
+              const isApproved = isEmployerVerified(status);
               const docCount = [employer.id_image_url, employer.selfie_image_url, employer.business_permit_url, employer.sec_registration_url].filter(Boolean).length;
               const stats = employer.job_stats || { total: 0, open: 0, pending: 0, rejected: 0, closed: 0 };
 

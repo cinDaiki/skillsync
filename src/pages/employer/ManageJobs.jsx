@@ -6,6 +6,7 @@ import { useModal } from "../../contexts/ModalContext";
 import { supabase } from "../../services/supabase";
 import { runMatchingForJob } from "../../services/matchingEngine";
 import { parseJobRequirements, encodeApplicationRequirements, PRESET_REQUIREMENTS } from "../../utils/jobRequirementsHelper";
+import { fetchAuthoritativeEmployerVerification } from "../../utils/employerVerification";
 import "./ManageJobs.css";
 
 export default function ManageJobs() {
@@ -173,16 +174,10 @@ export default function ManageJobs() {
   }
 
   async function handleToggleStatus(jobId, currentStatus) {
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("verification_status")
-      .eq("id", userId)
-      .maybeSingle();
+    const { verificationState } = await fetchAuthoritativeEmployerVerification(userId);
 
-    const isVerified = prof?.verification_status === "Approved" || prof?.verification_status === "Verified";
-
-    if (currentStatus === "closed" && !isVerified) {
-      toast.error("Verification Required: You cannot reopen jobs while your account is pending verification.");
+    if (currentStatus === "closed" && !verificationState.canPostJob) {
+      toast.error(verificationState.message || "Verification Required: You cannot reopen jobs while your account is unverified or suspended.");
       return;
     }
 

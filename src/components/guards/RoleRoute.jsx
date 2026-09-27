@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { supabase } from "../../services/supabase";
 import { setCurrentUser } from "../../services/localStorageService";
+import { checkSessionTrust } from "../../services/authService";
 import { isDevMode, devGetSession } from "../../services/devMode";
 import { isAccountSuspended } from "../../services/adminService";
 
@@ -75,9 +76,7 @@ export default function RoleRoute({ allowedRoles, children }) {
       // Enforce Phase 6.5 Adaptive Session Verification
       const deviceToken = localStorage.getItem("skillsync_device_token");
       try {
-        const { data: trustData } = await supabase.rpc("check_session_trust_status", {
-          p_device_token: deviceToken || "",
-        });
+        const { data: trustData } = await checkSessionTrust(deviceToken);
 
         if (trustData && (trustData.requires_otp === true || trustData.is_trusted === false)) {
           setStatus("unauthenticated");
@@ -157,7 +156,10 @@ export default function RoleRoute({ allowedRoles, children }) {
     );
   }
 
-  if (status === "unauthenticated") return <Navigate to="/sign-in" replace />;
+  if (status === "unauthenticated") {
+    const isAdminRoute = allowedRoles.some((r) => normalizeRole(r) === "admin");
+    return <Navigate to={isAdminRoute ? "/admin/login" : "/sign-in"} replace />;
+  }
   if (status === "suspended") return <Navigate to="/account-suspended" replace />;
   if (status === "unauthorized") return <Navigate to="/unauthorized" replace />;
   return children;

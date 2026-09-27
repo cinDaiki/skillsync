@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
 import { getNotifications, markAsRead, markAllAsRead, clearAllNotifications } from "../../services/notificationService";
+import { fetchAuthoritativeEmployerVerification, getEmployerVerificationState } from "../../utils/employerVerification";
 import "./EmployerDashboard.css";
 
 export default function EmployerDashboard() {
@@ -12,6 +13,8 @@ export default function EmployerDashboard() {
   const [showBell, setShowBell] = useState(false);
   const [userId, setUserId] = useState(null);
   const [employerProfile, setEmployerProfile] = useState(null);
+  const [loadingVerification, setLoadingVerification] = useState(true);
+  const [verificationState, setVerificationState] = useState(() => getEmployerVerificationState());
   const [activityLogs, setActivityLogs] = useState([]);
   const [recommendedCandidates, setRecommendedCandidates] = useState([]);
 
@@ -22,13 +25,15 @@ export default function EmployerDashboard() {
     if (!user) return;
     setUserId(user.id);
 
-    // Profile for verification status
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .maybeSingle();
-    setEmployerProfile(prof);
+    // Profile & Authoritative verification state
+    try {
+      const { profile, employerProfile: ep, verificationState: vState } =
+        await fetchAuthoritativeEmployerVerification(user.id);
+      setEmployerProfile(profile || ep);
+      setVerificationState(vState);
+    } finally {
+      setLoadingVerification(false);
+    }
 
     // Jobs
     const { data: jobsData } = await supabase
@@ -142,7 +147,7 @@ export default function EmployerDashboard() {
   const pending         = applications.filter(a => ["applied","pending","submitted"].includes(String(a.status||"").toLowerCase()));
   const unread          = notifications.filter(n => !n.is_read).length;
 
-  const isVerifiedEmployer = employerProfile?.verification_status === "Approved" || employerProfile?.verification_status === "Verified";
+  const isVerifiedEmployer = verificationState.canPostJob;
 
   // Donut chart: pipeline distribution
   const total = applications.length || 1; // avoid /0
@@ -215,33 +220,70 @@ export default function EmployerDashboard() {
       </div>
 
       {/* ── EMPLOYER VERIFICATION STATUS BANNER ── */}
-      <div style={{ margin: "0 0 20px 0", padding: "16px 20px", background: isVerifiedEmployer ? "#f0fdf4" : employerProfile?.verification_status === "Rejected" ? "#fef2f2" : "#fffbeb", border: isVerifiedEmployer ? "1px solid #bbf7d0" : employerProfile?.verification_status === "Rejected" ? "1px solid #fca5a5" : "1px solid #fde68a", borderRadius: "12px", color: "#1e293b", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-            <span style={{ fontSize: "20px" }}>
-              {isVerifiedEmployer ? "🛡️" : employerProfile?.verification_status === "Rejected" ? "❌" : "⏳"}
-            </span>
-            <strong style={{ fontSize: "16px", color: isVerifiedEmployer ? "#166534" : "#92400e" }}>
-              {isVerifiedEmployer ? "✓ Verified Employer Account" : employerProfile?.verification_status === "Rejected" ? "Verification Status: Rejected" : "Verification Status: Pending Administrator Review"}
-            </strong>
-          </div>
-          <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.4" }}>
-            {isVerifiedEmployer ? (
-              <>Your business identity has been verified. You may create and manage job postings.</>
-            ) : employerProfile?.verification_status === "Rejected" ? (
-              <>Reason: {employerProfile?.verification_reason || "Verification documents did not meet guidelines."} Please update your verification documents in Company Profile.</>
-            ) : (
-              <>Your account is awaiting administrator review. You cannot publish jobs until approved.</>
-            )}
-          </p>
+      {loadingVerification ? (
+        <div style={{
+          margin: "0 0 20px 0",
+          padding: "16px 20px",
+          background: "#f8fafc",
+          border: "1px solid #e2e8f0",
+          borderRadius: "12px",
+          color: "#64748b",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px"
+        }}>
+          <span style={{ fontSize: "18px" }}>🔄</span>
+          <span style={{ fontSize: "14px", fontWeight: "600" }}>Checking employer verification status...</span>
         </div>
+      ) : (
+        <div style={{
+          margin: "0 0 20px 0",
+          padding: "16px 20px",
+          background: isVerifiedEmployer ? "#f0fdf4" : verificationState.isSuspended || verificationState.isRejected ? "#fef2f2" : "#fffbeb",
+          border: isVerifiedEmployer ? "1px solid #bbf7d0" : verificationState.isSuspended || verificationState.isRejected ? "1px solid #fca5a5" : "1px solid #fde68a",
+          borderRadius: "12px",
+          color: "#1e293b",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "12px"
+        }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+              <span style={{ fontSize: "20px" }}>
+                {verificationState.isSuspended ? "🔴" : isVerifiedEmployer ? "🛡️" : verificationState.isRejected ? "❌" : "⏳"}
+              </span>
+              <strong style={{ fontSize: "16px", color: isVerifiedEmployer ? "#166534" : verificationState.isSuspended || verificationState.isRejected ? "#991b1b" : "#92400e" }}>
+                {verificationState.isSuspended
+                  ? "Account Suspended"
+                  : isVerifiedEmployer
+                  ? "✓ Verified Employer Account"
+                  : verificationState.isRejected
+                  ? "Verification Status: Rejected"
+                  : "Verification Status: Pending Administrator Review"}
+              </strong>
+            </div>
+            <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.4" }}>
+              {verificationState.isSuspended ? (
+                <>Your account is suspended. Reason: {verificationState.reason || "Administrative policy enforcement."}. You cannot publish jobs.</>
+              ) : isVerifiedEmployer ? (
+                <>Your business identity has been verified. You may create and manage job postings.</>
+              ) : verificationState.isRejected ? (
+                <>Reason: {verificationState.reason || "Verification documents did not meet guidelines."} Please update your verification documents in Company Profile.</>
+              ) : (
+                <>Your account is awaiting administrator review. You cannot publish jobs until approved.</>
+              )}
+            </p>
+          </div>
 
-        {!isVerifiedEmployer && (
-          <Link to="/employer/company-profile" style={{ background: "#58158f", color: "#fff", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", textDecoration: "none" }}>
-            View Verification Profile →
-          </Link>
-        )}
-      </div>
+          {!isVerifiedEmployer && !verificationState.isSuspended && (
+            <Link to="/employer/company-profile" style={{ background: "#58158f", color: "#fff", padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", textDecoration: "none" }}>
+              View Verification Profile →
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* Stats grid — 7 cards */}
       <div className="enterprise-stats-grid">

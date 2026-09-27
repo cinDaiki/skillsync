@@ -57,6 +57,11 @@ export default function DashboardLayout({
   const displayEmail = currentUser?.email || "user@skillsync.com";
   const displayInitial = displayName.charAt(0).toUpperCase();
   const photoUrl = currentUser?.profile_picture_url || "";
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [photoUrl]);
 
   return (
     <div className="dashboard-page">
@@ -81,7 +86,7 @@ export default function DashboardLayout({
             </div>
 
             {/* Avatar: real photo if available, letter-initial otherwise */}
-            {photoUrl ? (
+            {photoUrl && !imgError ? (
               <span
                 style={{
                   width: "38px",
@@ -105,15 +110,27 @@ export default function DashboardLayout({
                     borderRadius: "50%",
                     display: "block",
                   }}
-                  onError={(e) => {
-                    // If photo fails to load, fall back to initial
-                    e.target.style.display = "none";
-                    e.target.parentNode.textContent = displayInitial;
-                  }}
+                  onError={() => setImgError(true)}
                 />
               </span>
             ) : (
-              <span>{displayInitial}</span>
+              <span
+                style={{
+                  width: "38px",
+                  height: "38px",
+                  borderRadius: "50%",
+                  overflow: "hidden",
+                  flexShrink: 0,
+                  background: "rgba(88,21,143,0.1)",
+                  color: "#58158f",
+                  fontWeight: "700",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {displayInitial}
+              </span>
             )}
           </div>
         </div>

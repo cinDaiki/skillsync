@@ -5,6 +5,7 @@ import { uploadEmployerVerification, uploadCompanyBranding } from "../../service
 import ProfilePictureUploader from "../../components/common/ProfilePictureUploader";
 import { setCurrentUser, getCurrentUser } from "../../services/localStorageService";
 import { isDevMode } from "../../services/devMode";
+import { getEmployerVerificationState } from "../../utils/employerVerification";
 
 export default function CompanyProfile() {
   const [isEditing, setIsEditing] = useState(false);
@@ -14,6 +15,7 @@ export default function CompanyProfile() {
   const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState(null);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState("");
+  const [verificationState, setVerificationState] = useState(() => getEmployerVerificationState());
 
   const [company, setCompany] = useState({
     companyName: "",
@@ -69,10 +71,10 @@ export default function CompanyProfile() {
     }
     setUserId(user.id);
 
-    // Load personal profile picture from profiles table
+    // Load personal profile data from profiles table
     const { data: prof } = await supabase
       .from("profiles")
-      .select("profile_picture_url")
+      .select("profile_picture_url, verification_status, verification_reason, is_suspended, suspension_reason_code, suspension_expires_at")
       .eq("id", user.id)
       .maybeSingle();
     if (prof?.profile_picture_url) setProfilePhotoUrl(prof.profile_picture_url);
@@ -82,6 +84,9 @@ export default function CompanyProfile() {
       .select("*")
       .eq("id", user.id)
       .maybeSingle();
+
+    const vState = getEmployerVerificationState({ profile: prof, employerProfile: data });
+    setVerificationState(vState);
 
     if (data) {
       setCompany({
@@ -372,13 +377,26 @@ export default function CompanyProfile() {
             </>
           ) : (
             <div className="verification-tab">
-              <div style={{ padding: '16px', background: company.verification_status === 'Verified' || company.verification_status === 'Approved' ? '#dcfce7' : '#fef9c3', borderRadius: '8px', marginBottom: '20px' }}>
-                <h3 style={{ margin: 0, color: company.verification_status === 'Verified' || company.verification_status === 'Approved' ? '#166534' : '#854d0e' }}>
-                  Verification Status: {company.verification_status}
+              <div style={{
+                padding: '16px',
+                background: verificationState.isApproved ? '#dcfce7' : verificationState.isSuspended || verificationState.isRejected ? '#fee2e2' : '#fef9c3',
+                borderRadius: '8px',
+                marginBottom: '20px'
+              }}>
+                <h3 style={{
+                  margin: 0,
+                  color: verificationState.isApproved ? '#166534' : verificationState.isSuspended || verificationState.isRejected ? '#991b1b' : '#854d0e'
+                }}>
+                  Verification Status: {verificationState.status}
                 </h3>
                 <p style={{ fontSize: '13px', margin: '4px 0 0 0', color: '#475569' }}>
-                  {company.verification_status === 'Verified' || company.verification_status === 'Approved' ? 'Your identity and business are verified. You can post jobs.' : 'Please upload your ID and business permits to get verified.'}
+                  {verificationState.message}
                 </p>
+                {verificationState.isRejected && verificationState.reason && (
+                  <p style={{ fontSize: '12px', margin: '6px 0 0 0', color: '#b91c1c', fontWeight: '600' }}>
+                    Rejection Reason: {verificationState.reason}
+                  </p>
+                )}
               </div>
 
               <div className="profile-form-grid">

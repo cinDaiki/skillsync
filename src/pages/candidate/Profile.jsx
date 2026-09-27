@@ -9,7 +9,7 @@ import {
   saveCandidateProfile,
   setCurrentUser,
 } from "../../services/localStorageService";
-import { uploadVerificationDocument, uploadCertificateFile, getCertificateSignedUrl } from "../../services/api";
+import { uploadVerificationDocument, uploadCertificateFile, getCertificateSignedUrl, getPrivateDocumentSignedUrl } from "../../services/api";
 import { runMatchingForCandidate } from "../../services/matchingEngine";
 import ProfilePictureUploader from "../../components/common/ProfilePictureUploader";
 import { isDevMode } from "../../services/devMode";
@@ -124,6 +124,17 @@ export default function Profile() {
       verificationDate: data.verification_date || null,
       verificationReason: data.verification_reason || data.rejection_reason || ""
     });
+
+    if (data.id_image_url && !data.id_image_url.startsWith('blob:') && !data.id_image_url.startsWith('data:')) {
+      getPrivateDocumentSignedUrl(data.id_image_url).then(({ url }) => {
+        if (url) setProfile(prev => ({ ...prev, idImageUrl: url }));
+      }).catch(() => {});
+    }
+    if (data.selfie_image_url && !data.selfie_image_url.startsWith('blob:') && !data.selfie_image_url.startsWith('data:')) {
+      getPrivateDocumentSignedUrl(data.selfie_image_url).then(({ url }) => {
+        if (url) setProfile(prev => ({ ...prev, selfieImageUrl: url }));
+      }).catch(() => {});
+    }
 
     setSkills(parseSkills(data.skills));
     setEducation(parseJsonField(data.education, []));
@@ -681,29 +692,30 @@ export default function Profile() {
       const activeId = userId || getCurrentUser()?.id;
       if (!activeId) throw new Error("No active user session");
       
-      const { data: url, error } = await uploadVerificationDocument(file, activeId, type);
+      const { data: previewUrl, storagePath, error } = await uploadVerificationDocument(file, activeId, type);
       if (error) throw error;
       
       const updateKey = type === "id" ? "idImageUrl" : "selfieImageUrl";
       const newStatus = "Pending Verification";
       const newDate = new Date().toISOString();
+      const objectPath = storagePath || previewUrl;
       
       setProfile(prev => ({
         ...prev,
-        [updateKey]: url,
+        [updateKey]: previewUrl,
         verificationStatus: newStatus,
         verificationDate: newDate
       }));
       
       const { error: rpcErr } = await supabase.rpc("submit_identity_verification", {
-        p_id_image_url: type === "id" ? url : null,
-        p_selfie_image_url: type === "selfie" ? url : null
+        p_id_image_url: type === "id" ? objectPath : null,
+        p_selfie_image_url: type === "selfie" ? objectPath : null
       });
 
       if (rpcErr) {
         // Fallback for offline / direct update if RPC is unavailable in local mockup
         await supabase.from("profiles").update({
-          [type === "id" ? "id_image_url" : "selfie_image_url"]: url,
+          [type === "id" ? "id_image_url" : "selfie_image_url"]: objectPath,
           updated_at: newDate
         }).eq("id", activeId);
       }

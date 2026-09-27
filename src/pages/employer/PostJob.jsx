@@ -8,6 +8,7 @@ import { runMatchingForJob }                          from "../../services/match
 import { generateAndStoreJobEmbedding,
          buildJobTextForEmbedding }                   from "../../services/ai/embeddingService";
 import { PRESET_REQUIREMENTS, encodeApplicationRequirements } from "../../utils/jobRequirementsHelper";
+import { fetchAuthoritativeEmployerVerification, getEmployerVerificationState } from "../../utils/employerVerification";
 
 export default function PostJob() {
   const navigate = useNavigate();
@@ -32,6 +33,8 @@ export default function PostJob() {
   // Employer verification status state
   const [employerProfile, setEmployerProfile] = useState(null);
   const [checkingVerification, setCheckingVerification] = useState(true);
+  const [verificationError, setVerificationError] = useState(null);
+  const [verificationState, setVerificationState] = useState(() => getEmployerVerificationState());
 
   // Application Document Requirements State
   const [appReqs, setAppReqs] = useState(
@@ -48,16 +51,26 @@ export default function PostJob() {
 
   async function checkEmployerVerification() {
     setCheckingVerification(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: prof } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .maybeSingle();
-      setEmployerProfile(prof);
+    setVerificationError(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { profile, employerProfile: ep, verificationState: vState, error } =
+          await fetchAuthoritativeEmployerVerification(user.id);
+        if (error) {
+          console.error("[PostJob] Error checking employer verification:", error);
+          setVerificationError(error);
+        } else {
+          setEmployerProfile(profile || ep);
+          setVerificationState(vState);
+        }
+      }
+    } catch (err) {
+      console.error("[PostJob] Exception checking employer verification:", err);
+      setVerificationError(err);
+    } finally {
+      setCheckingVerification(false);
     }
-    setCheckingVerification(false);
   }
 
   function handleChange(e) {
@@ -111,16 +124,20 @@ export default function PostJob() {
     }
   }
 
-  const isVerifiedEmployer =
-    employerProfile?.verification_status === "Approved" ||
-    employerProfile?.verification_status === "Verified";
+  const isVerifiedEmployer = verificationState.canPostJob;
 
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
 
-    if (!isVerifiedEmployer) {
-      toast.error("Verification Required: Your employer account must be verified before you can publish job postings.");
+    if (checkingVerification) {
+      toast.info("Please wait while verification status is being checked.");
+      setLoading(false);
+      return;
+    }
+
+    if (!verificationState.canPostJob) {
+      toast.error(verificationState.message || "Verification Required: Your employer account must be verified before you can publish job postings.");
       setLoading(false);
       return;
     }
@@ -212,22 +229,54 @@ export default function PostJob() {
           </div>
         </div>
 
-        {/* ── EMPLOYER VERIFICATION WARNING BANNER ── */}
-        {!checkingVerification && !isVerifiedEmployer && (
-          <div style={{ margin: "16px 0", padding: "16px 20px", background: employerProfile?.verification_status === "Rejected" ? "#fef2f2" : "#fffbeb", border: employerProfile?.verification_status === "Rejected" ? "1px solid #fca5a5" : "1px solid #fde68a", borderRadius: "10px", color: "#1e293b" }}>
+        {/* ── EMPLOYER VERIFICATION STATUS / WARNING BANNERS ── */}
+        {checkingVerification && (
+          <div style={{ margin: "16px 0", padding: "16px 20px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", color: "#64748b", display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "18px" }}>🔄</span>
+            <span style={{ fontSize: "14px", fontWeight: "600" }}>Checking employer verification status...</span>
+          </div>
+        )}
+
+        {!checkingVerification && verificationError && (
+          <div style={{ margin: "16px 0", padding: "16px 20px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "10px", color: "#991b1b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <strong>Unable to verify employer status.</strong>
+              <p style={{ margin: "4px 0 0 0", fontSize: "13px" }}>{verificationError.message || "Please check your connection and try again."}</p>
+            </div>
+            <button type="button" onClick={checkEmployerVerification} className="profile-save-btn" style={{ padding: "6px 14px", fontSize: "13px" }}>
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!checkingVerification && !verificationError && !verificationState.canPostJob && (
+          <div style={{
+            margin: "16px 0",
+            padding: "16px 20px",
+            background: verificationState.isSuspended || verificationState.isRejected ? "#fef2f2" : "#fffbeb",
+            border: verificationState.isSuspended || verificationState.isRejected ? "1px solid #fca5a5" : "1px solid #fde68a",
+            borderRadius: "10px",
+            color: "#1e293b"
+          }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
               <span style={{ fontSize: "20px" }}>
-                {employerProfile?.verification_status === "Rejected" ? "❌" : "⏳"}
+                {verificationState.isSuspended ? "🔴" : verificationState.isRejected ? "❌" : "⏳"}
               </span>
-              <strong style={{ fontSize: "15px", color: "#92400e" }}>
-                {employerProfile?.verification_status === "Rejected" ? "Employer Account Verification Rejected" : "Verification Status: Pending Administrator Review"}
+              <strong style={{ fontSize: "15px", color: verificationState.isSuspended || verificationState.isRejected ? "#991b1b" : "#92400e" }}>
+                {verificationState.isSuspended
+                  ? "Account Suspended"
+                  : verificationState.isRejected
+                  ? "Employer Account Verification Rejected"
+                  : "Verification Status: Pending Administrator Review"}
               </strong>
             </div>
             <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.5" }}>
-              {employerProfile?.verification_status === "Rejected" ? (
-                <>Reason: {employerProfile?.verification_reason || "Verification documents did not meet platform guidelines."} Please update your verification documents in your Company Profile.</>
+              {verificationState.isSuspended ? (
+                <>Your account is suspended. Reason: {verificationState.reason || "Administrative policy enforcement."}. You cannot publish jobs.</>
+              ) : verificationState.isRejected ? (
+                <>Reason: {verificationState.reason || "Verification documents did not meet platform guidelines."} Please update your verification documents in your Company Profile.</>
               ) : (
-                <>Your employer account is awaiting administrator verification. You cannot publish jobs until your account is approved.</>
+                <>Your employer account is awaiting administrator review. You cannot publish jobs until approved.</>
               )}
             </p>
           </div>
@@ -390,8 +439,12 @@ export default function PostJob() {
           </label>
 
           <div className="profile-actions" style={{ marginTop: "24px" }}>
-            <button type="submit" className="profile-save-btn" disabled={loading}>
-              {loading ? "Posting..." : "Publish Job Post"}
+            <button
+              type="submit"
+              className="profile-save-btn"
+              disabled={loading || checkingVerification || !verificationState.canPostJob}
+            >
+              {loading ? "Posting..." : checkingVerification ? "Checking Verification..." : "Publish Job Post"}
             </button>
             <button type="button" className="profile-cancel-btn" onClick={() => navigate("/employer/jobs")}>
               Cancel

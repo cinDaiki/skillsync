@@ -13,6 +13,7 @@ import { supabase } from "../../services/supabase";
 import { setCurrentUser } from "../../services/localStorageService";
 import { isDevMode } from "../../services/devMode";
 import { useAuthAction } from "../../context/AuthActionContext";
+import { isLocalQaOtpBypassAllowed } from "../../services/localQaOtpBypass";
 import "./AdminLogin.css";
 
 function maskEmail(email) {
@@ -69,6 +70,31 @@ export default function AdminLogin() {
     return () => clearInterval(timer);
   }, [otpCooldown]);
 
+  // Handle existing admin session on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function checkSessionOnMount() {
+      if (isDevMode()) return;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user || !isMounted) return;
+        const deviceToken = getOrCreateDeviceToken();
+        const { data: trustData } = await checkSessionTrust(deviceToken);
+        if (!isMounted) return;
+        if (trustData?.is_trusted === true && trustData?.requires_otp === false) {
+          const { data: gate } = await getLoginGateStatus();
+          if (gate?.role === "admin" && !gate?.is_suspended) {
+            navigate("/admin/dashboard", { replace: true });
+          }
+        }
+      } catch {}
+    }
+    checkSessionOnMount();
+    return () => {
+      isMounted = false;
+    };
+  }, [navigate]);
+
   function handleChange(e) {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -104,7 +130,7 @@ export default function AdminLogin() {
                   role:      "admin",
                   full_name: authData.user.full_name || authData.user?.user_metadata?.full_name || "",
                 });
-                navigate("/admin/dashboard");
+                navigate("/admin/dashboard", { replace: true });
               },
             };
           } else {
@@ -162,8 +188,11 @@ export default function AdminLogin() {
           return { success: false, error: trustError };
         }
 
-        if (trustData?.is_trusted === true && trustData?.requires_otp === false) {
-          // TRUSTED DEVICE: Complete sign in immediately
+        const isTrusted = trustData?.is_trusted === true && trustData?.requires_otp === false;
+        const isQaBypass = isLocalQaOtpBypassAllowed(email);
+
+        if (isTrusted || isQaBypass) {
+          // TRUSTED DEVICE OR LOCAL QA BYPASS: Complete sign in immediately
           const { data: profile } = await supabase
             .from("profiles")
             .select("role, full_name, email")
@@ -179,7 +208,7 @@ export default function AdminLogin() {
                 role: "admin",
                 full_name: profile?.full_name || "Administrator",
               });
-              navigate("/admin/dashboard");
+              navigate("/admin/dashboard", { replace: true });
             },
           };
         }
@@ -268,7 +297,7 @@ export default function AdminLogin() {
               role: "admin",
               full_name: profile?.full_name || "Administrator",
             });
-            navigate("/admin/dashboard");
+            navigate("/admin/dashboard", { replace: true });
           },
         };
       });

@@ -676,47 +676,57 @@ export const CURATED_MICROCREDENTIALS = [
  * Cached in memory to ensure optimal performance without repeated network overhead.
  */
 let cachedCatalog = null;
+let catalogFetchPromise = null;
 
 export async function getMicrocredentialsCatalog() {
   if (cachedCatalog) return cachedCatalog;
+  if (catalogFetchPromise) return catalogFetchPromise;
+
+  catalogFetchPromise = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('microcredentials_catalog')
+        .select('*')
+        .eq('is_active', true);
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        cachedCatalog = data.map(item => ({
+          id: item.id,
+          title: item.title,
+          provider: item.provider,
+          issuer: item.issuer || item.provider,
+          sourceType: item.source_type || item.sourceType || 'learning_platform',
+          credentialType: item.credential_type || item.credentialType || 'course',
+          level: item.level || 'Beginner',
+          duration: item.duration || 'Self-paced',
+          description: item.description || '',
+          skills: Array.isArray(item.skills) ? item.skills : [item.skill_name || ''],
+          skillAliases: Array.isArray(item.skill_aliases) ? item.skill_aliases : [],
+          skill_name: item.skill_name || (Array.isArray(item.skills) ? item.skills[0] : ''),
+          canonical_skill: item.canonical_skill || (item.skill_name ? item.skill_name.toLowerCase() : ''),
+          officialUrl: item.official_url || item.credential_url || item.url,
+          credential_url: item.credential_url || item.official_url || item.url,
+          badge: item.badge || `🎓 ${item.provider || 'Verified'} Certificate`,
+          country: item.country || 'Global',
+          isVerifiedSource: item.is_verified_source ?? true,
+          lastVerifiedAt: item.last_verified_at || null,
+          is_active: item.is_active ?? true
+        }));
+        return cachedCatalog;
+      }
+    } catch (err) {
+      console.warn('[Microcredentials] Supabase query fallback to curated catalog:', err?.message || err);
+    }
+
+    cachedCatalog = CURATED_MICROCREDENTIALS;
+    return cachedCatalog;
+  })();
 
   try {
-    const { data, error } = await supabase
-      .from('microcredentials_catalog')
-      .select('*')
-      .eq('is_active', true);
-
-    if (!error && Array.isArray(data) && data.length > 0) {
-      cachedCatalog = data.map(item => ({
-        id: item.id,
-        title: item.title,
-        provider: item.provider,
-        issuer: item.issuer || item.provider,
-        sourceType: item.source_type || item.sourceType || 'learning_platform',
-        credentialType: item.credential_type || item.credentialType || 'course',
-        level: item.level || 'Beginner',
-        duration: item.duration || 'Self-paced',
-        description: item.description || '',
-        skills: Array.isArray(item.skills) ? item.skills : [item.skill_name || ''],
-        skillAliases: Array.isArray(item.skill_aliases) ? item.skill_aliases : [],
-        skill_name: item.skill_name || (Array.isArray(item.skills) ? item.skills[0] : ''),
-        canonical_skill: item.canonical_skill || (item.skill_name ? item.skill_name.toLowerCase() : ''),
-        officialUrl: item.official_url || item.credential_url || item.url,
-        credential_url: item.credential_url || item.official_url || item.url,
-        badge: item.badge || `🎓 ${item.provider || 'Verified'} Certificate`,
-        country: item.country || 'Global',
-        isVerifiedSource: item.is_verified_source ?? true,
-        lastVerifiedAt: item.last_verified_at || null,
-        is_active: item.is_active ?? true
-      }));
-      return cachedCatalog;
-    }
-  } catch (err) {
-    console.warn('[Microcredentials] Supabase query fallback to curated catalog:', err?.message || err);
+    return await catalogFetchPromise;
+  } finally {
+    catalogFetchPromise = null;
   }
-
-  cachedCatalog = CURATED_MICROCREDENTIALS;
-  return cachedCatalog;
 }
 
 /**
