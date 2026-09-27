@@ -313,7 +313,7 @@ export default function AIJobMatches() {
                             style={!isEligible && !applied ? { opacity: 0.65, cursor: "not-allowed", background: "#f43f5e" } : {}}
                             title={!isEligible ? `Match score (${job.matchScore || 0}%) is below the required ${threshold}%` : ''}
                           >
-                            {applied ? '✓ Applied' : applying === job.id ? 'Applying…' : !isEligible ? 'Below Req' : 'Apply'}
+                            {applied ? '✓ Applied' : applying === job.id ? 'Applying…' : !isEligible ? 'Match Too Low to Apply' : 'Apply Now'}
                           </button>
                         </div>
                       </div>

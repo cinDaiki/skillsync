@@ -61,6 +61,8 @@ export default function JobMatches() {
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const [showImproveMatchModal, setShowImproveMatchModal] = useState(false);
   const [recalculatingMatch, setRecalculatingMatch] = useState(false);
+  const [matchesMap, setMatchesMap] = useState(new Map());
+  const [matchesLoading, setMatchesLoading] = useState(true);
 
   async function handleRecalculateMatch() {
     if (!selectedJob?.id || recalculatingMatch) return;
@@ -69,6 +71,16 @@ export default function JobMatches() {
       const res = await recalculateAuthoritativeMatch(selectedJob.id);
       if (res.success) {
         setEligibility(res.eligibility);
+        setMatchesMap(prev => {
+          const next = new Map(prev);
+          next.set(selectedJob.id, {
+            job_id: selectedJob.id,
+            match_score: res.matchScore,
+            matching_skills: res.eligibility?.matchingSkills || [],
+            missing_skills: res.eligibility?.missingSkills || []
+          });
+          return next;
+        });
         toast.success(`Match recalculated! Current score: ${res.matchScore}%`);
       } else {
         toast.error("Recalculation failed: " + (res.error?.message || "Unknown error"));
@@ -103,6 +115,7 @@ export default function JobMatches() {
 
   async function loadData() {
     setLoading(true);
+    setMatchesLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     
     if (user) {
@@ -151,9 +164,20 @@ export default function JobMatches() {
         .eq("applicant_id", user.id);
       setApplications(appsData || []);
 
-      // 4. Bookmarks
+      // 4. Fetch authoritative job_matches for candidate
+      const { data: matchesData } = await supabase
+        .from("job_matches")
+        .select("job_id, match_score, skills_score, education_score, experience_score, match_status, matching_skills, missing_skills")
+        .eq("user_id", user.id);
+      const mMap = new Map((matchesData || []).map((m) => [m.job_id, m]));
+      setMatchesMap(mMap);
+      setMatchesLoading(false);
+
+      // 5. Bookmarks
       const savedBookmarks = localStorage.getItem(`skillsync_bookmarks_${user.id}`);
       if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
+    } else {
+      setMatchesLoading(false);
     }
 
     // 5. Fetch ALL active open jobs from Approved/Verified employers, ordered by created_at DESC (newest first)
@@ -269,9 +293,12 @@ export default function JobMatches() {
       return;
     }
 
-    // Authoritative Match Threshold Gate (Phase 4B)
-    if (eligibility && !eligibility.eligible) {
-      toast.error(`Your match score (${eligibility.matchScore}%) is below this employer's requirement (${eligibility.requiredMatch}%).`);
+    // Authoritative Match Threshold Gate (Phase 4B & P1 Consistency)
+    const matchRecord = matchesMap.get(job.id);
+    const score = matchRecord?.match_score ?? (selectedJob?.id === job.id && eligibility ? eligibility.matchScore : 0);
+    const reqScore = typeof job.minimum_match_percentage === 'number' ? job.minimum_match_percentage : 70;
+    if (score < reqScore) {
+      toast.error(`Your match score (${score}%) is below this employer's requirement (${reqScore}%). You can use "Improve My Match" to view skill gaps.`);
       return;
     }
 
@@ -445,9 +472,12 @@ export default function JobMatches() {
             <div className="job-match-list">
             {paginatedJobs.map((job) => {
               const applied = hasApplied(job.id);
-              const applyDisabled = applied || isApplyBlocked;
-              const applyLabel = applied ? "Applied ✓" : isApplyBlocked ? "🔒 Apply Now" : "Apply Now";
-              const applyTitle = applied ? "You have already applied" : !hasResume ? "Upload a resume to apply" : verificationStatus !== "Verified" && verificationStatus !== "Approved" ? "Complete identity verification to apply" : "";
+              const matchRecord = matchesMap.get(job.id);
+              const hasMatch = matchRecord && typeof matchRecord.match_score === "number";
+              const matchScore = hasMatch ? matchRecord.match_score : null;
+              const reqScore = typeof job.minimum_match_percentage === "number" ? job.minimum_match_percentage : 70;
+              const isEligible = hasMatch && matchScore >= reqScore;
+              const isChecking = loading || matchesLoading;
               const { applicationRequirements } = parseJobRequirements(job);
 
               return (
@@ -503,6 +533,36 @@ export default function JobMatches() {
                     </div>
                   )}
 
+                  {/* Authoritative Application Eligibility Row */}
+                  <div style={{
+                    margin: "10px 0 4px 0",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    background: isChecking ? "#f8fafc" : hasMatch ? (isEligible ? "#f0fdf4" : "#fef2f2") : "#f8fafc",
+                    border: `1px solid ${isChecking ? "#e2e8f0" : hasMatch ? (isEligible ? "#bbf7d0" : "#fecaca") : "#e2e8f0"}`,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "6px"
+                  }}>
+                    <div style={{ fontSize: "12px", color: isChecking ? "#64748b" : hasMatch ? (isEligible ? "#166534" : "#991b1b") : "#64748b", fontWeight: "600" }}>
+                      Your Match: <strong style={{ fontSize: "13px" }}>{isChecking ? "..." : hasMatch ? `${matchScore}%` : "—"}</strong>
+                      <span style={{ margin: "0 6px", opacity: 0.4 }}>|</span>
+                      Required Match: <strong style={{ fontSize: "13px" }}>{reqScore}%</strong>
+                    </div>
+                    <span style={{
+                      fontSize: "11px",
+                      fontWeight: "800",
+                      padding: "3px 8px",
+                      borderRadius: "10px",
+                      background: isChecking ? "#e2e8f0" : hasMatch ? (isEligible ? "#dcfce7" : "#fee2e2") : "#f1f5f9",
+                      color: isChecking ? "#475569" : hasMatch ? (isEligible ? "#15803d" : "#b91c1c") : "#475569"
+                    }}>
+                      {isChecking ? "Checking eligibility..." : hasMatch ? (isEligible ? "✓ Eligible" : "⚠ Below Requirement") : "Review Profile"}
+                    </span>
+                  </div>
+
                   <div className="job-card-footer">
                     <div className="job-card-meta">
                       <span>📍 {job.location || "Location not specified"}</span>
@@ -522,14 +582,54 @@ export default function JobMatches() {
                         className="view-details-btn"
                         onClick={() => handleViewDetails(job)}
                       >View Details</button>
-                      <button
-                        type="button"
-                        className="job-apply-primary"
-                        onClick={() => handlePromptApply(job)}
-                        disabled={applyDisabled}
-                        title={applyTitle}
-                        style={isApplyBlocked && !applied ? { opacity: 0.6, cursor: "not-allowed" } : {}}
-                      >{applyLabel}</button>
+                      {!isEligible && !applied && hasMatch && (
+                        <button
+                          type="button"
+                          className="view-details-btn"
+                          style={{ background: "#f5f3ff", color: "#6d28d9", borderColor: "#c4b5fd", fontWeight: "700" }}
+                          onClick={() => {
+                            setSelectedJob(job);
+                            setShowImproveMatchModal(true);
+                          }}
+                        >
+                          Improve My Match
+                        </button>
+                      )}
+                      {isChecking ? (
+                        <button type="button" className="job-apply-primary" disabled style={{ opacity: 0.7, cursor: "not-allowed" }}>
+                          Checking eligibility...
+                        </button>
+                      ) : applied ? (
+                        <button type="button" className="job-apply-primary" disabled style={{ opacity: 0.7, cursor: "not-allowed" }}>
+                          Applied ✓
+                        </button>
+                      ) : !hasResume ? (
+                        <button type="button" className="job-apply-primary" disabled style={{ opacity: 0.6, cursor: "not-allowed" }} title="Upload a resume to apply">
+                          🔒 Resume Required
+                        </button>
+                      ) : verificationStatus !== "Verified" && verificationStatus !== "Approved" ? (
+                        <button type="button" className="job-apply-primary" disabled style={{ opacity: 0.6, cursor: "not-allowed" }} title="Complete identity verification to apply">
+                          🔒 Verification Required
+                        </button>
+                      ) : !isEligible ? (
+                        <button
+                          type="button"
+                          className="job-apply-primary"
+                          disabled
+                          style={{ opacity: 0.65, cursor: "not-allowed", background: "#f43f5e" }}
+                          title={`Match score (${matchScore ?? 0}%) is below required ${reqScore}%`}
+                        >
+                          Match Too Low to Apply
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="job-apply-primary"
+                          onClick={() => handlePromptApply(job)}
+                        >
+                          Apply Now
+                        </button>
+                      )}
                     </div>
                   </div>
                 </article>

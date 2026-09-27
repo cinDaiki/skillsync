@@ -255,6 +255,7 @@ export async function fetchSemanticMatchesForCandidate(userId) {
     .select('*, jobs!inner(*)')
     .eq('user_id', userId)
     .order('match_score', { ascending: false })
+    .order('updated_at', { ascending: false })
 
   if (error) {
     console.error('[SemanticMatching] fetchSemanticMatchesForCandidate:', error.message)
@@ -267,6 +268,11 @@ export async function fetchSemanticMatchesForCandidate(userId) {
 
   return rawMatches
     .filter(m => !suspendedSet.has(m.jobs?.employer_id))
+    .sort((a, b) => {
+      const scoreDiff = (b.match_score ?? 0) - (a.match_score ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return new Date(b.jobs?.created_at || b.updated_at || 0) - new Date(a.jobs?.created_at || a.updated_at || 0);
+    })
     .map((m, idx) => ({
       ...m.jobs,
       rank:            idx + 1,

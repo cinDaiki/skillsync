@@ -116,8 +116,19 @@ export default function RecommendedJobs({
     }
   };
 
-  // Filter & Sort jobs
-  const filteredJobs = jobs.filter((job) => {
+  // ── TOP 10 HIGHEST MATCHES ONLY (P2 Specification) ─────────────────────────
+  // Server-authoritative sort by matchScore DESC, secondary deterministic sort created_at DESC
+  // Strictly capped at top 10 open jobs
+  const top10SourceJobs = [...jobs]
+    .sort((a, b) => {
+      const scoreDiff = (b.matchScore ?? 0) - (a.matchScore ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    })
+    .slice(0, 10);
+
+  // Filter & Sort jobs within Top 10
+  const filteredJobs = top10SourceJobs.filter((job) => {
     const q = searchQuery.toLowerCase();
     const matchesSearch =
       !q ||
@@ -222,11 +233,18 @@ export default function RecommendedJobs({
     <div className="rec-jobs-container">
       <div className="rec-jobs-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
         <div>
-          <h2 className="rec-jobs-title">🎯 Recommended Jobs for You</h2>
+          <h2 className="rec-jobs-title">🎯 Recommended Jobs — Top Matches For You</h2>
           <p className="rec-jobs-subtitle">
-            Matched against your parsed resume skills, experience, and AI semantic profile.
+            Showing your top 10 highest-ranked job matches, sorted by authoritative match score.
+            {top10SourceJobs.length > 0 && (
+              <span style={{ display: "block", marginTop: "4px", color: "#4f46e5", fontWeight: "600", fontSize: "12px" }}>
+                Best Available Match: <strong>{top10SourceJobs[0]?.matchScore ?? 0}%</strong>
+                {" · "}
+                Employer Requirement: <strong>{top10SourceJobs[0]?.minimum_match_percentage ?? 70}%</strong>
+              </span>
+            )}
             {lastUpdatedText && (
-              <span style={{ display: "block", marginTop: "4px", color: "#16a34a", fontWeight: "600", fontSize: "12px" }}>
+              <span style={{ display: "block", marginTop: "2px", color: "#16a34a", fontWeight: "600", fontSize: "12px" }}>
                 ✓ {lastUpdatedText}
               </span>
             )}
@@ -267,7 +285,7 @@ export default function RecommendedJobs({
           )}
 
           <div className="rec-jobs-count-badge">
-            {filteredJobs.length} Match{filteredJobs.length !== 1 ? 'es' : ''}
+            Top {filteredJobs.length} Match{filteredJobs.length !== 1 ? 'es' : ''}
           </div>
         </div>
       </div>
@@ -448,6 +466,19 @@ export default function RecommendedJobs({
                         >
                           View Details
                         </button>
+                        {!isEligible && !isApplied && (
+                          <button
+                            type="button"
+                            className="rec-job-btn secondary"
+                            style={{ background: "#f5f3ff", color: "#6d28d9", borderColor: "#c4b5fd", fontWeight: "700" }}
+                            onClick={() => {
+                              setSelectedJob(job);
+                              setShowImproveMatchModal(true);
+                            }}
+                          >
+                            Improve My Match
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="rec-job-btn primary"
@@ -456,7 +487,7 @@ export default function RecommendedJobs({
                           style={(!isVerified || !isEligible) && !isApplied ? { opacity: 0.65, cursor: "not-allowed", background: !isEligible ? "#f43f5e" : "#94a3b8" } : {}}
                           title={!isEligible ? `Match score (${job.matchScore || 0}%) is below the required ${threshold}%` : ''}
                         >
-                          {isApplied ? '✓ Applied' : isApplying ? 'Applying...' : !isVerified ? '🔒 Verification Required' : !isEligible ? 'Below Requirement' : 'Apply Now'}
+                          {isApplied ? '✓ Applied' : isApplying ? 'Applying...' : !isVerified ? '🔒 Verification Required' : !isEligible ? 'Match Too Low to Apply' : 'Apply Now'}
                         </button>
                       </div>
                     );

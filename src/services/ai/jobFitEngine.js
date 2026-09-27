@@ -208,34 +208,35 @@ export function evaluateEducation(candidateEduRaw, jobEduRaw, jobTitleStr = '', 
     return 100;
   }
 
-  // 2. Candidate degree directly satisfies requirement
+  // 2. General / entry-level / service / VA / support roles where degree is not strictly specialized
+  const isGeneralOrServiceRole = 
+    jobTitle.includes('service') || jobTitle.includes('crew') || jobTitle.includes('support') || 
+    jobTitle.includes('assistant') || jobTitle.includes('virtual assistant') || jobTitle.includes('cashier') ||
+    jobTitle.includes('clerk') || jobTitle.includes('receptionist') || jobDesc.includes('entry level') ||
+    !jobEdu.includes('bachelor');
+
+  if (isGeneralOrServiceRole) {
+    return 100; // Zero penalty for degree holders or non-degree applicants applying to entry/general roles
+  }
+
+  // 3. Candidate degree directly satisfies requirement
   if (candEdu && (candEdu.includes(jobEdu) || jobEdu.includes(candEdu))) {
     return 100;
   }
 
-  // 3. Relevant degree match
-  if (candEdu.includes('it') || candEdu.includes('computer') || candEdu.includes('software')) {
-    if (jobTitle.includes('developer') || jobTitle.includes('web') || jobTitle.includes('software') || jobTitle.includes('it')) {
+  // 4. Relevant technical / computer degree match for software/IT jobs
+  if (candEdu.includes('it') || candEdu.includes('computer') || candEdu.includes('software') || candEdu.includes('technology')) {
+    if (jobTitle.includes('developer') || jobTitle.includes('web') || jobTitle.includes('software') || jobTitle.includes('it') || jobTitle.includes('engineer')) {
       return 100;
     }
   }
 
-  // 4. Non-penalizing: Candidate holds a degree applying to general / entry-level / service roles
-  const isGeneralOrServiceRole = 
-    jobTitle.includes('service') || jobTitle.includes('crew') || jobTitle.includes('support') || 
-    jobTitle.includes('assistant') || jobTitle.includes('cashier') || jobTitle.includes('clerk') ||
-    jobDesc.includes('entry level') || !jobEdu.includes('bachelor');
-
-  if (candEdu && isGeneralOrServiceRole) {
-    return 100; // Zero penalty for degree holders applying to entry/general roles
-  }
-
-  // 5. Degree present but job requires specific specialized degree
+  // 5. Degree present but job requires specific specialized non-matching degree
   if (candEdu && candEdu.length > 3) {
     return 70; // Partial match for having higher education
   }
 
-  return 50; // Minimum baseline when candidate education is unstated
+  return 50; // Minimum baseline when candidate education is unstated for specialized degree roles
 }
 
 /**
@@ -251,9 +252,11 @@ export function evaluateExperience(candidateYearsRaw, jobExpReqRaw, jobTitleStr 
   }
 
   const jobTitle = (jobTitleStr || '').toLowerCase();
-  const isEntryLevelJob = requiredYears <= 1 || jobTitle.includes('junior') || jobTitle.includes('entry') || jobTitle.includes('associate') || jobTitle.includes('crew');
+  const isEntryLevelJob = requiredYears <= 1 || jobTitle.includes('junior') || jobTitle.includes('entry') ||
+    jobTitle.includes('associate') || jobTitle.includes('crew') || jobTitle.includes('assistant') ||
+    jobTitle.includes('virtual assistant') || jobTitle.includes('intern') || jobTitle.includes('clerk');
 
-  // 1. Entry level job -> fresh grad (0 years) gets 100%
+  // 1. Entry level job -> fresh grad / 0 experience gets 100%
   if (isEntryLevelJob && candidateYears >= 0) {
     return 100;
   }
@@ -287,16 +290,19 @@ export function evaluateCredentials(candidateCertsRaw, jobReqCertsRaw, jobTitleS
 
   const matchedCerts = [];
   const missingCerts = [];
+  const hasReqCerts = reqCerts.length > 0;
 
   // Check required certs from employer
-  reqCerts.forEach(req => {
-    const isMatched = candCerts.some(c => c.includes(req) || req.includes(c));
-    if (isMatched) {
-      matchedCerts.push(req);
-    } else {
-      missingCerts.push(req);
-    }
-  });
+  if (hasReqCerts) {
+    reqCerts.forEach(req => {
+      const isMatched = candCerts.some(c => c.includes(req) || req.includes(c));
+      if (isMatched) {
+        matchedCerts.push(req);
+      } else {
+        missingCerts.push(req);
+      }
+    });
+  }
 
   // Also check if candidate certs are relevant to job title or description
   candCerts.forEach(cert => {
@@ -307,8 +313,8 @@ export function evaluateCredentials(candidateCertsRaw, jobReqCertsRaw, jobTitleS
     }
   });
 
-  let score = 50; // Baseline when no certs required
-  if (reqCerts.length > 0) {
+  let score = 100; // Neutral 100% when no certs required
+  if (hasReqCerts) {
     const matchCount = reqCerts.filter(r => candCerts.some(c => c.includes(r) || r.includes(c))).length;
     score = Math.round((matchCount / reqCerts.length) * 100);
   } else if (matchedCerts.length > 0) {
@@ -318,7 +324,8 @@ export function evaluateCredentials(candidateCertsRaw, jobReqCertsRaw, jobTitleS
   return {
     credentialsScore: score,
     matchedCerts,
-    missingCerts
+    missingCerts,
+    isRequirementSpecified: hasReqCerts
   };
 }
 
@@ -327,17 +334,20 @@ export function evaluateCredentials(candidateCertsRaw, jobReqCertsRaw, jobTitleS
  *
  * @param {object} candidate - { skills, course, degree, years_experience, certifications }
  * @param {object} job       - { title, required_skills, required_education, experience_required, required_certifications, description }
- * @param {number} semanticScoreNormalized - Cosine similarity (0.0 to 1.0) or percentage (0 to 100)
+ * @param {number|null} semanticScoreNormalized - Cosine similarity (0.0 to 1.0) or percentage (0 to 100) or null
  * @param {object} weights   - Custom weights override (optional)
  * @returns {object} Full Job Fit Breakdown & Explanation
  */
-export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalized = 0.70, weights = JOB_FIT_WEIGHTS) {
+export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalized = null, weights = JOB_FIT_WEIGHTS) {
   const w = { ...JOB_FIT_WEIGHTS, ...weights };
 
-  // Normalize semantic score to 0–100
-  const semanticPct = semanticScoreNormalized > 1 
-    ? Math.min(100, Math.max(0, semanticScoreNormalized))
-    : Math.min(100, Math.max(0, Math.round(semanticScoreNormalized * 100)));
+  // Determine whether valid semantic vector similarity exists
+  const hasEmbeddings = semanticScoreNormalized !== null && semanticScoreNormalized !== undefined && Number(semanticScoreNormalized) > 0;
+  const semanticPct = hasEmbeddings 
+    ? (semanticScoreNormalized > 1 
+        ? Math.min(100, Math.max(0, Math.round(semanticScoreNormalized)))
+        : Math.min(100, Math.max(0, Math.round(semanticScoreNormalized * 100))))
+    : 0;
 
   // 1. Evaluate Skills (Required + Transferable)
   const skillsEval = evaluateSkills(candidate.skills, job.required_skills);
@@ -352,16 +362,27 @@ export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalize
   // 4. Evaluate Credentials
   const credsEval = evaluateCredentials(candidate.certifications, job.required_certifications, job.title, job.description);
 
-  // 5. Calculate Weighted Final Job Fit Score
-  const rawScore = 
-    (skillsEval.requiredSkillsScore * w.requiredSkills) +
-    (skillsEval.transferableSkillsScore * w.transferableSkills) +
-    (eduScore * w.educationCompatibility) +
-    (expScore * w.experienceCompatibility) +
-    (semanticPct * w.semanticRelevance) +
-    (credsEval.credentialsScore * w.credentialsScore);
+  // 5. Dynamic Requirement-Aware Weights
+  const wSkills = w.requiredSkills ?? 0.35;
+  const wTrans = w.transferableSkills ?? 0.15;
+  const wEdu = w.educationCompatibility ?? 0.15;
+  const wExp = w.experienceCompatibility ?? 0.15;
+  const wCreds = credsEval.isRequirementSpecified ? (w.credentialsScore ?? 0.10) : 0.0;
+  const wSemantic = hasEmbeddings ? (w.semanticRelevance ?? 0.10) : 0.0;
 
-  const jobFitScore = Math.min(100, Math.max(0, Math.round(rawScore)));
+  const totalWeight = wSkills + wTrans + wEdu + wExp + wCreds + wSemantic;
+  const safeTotalWeight = totalWeight > 0 ? totalWeight : 1.0;
+
+  // 6. Calculate Weighted Final Job Fit Score (Normalized over applicable criteria)
+  const weightedSum = 
+    (skillsEval.requiredSkillsScore * wSkills) +
+    (skillsEval.transferableSkillsScore * wTrans) +
+    (eduScore * wEdu) +
+    (expScore * wExp) +
+    (credsEval.credentialsScore * wCreds) +
+    (semanticPct * wSemantic);
+
+  const jobFitScore = Math.min(100, Math.max(0, Math.round(weightedSum / safeTotalWeight)));
   const tier = getJobFitTier(jobFitScore);
 
   // Generate Targeted Microcredentials for Missing Skills using Controlled Catalog
@@ -412,6 +433,15 @@ export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalize
       experienceCompatibility: expScore,
       semanticRelevance: semanticPct,
       credentialsScore: credsEval.credentialsScore
+    },
+    applicableWeights: {
+      skills: wSkills,
+      transferable: wTrans,
+      education: wEdu,
+      experience: wExp,
+      credentials: wCreds,
+      semantic: wSemantic,
+      total: totalWeight
     },
     matchedSkills: skillsEval.matchedSkills,
     missingSkills: skillsEval.missingSkills,
