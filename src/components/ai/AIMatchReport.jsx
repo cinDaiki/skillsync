@@ -20,7 +20,11 @@
  *   candidateName  {string}  – (employer view) candidate's name
  */
 
+import { useState } from 'react'
 import { getMatchTier } from '../../services/ai/recommendationService'
+import CandidateMatchStatusBanner from '../candidate/CandidateMatchStatusBanner'
+import ImproveMatchModal from '../candidate/ImproveMatchModal'
+import { recalculateAuthoritativeMatch } from '../../services/applicationService'
 import './AIMatchReport.css'
 
 export default function AIMatchReport({
@@ -37,8 +41,37 @@ export default function AIMatchReport({
   applied         = false,
   mode            = 'candidate',
   candidateName   = '',
+  onMatchUpdated,
 }) {
-  const tier = getMatchTier(matchScore)
+  const [currentScore, setCurrentScore] = useState(matchScore)
+  const [currentMatchedSkills, setCurrentMatchedSkills] = useState(matchedSkills)
+  const [currentMissingSkills, setCurrentMissingSkills] = useState(missingSkills)
+  const [showImproveModal, setShowImproveModal] = useState(false)
+  const [recalculating, setRecalculating] = useState(false)
+
+  const tier = getMatchTier(currentScore)
+  const reqScore = typeof job?.minimum_match_percentage === 'number' ? job.minimum_match_percentage : 70
+  const isEligible = currentScore >= reqScore
+
+  async function handleRecalculate() {
+    if (!job?.id || recalculating) return
+    setRecalculating(true)
+    try {
+      const res = await recalculateAuthoritativeMatch(job.id)
+      if (res.success) {
+        setCurrentScore(res.matchScore)
+        if (res.eligibility) {
+          setCurrentMatchedSkills(res.eligibility.matchingSkills || [])
+          setCurrentMissingSkills(res.eligibility.missingSkills || [])
+        }
+        if (onMatchUpdated) onMatchUpdated(job.id, res.matchScore)
+      }
+    } catch (err) {
+      console.warn("Recalculate match error:", err)
+    } finally {
+      setRecalculating(false)
+    }
+  }
 
   function handleOverlayClick(e) {
     if (e.target === e.currentTarget) onClose?.()
@@ -69,7 +102,7 @@ export default function AIMatchReport({
         {/* ── Overall Score ───────────────────────────────────────────── */}
         <div className="ai-report-score-section">
           <div className="ai-report-score-main">
-            <span className="ai-report-score-number">{matchScore}%</span>
+            <span className="ai-report-score-number">{currentScore}%</span>
             <span className="ai-report-score-label">Overall Match</span>
           </div>
 
@@ -77,7 +110,7 @@ export default function AIMatchReport({
             <div className="ai-report-progress-bar">
               <div
                 className="ai-report-progress-fill"
-                style={{ width: `${matchScore}%`, background: tier.color }}
+                style={{ width: `${currentScore}%`, background: tier.color }}
               />
             </div>
             <span
@@ -230,28 +263,65 @@ export default function AIMatchReport({
           </div>
         )}
 
+        {/* ── Candidate Match Status & Improve Match Guidance ──────── */}
+        {mode === 'candidate' && (
+          <div style={{ marginTop: "16px", marginBottom: "8px" }}>
+            <CandidateMatchStatusBanner
+              job={job}
+              eligibility={{
+                matchScore: currentScore,
+                requiredMatch: reqScore,
+                gap: Math.max(0, reqScore - currentScore),
+                eligible: isEligible,
+                matchingSkills: currentMatchedSkills,
+                missingSkills: currentMissingSkills
+              }}
+              onOpenImproveMatch={() => setShowImproveModal(true)}
+              onRecalculate={handleRecalculate}
+              recalculating={recalculating}
+            />
+          </div>
+        )}
+
         {/* ── Footer Actions ───────────────────────────────────────────── */}
         <div className="ai-report-footer">
           <button className="ai-report-btn-secondary" onClick={onClose}>
             Close
           </button>
-          {mode === 'candidate' && onApply && (() => {
-            const reqScore = typeof job?.minimum_match_percentage === 'number' ? job.minimum_match_percentage : 70;
-            const isEligible = matchScore >= reqScore;
-            return (
-              <button
-                className="ai-report-btn-primary"
-                onClick={onApply}
-                disabled={applied || !isEligible}
-                style={!isEligible ? { opacity: 0.65, cursor: "not-allowed", background: "#94a3b8" } : {}}
-              >
-                {applied ? '✓ Applied' : !isEligible ? `Match Too Low (${matchScore}% / ${reqScore}% Req)` : 'Apply Now'}
-              </button>
-            );
-          })()}
+          {mode === 'candidate' && onApply && (
+            <button
+              className="ai-report-btn-primary"
+              onClick={onApply}
+              disabled={applied || !isEligible}
+              style={!isEligible ? { opacity: 0.65, cursor: "not-allowed", background: "#94a3b8" } : {}}
+            >
+              {applied ? '✓ Applied' : !isEligible ? `Match Too Low (${currentScore}% / ${reqScore}% Req)` : 'Apply Now'}
+            </button>
+          )}
         </div>
 
       </div>
+
+      {/* ── Improve Match Guidance Modal ── */}
+      <ImproveMatchModal
+        isOpen={showImproveModal}
+        onClose={() => setShowImproveModal(false)}
+        job={job}
+        eligibility={{
+          matchScore: currentScore,
+          requiredMatch: reqScore,
+          gap: Math.max(0, reqScore - currentScore),
+          eligible: isEligible,
+          matchingSkills: currentMatchedSkills,
+          missingSkills: currentMissingSkills
+        }}
+        onEligibilityUpdate={(updated) => {
+          setCurrentScore(updated.matchScore);
+          setCurrentMatchedSkills(updated.matchingSkills || []);
+          setCurrentMissingSkills(updated.missingSkills || []);
+          if (onMatchUpdated) onMatchUpdated(job.id, updated.matchScore);
+        }}
+      />
     </div>
   )
 }

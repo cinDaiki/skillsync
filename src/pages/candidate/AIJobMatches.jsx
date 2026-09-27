@@ -342,6 +342,10 @@ export default function AIJobMatches() {
           onApply={() => handleApply(reportJob)}
           applied={applications.includes(reportJob.id)}
           mode="candidate"
+          onMatchUpdated={(jobId, newScore) => {
+            setMatches(prev => prev.map(j => j.id === jobId ? { ...j, matchScore: newScore } : j));
+            setReportJob(prev => prev && prev.id === jobId ? { ...prev, matchScore: newScore } : prev);
+          }}
         />
       )}
     </DashboardLayout>

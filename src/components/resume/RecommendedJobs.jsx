@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom';
 import { parseJobRequirements } from '../../utils/jobRequirementsHelper';
 import { useToast } from '../../contexts/ToastContext';
 import SkillGapAnalysis from '../candidate/SkillGapAnalysis';
+import ImproveMatchModal from '../candidate/ImproveMatchModal';
+import CandidateMatchStatusBanner from '../candidate/CandidateMatchStatusBanner';
+import { getJobApplicationEligibility, recalculateAuthoritativeMatch } from '../../services/applicationService';
 
 /**
  * Match Score Badge with tier styling
@@ -49,8 +52,47 @@ export default function RecommendedJobs({
   const [selectedJob, setSelectedJob] = useState(null);
   const [confirmApplyJob, setConfirmApplyJob] = useState(null);
   const [refreshState, setRefreshState] = useState("default"); // "default" | "updating" | "updated"
-
+  const [modalEligibility, setModalEligibility] = useState(null);
+  const [modalEligibilityLoading, setModalEligibilityLoading] = useState(false);
+  const [showImproveMatchModal, setShowImproveMatchModal] = useState(false);
+  const [recalculatingMatch, setRecalculatingMatch] = useState(false);
   const isVerified = verificationStatus === "Verified" || verificationStatus === "Approved";
+
+  React.useEffect(() => {
+    if (!selectedJob?.id) {
+      setModalEligibility(null);
+      setModalEligibilityLoading(false);
+      return;
+    }
+    let isCancelled = false;
+    setModalEligibilityLoading(true);
+    getJobApplicationEligibility(selectedJob.id).then((res) => {
+      if (!isCancelled) {
+        setModalEligibility(res);
+        setModalEligibilityLoading(false);
+      }
+    });
+    return () => { isCancelled = true; };
+  }, [selectedJob?.id]);
+
+  async function handleRecalculateMatch() {
+    if (!selectedJob?.id || recalculatingMatch) return;
+    setRecalculatingMatch(true);
+    try {
+      const res = await recalculateAuthoritativeMatch(selectedJob.id);
+      if (res.success) {
+        setModalEligibility(res.eligibility);
+        setSelectedJob(prev => prev ? { ...prev, matchScore: res.matchScore } : null);
+        toast.success(`Match recalculated! Current score: ${res.matchScore}%`);
+      } else {
+        toast.error("Recalculation failed: " + (res.error?.message || "Unknown error"));
+      }
+    } catch (err) {
+      toast.error("Error recalculating match: " + err.message);
+    } finally {
+      setRecalculatingMatch(false);
+    }
+  }
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -552,36 +594,20 @@ export default function RecommendedJobs({
                     </div>
                   </div>
 
-                  {/* ── APPLICATION ELIGIBILITY STATUS ── */}
-                  {(() => {
-                    const reqScore = typeof selectedJob.minimum_match_percentage === 'number' ? selectedJob.minimum_match_percentage : 70;
-                    const isEligible = (selectedJob.matchScore || 0) >= reqScore;
-                    const gap = Math.max(0, reqScore - (selectedJob.matchScore || 0));
-
-                    return (
-                      <div style={{
-                        marginTop: "12px",
-                        padding: "12px 16px",
-                        borderRadius: "8px",
-                        background: isEligible ? "#f0fdf4" : "#fef2f2",
-                        border: `1px solid ${isEligible ? "#bbf7d0" : "#fecaca"}`
-                      }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                          <span style={{ fontSize: "13px", fontWeight: "700", color: isEligible ? "#166534" : "#991b1b" }}>
-                            {isEligible ? "✓ Eligible to Apply" : "⚠ Minimum Match Required"}
-                          </span>
-                          <span style={{ fontSize: "12px", color: isEligible ? "#15803d" : "#b91c1c" }}>
-                            Your Match: <strong>{selectedJob.matchScore || 0}%</strong> · Required: <strong>{reqScore}%</strong>
-                          </span>
-                        </div>
-                        {!isEligible && (
-                          <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#b91c1c", lineHeight: "1.4" }}>
-                            You currently do not meet this job's minimum match requirement. You need <strong>{gap} percentage point{gap === 1 ? '' : 's'}</strong> more compatibility. Review the Skill Gap Analysis below and explore recommended microcredentials to improve your skills.
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  {/* ── APPLICATION ELIGIBILITY STATUS & IMPROVE MATCH GUIDANCE ── */}
+                  <CandidateMatchStatusBanner
+                    job={selectedJob}
+                    eligibility={modalEligibility || {
+                      matchScore: selectedJob.matchScore || 0,
+                      requiredMatch: selectedJob.minimum_match_percentage ?? 70,
+                      gap: Math.max(0, (selectedJob.minimum_match_percentage ?? 70) - (selectedJob.matchScore || 0)),
+                      eligible: (selectedJob.matchScore || 0) >= (selectedJob.minimum_match_percentage ?? 70)
+                    }}
+                    eligibilityLoading={modalEligibilityLoading}
+                    onOpenImproveMatch={() => setShowImproveMatchModal(true)}
+                    onRecalculate={handleRecalculateMatch}
+                    recalculating={recalculatingMatch}
+                  />
                 </div>
 
                 {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
@@ -638,6 +664,23 @@ export default function RecommendedJobs({
           </div>
         );
       })()}
+
+      {/* ── Candidate Improve Match Guidance Modal ── */}
+      <ImproveMatchModal
+        isOpen={showImproveMatchModal}
+        onClose={() => setShowImproveMatchModal(false)}
+        job={selectedJob}
+        eligibility={modalEligibility || {
+          matchScore: selectedJob?.matchScore || 0,
+          requiredMatch: selectedJob?.minimum_match_percentage ?? 70,
+          gap: Math.max(0, (selectedJob?.minimum_match_percentage ?? 70) - (selectedJob?.matchScore || 0)),
+          eligible: (selectedJob?.matchScore || 0) >= (selectedJob?.minimum_match_percentage ?? 70)
+        }}
+        onEligibilityUpdate={(updated) => {
+          setModalEligibility(updated);
+          setSelectedJob(prev => prev ? { ...prev, matchScore: updated.matchScore } : null);
+        }}
+      />
 
       {/* ── PRE-APPLICATION REQUIREMENTS CONFIRMATION MODAL ── */}
       {confirmApplyJob && (() => {

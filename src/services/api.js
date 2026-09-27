@@ -3,7 +3,7 @@ import { supabase } from './supabase.js'
 // ---------------------------------------------------------------------------
 // Derive the configured Supabase Storage origin so we can validate that any
 // full URL in a resume record belongs to THIS project, not an external host.
-// Example: 'https://blekdvuovbfpuaepjvfq.supabase.co'
+// Example: 'https://your-project-id.supabase.co'
 // ---------------------------------------------------------------------------
 const _metaEnv = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
 const _procEnv = (typeof process !== 'undefined' && process.env) ? process.env : {};
