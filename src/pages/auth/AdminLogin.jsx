@@ -226,7 +226,10 @@ export default function AdminLogin() {
         }
 
         setChallengeId(reqData.challenge_id);
-        setMaskedEmail(maskEmail(reqData.recipient_email || "hanseecorbo@gmail.com"));
+        const resolvedMaskedEmail =
+          reqData.masked_email ||
+          (reqData.recipient_email ? maskEmail(reqData.recipient_email) : maskEmail(email));
+        setMaskedEmail(resolvedMaskedEmail);
         setOtpCooldown(reqData.cooldown_seconds || 60);
         setViewMode("verify_otp");
         setError("");
@@ -328,6 +331,9 @@ export default function AdminLogin() {
       }
 
       setChallengeId(reqData.challenge_id);
+      if (reqData.masked_email) {
+        setMaskedEmail(reqData.masked_email);
+      }
       setOtpCooldown(reqData.cooldown_seconds || 60);
       setOtpCode("");
     } catch (err) {
