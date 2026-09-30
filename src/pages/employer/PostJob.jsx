@@ -9,6 +9,8 @@ import { generateAndStoreJobEmbedding,
          buildJobTextForEmbedding }                   from "../../services/ai/embeddingService";
 import { PRESET_REQUIREMENTS, encodeApplicationRequirements } from "../../utils/jobRequirementsHelper";
 import { fetchAuthoritativeEmployerVerification, getEmployerVerificationState } from "../../utils/employerVerification";
+import SkillTagInput from "../../components/common/SkillTagInput";
+import { parseSkillsToArray } from "../../services/normalization";
 
 export default function PostJob() {
   const navigate = useNavigate();
@@ -20,7 +22,7 @@ export default function PostJob() {
     work_setup: "On-site",
     location: "",
     salary_range: "",
-    required_skills: "",
+    required_skills: [],
     required_certifications: "",
     required_education: "Bachelor's Degree",
     experience_required: "1-3 years",
@@ -109,9 +111,11 @@ export default function PostJob() {
       const skills = await generateSuggestedSkills(formData.title, formData.description);
       if (skills.length > 0) {
         setFormData(prev => {
-          const currentSkills = prev.required_skills ? prev.required_skills.split(',').map(s => s.trim()).filter(Boolean) : [];
+          const currentSkills = Array.isArray(prev.required_skills)
+            ? prev.required_skills
+            : parseSkillsToArray(prev.required_skills);
           const combined = Array.from(new Set([...currentSkills, ...skills])).filter(Boolean);
-          return { ...prev, required_skills: combined.join(', ') };
+          return { ...prev, required_skills: combined };
         });
         toast.success("AI generated skill recommendations!");
       } else {
@@ -165,6 +169,10 @@ export default function PostJob() {
       return;
     }
 
+    const skillsList = Array.isArray(formData.required_skills)
+      ? formData.required_skills
+      : parseSkillsToArray(formData.required_skills);
+
     const payload = {
       title: formData.title.trim(),
       department: formData.department.trim(),
@@ -172,7 +180,7 @@ export default function PostJob() {
       work_setup: formData.work_setup,
       location: formData.location.trim(),
       salary_range: formData.salary_range.trim(),
-      required_skills: formData.required_skills.trim(),
+      required_skills: skillsList.join(', '),
       required_certifications: encodedCerts,
       required_education: formData.required_education,
       experience_required: formData.experience_required,
@@ -345,18 +353,28 @@ export default function PostJob() {
           </div>
 
           <label style={{ marginTop: "15px" }}>
-            <span>Required Certifications (Qualifications)</span>
-            <input type="text" name="required_certifications" placeholder="e.g. AWS Certified Developer, CPA (comma-separated)" value={formData.required_certifications} onChange={handleChange} />
+            <span style={{ fontWeight: '700', color: '#1e293b' }}>Required Professional Certifications / Licenses (Optional)</span>
+            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "normal", display: "block", marginBottom: "6px", lineHeight: "1.4" }}>
+              Enter only professional certifications or licenses required for this role, for example CPA, PRC License, AWS Certified, NC II. Do not enter education, experience, communication skills, or general qualifications here.
+            </span>
+            <input type="text" name="required_certifications" placeholder="e.g. CPA, AWS Certified Solutions Architect, PRC Board License" value={formData.required_certifications} onChange={handleChange} />
           </label>
 
           <label style={{ marginTop: "15px" }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Required Skills</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <span style={{ fontWeight: '700', color: '#1e293b' }}>Required Skills</span>
               <button type="button" onClick={handleSuggestSkills} disabled={suggesting} style={{ background: 'none', border: 'none', color: '#58158f', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
                 {suggesting ? "✨ Analyzing..." : "✨ AI Suggest Skills"}
               </button>
             </div>
-            <input type="text" name="required_skills" placeholder="e.g. React, Node.js (comma-separated)" value={formData.required_skills} onChange={handleChange} />
+            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "normal", display: "block", marginBottom: "6px", lineHeight: "1.4" }}>
+              Type a skill and press Enter or comma. You can also paste a comma- or line-separated list of skills.
+            </span>
+            <SkillTagInput
+              skills={formData.required_skills}
+              onChange={(newSkills) => setFormData(prev => ({ ...prev, required_skills: newSkills }))}
+              placeholder="e.g. React, Node.js, SQL, Problem Solving"
+            />
           </label>
 
           <label style={{ marginTop: "15px" }}>

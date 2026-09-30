@@ -20,7 +20,7 @@
  *   - 0–39%   -> Skills Gap
  */
 
-import { normalizeSkillName } from '../normalization.js';
+import { normalizeSkillName, parseSkillsToArray } from '../normalization.js';
 import { matchMicrocredentialsForMissingSkills } from '../microcredentialService.js';
 
 // ── Controlled Transferable Skills Dictionary ────────────────────────────────
@@ -54,30 +54,20 @@ export const JOB_FIT_WEIGHTS = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function parseSkillList(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) {
-    return raw.map(s => {
-      if (s && typeof s === 'object') {
-        return normalizeSkillName(s.normalized || s.canonicalName || s.name || '');
-      }
-      return normalizeSkillName(s);
-    }).filter(s => s && s.length > 1);
-  }
-  if (typeof raw === 'string') {
-    try {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return parseSkillList(arr);
-    } catch {
-      return raw.split(',').map(s => normalizeSkillName(s.trim())).filter(s => s && s.length > 1);
+export function parseSkillList(raw) {
+  const items = parseSkillsToArray(raw);
+  return items.map(s => {
+    if (s && typeof s === 'object') {
+      return normalizeSkillName(s.normalized || s.canonicalName || s.name || '');
     }
-  }
-  return [];
+    return normalizeSkillName(s);
+  }).filter(s => s && s.length > 1);
 }
 
 /**
  * Safe Skill Matcher
  * Strictly compares normalized skills without false single-character / partial substring matches.
+ * Supports recognized canonical aliases (HTML5 ↔ HTML, React.js ↔ React, Basic SQL ↔ SQL, Git/GitHub, Office).
  */
 export function isSkillMatch(candSkill, reqSkill) {
   if (!candSkill || !reqSkill) return false;
@@ -93,23 +83,85 @@ export function isSkillMatch(candSkill, reqSkill) {
   const rClean = r.replace(/[\s\-_]/g, '');
   if (cClean === rClean) return true;
 
+  // 1. Skill Family: SQL
+  // If requirement is "sql", specific SQL engines provide coverage
+  if (r === 'sql' || rClean === 'sql') {
+    const sqlFamily = ['sql', 'mysql', 'postgresql', 'sqlite', 'mssql', 'sql server', 'mariadb', 'tsql', 'plsql'];
+    if (sqlFamily.some(f => c === f || cClean.includes(f))) return true;
+  }
+
+  // 2. Skill Family: Microsoft Office
+  // If requirement is "microsoft office", candidate having Word or Excel provides partial component coverage
+  if (r === 'microsoft office' || rClean === 'microsoftoffice') {
+    const officeComponents = ['microsoft office', 'microsoft word', 'microsoft excel', 'excel', 'word'];
+    if (officeComponents.some(comp => c === comp || cClean === comp.replace(/\s+/g, ''))) return true;
+  }
+
+  // 3. Git / GitHub
+  if (r === 'git' || r === 'github') {
+    if (c === 'git' || c === 'github' || c === 'gitlab') return true;
+  }
+  if (r === 'git github') {
+    if (c === 'git' || c === 'github') return true;
+  }
+
+  // 4. HTML / CSS
+  if (r === 'html css' || r === 'html and css') {
+    if (c === 'html' || c === 'css') return true;
+  }
+
+  // 5. Responsive Design
+  if (r === 'responsive design' || rClean === 'responsivedesign') {
+    if (c === 'responsive design' || cClean === 'responsivedesign' || c === 'responsive') return true;
+  }
+
   return false;
 }
 
 function parseCertList(raw) {
   if (!raw) return [];
-  if (Array.isArray(raw)) {
-    return raw.map(c => (typeof c === 'string' ? c.trim() : (c.name || '')).toLowerCase()).filter(Boolean);
-  }
-  if (typeof raw === 'string') {
+
+  // Strip document requirements (both ||DOC_REQ: and legacy [DOCUMENT_REQUIREMENTS])
+  let cleaned = typeof raw === 'string'
+    ? raw.replace(/\|\|DOC_REQ:[\s\S]*$/, "").replace(/\[DOCUMENT_REQUIREMENTS\][\s\S]*$/, "").trim()
+    : raw;
+
+  if (!cleaned) return [];
+
+  const list = [];
+  if (Array.isArray(cleaned)) {
+    cleaned.forEach(c => {
+      const s = (typeof c === 'string' ? c : (c?.name || '')).trim().toLowerCase();
+      if (s) list.push(s);
+    });
+  } else if (typeof cleaned === 'string') {
     try {
-      const arr = JSON.parse(raw);
+      const arr = JSON.parse(cleaned);
       if (Array.isArray(arr)) return parseCertList(arr);
     } catch {
-      return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      cleaned.split(/[,\n;•]/).forEach(item => {
+        const s = item.trim().toLowerCase();
+        if (s) list.push(s);
+      });
     }
   }
-  return [];
+
+  // Filter out general qualification prose accidentally entered into certifications
+  return list.filter(item => {
+    if (item.length < 3) return false;
+    if (
+      item.includes("fresh graduate") ||
+      item.includes("willing to work") ||
+      item.includes("bachelor's degree") ||
+      item.includes("bachelor degree") ||
+      item.includes("related field") ||
+      item.includes("resume / cv") ||
+      item.includes("valid government id")
+    ) {
+      return false;
+    }
+    return true;
+  });
 }
 
 /**

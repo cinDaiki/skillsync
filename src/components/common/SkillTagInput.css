@@ -1,0 +1,88 @@
+.skill-tag-input-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 6px 10px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  cursor: text;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.skill-tag-input-container:focus-within {
+  border-color: #58158f;
+  box-shadow: 0 0 0 2px rgba(88, 21, 143, 0.15);
+}
+
+.skill-tag-input-container.disabled {
+  background: #f8fafc;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f1f5f9;
+  color: #1e293b;
+  border: 1px solid #e2e8f0;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  user-select: none;
+  animation: fadeIn 0.15s ease-in-out;
+}
+
+.skill-chip:hover {
+  background: #e2e8f0;
+}
+
+.skill-chip-remove {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.skill-chip-remove:hover {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+
+.skill-tag-inner-input {
+  flex: 1;
+  min-width: 140px;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 4px 6px;
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.skill-tag-inner-input::placeholder {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}

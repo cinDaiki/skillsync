@@ -7,6 +7,8 @@ import { supabase } from "../../services/supabase";
 import { runMatchingForJob } from "../../services/matchingEngine";
 import { parseJobRequirements, encodeApplicationRequirements, PRESET_REQUIREMENTS } from "../../utils/jobRequirementsHelper";
 import { fetchAuthoritativeEmployerVerification } from "../../utils/employerVerification";
+import SkillTagInput from "../../components/common/SkillTagInput";
+import { parseSkillsToArray } from "../../services/normalization";
 import "./ManageJobs.css";
 
 export default function ManageJobs() {
@@ -25,7 +27,7 @@ export default function ManageJobs() {
 
   const [editForm, setEditForm] = useState({
     title: "", employment_type: "Full-time",
-    location: "", required_skills: "", description: "",
+    location: "", required_skills: [], description: "",
     salary_range: "", deadline: "",
     minimum_match_percentage: 70,
     appReqs: []
@@ -67,7 +69,7 @@ export default function ManageJobs() {
       employment_type: job.employment_type || "Full-time",
       work_setup: job.work_setup || "On-site",
       location: job.location || "",
-      required_skills: job.required_skills || "",
+      required_skills: parseSkillsToArray(job.required_skills),
       required_certifications: parsed.cleanCertifications || "",
       required_education: job.required_education || "Bachelor's Degree",
       experience_required: job.experience_required || "1-3 years",
@@ -108,6 +110,11 @@ export default function ManageJobs() {
 
     const targetJob = jobs.find(j => j.id === jobId);
 
+    const skillsArray = Array.isArray(editForm.required_skills)
+      ? editForm.required_skills
+      : parseSkillsToArray(editForm.required_skills);
+    const serializedSkills = skillsArray.join(", ");
+
     // Resubmission rule: saving edits on a rejected, open, or pending job submits it for admin moderation (status: pending_review)
     const payload = {
       title: editForm.title.trim(),
@@ -115,7 +122,7 @@ export default function ManageJobs() {
       employment_type: editForm.employment_type,
       work_setup: editForm.work_setup,
       location: editForm.location.trim(),
-      required_skills: editForm.required_skills.trim(),
+      required_skills: serializedSkills,
       required_certifications: encodedCerts,
       required_education: editForm.required_education,
       experience_required: editForm.experience_required,
@@ -335,12 +342,27 @@ export default function ManageJobs() {
                         </select>
                       </label>
                       <label className="job-edit-label">
-                        Required Skills (comma-separated)
-                        <input name="required_skills" value={editForm.required_skills} onChange={e => setEditForm(p => ({...p, required_skills: e.target.value}))} />
+                        Required Skills
+                        <span style={{ fontSize: "11px", color: "#64748b", textTransform: "none", fontWeight: "normal", display: "block", marginBottom: "4px" }}>
+                          Add key skills one by one (press Enter or comma)
+                        </span>
+                        <SkillTagInput
+                          skills={Array.isArray(editForm.required_skills) ? editForm.required_skills : parseSkillsToArray(editForm.required_skills)}
+                          onChange={tags => setEditForm(p => ({ ...p, required_skills: tags }))}
+                          placeholder="e.g. React, JavaScript, SQL (press Enter or comma)"
+                        />
                       </label>
                       <label className="job-edit-label">
-                        Required Certifications (Qualifications)
-                        <input name="required_certifications" value={editForm.required_certifications || ""} onChange={e => setEditForm(p => ({...p, required_certifications: e.target.value}))} />
+                        Required Professional Certifications / Licenses (Optional)
+                        <span style={{ fontSize: "11px", color: "#64748b", textTransform: "none", fontWeight: "normal", display: "block", marginBottom: "4px" }}>
+                          Enter only professional certifications or licenses required for this role (e.g. CPA, PRC License, AWS Certified, NC II). Do not enter education, experience, or general qualifications here.
+                        </span>
+                        <input
+                          name="required_certifications"
+                          placeholder="e.g. AWS Certified, PRC License, CPA (leave blank if none)"
+                          value={editForm.required_certifications || ""}
+                          onChange={e => setEditForm(p => ({...p, required_certifications: e.target.value}))}
+                        />
                       </label>
                       <label className="job-edit-label">
                         Openings
@@ -470,9 +492,9 @@ export default function ManageJobs() {
                         🎯 Min Match: {job.minimum_match_percentage ?? 70}%
                       </span>
                       {job.required_skills && (
-                        job.required_skills.split(",").slice(0,3).map(s => (
-                          <span key={s.trim()} className="job-meta-chip" style={{ background: "#f5ecff", color: "#58158f" }}>
-                            {s.trim()}
+                        parseSkillsToArray(job.required_skills).slice(0, 3).map((s, idx) => (
+                          <span key={`${s}-${idx}`} className="job-meta-chip" style={{ background: "#f5ecff", color: "#58158f" }}>
+                            {s}
                           </span>
                         ))
                       )}

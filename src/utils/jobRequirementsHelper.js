@@ -20,7 +20,7 @@ export const PRESET_REQUIREMENTS = [
  * Encodes application requirements into a structured string format inside required_certifications
  */
 export function encodeApplicationRequirements(certificationsText = "", requirementsArray = []) {
-  const cleanCerts = (certificationsText || "").replace(/\|\|DOC_REQ:[\s\S]*$/, "").trim();
+  const cleanCerts = (certificationsText || "").replace(/(\|\|DOC_REQ:|\[DOCUMENT_REQUIREMENTS\])[\s\S]*$/, "").trim();
   if (!requirementsArray || requirementsArray.length === 0) return cleanCerts;
   
   // Format as clean list of requirement strings
@@ -28,7 +28,7 @@ export function encodeApplicationRequirements(certificationsText = "", requireme
     typeof item === "object" ? item.name : String(item)
   ).filter(Boolean);
 
-  return `${cleanCerts} ||DOC_REQ:${JSON.stringify(formattedArray)}`;
+  return cleanCerts ? `${cleanCerts} ||DOC_REQ:${JSON.stringify(formattedArray)}` : `||DOC_REQ:${JSON.stringify(formattedArray)}`;
 }
 
 /**
@@ -41,6 +41,17 @@ export function parseJobRequirements(job) {
 
   if (rawCerts.includes("||DOC_REQ:")) {
     const parts = rawCerts.split("||DOC_REQ:");
+    certsText = parts[0].trim();
+    try {
+      const parsed = JSON.parse(parts[1]);
+      if (Array.isArray(parsed)) {
+        docRequirements = parsed;
+      }
+    } catch (e) {
+      docRequirements = [];
+    }
+  } else if (rawCerts.includes("[DOCUMENT_REQUIREMENTS]")) {
+    const parts = rawCerts.split("[DOCUMENT_REQUIREMENTS]");
     certsText = parts[0].trim();
     try {
       const parsed = JSON.parse(parts[1]);
