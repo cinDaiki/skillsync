@@ -147,6 +147,10 @@ export function matchToken(token, config) {
 
   if (!config.features.fuzzyMatching || !config.fuzzy.enabled) return null
 
+  // Guard: Multi-word tokens should not undergo fuzzy matching;
+  // they must match exact, alias, or boundary scan to prevent cross-domain false positives.
+  if (normalized.includes(' ')) return null
+
   const minLen = normalized.length >= config.fuzzy.shortTokenMinLength
     ? config.fuzzy.minTokenLength
     : config.fuzzy.shortTokenMinLength
@@ -162,6 +166,7 @@ export function matchToken(token, config) {
   const maxDist = config.fuzzy.maxLevenshteinDistance || 2
 
   outer: for (const { term, entry } of bucket) {
+    if (term.includes(' ')) continue
     // Length-difference filtering
     if (Math.abs(lower.length - term.length) > maxDist) continue
 

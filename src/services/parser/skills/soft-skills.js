@@ -1,9 +1,9 @@
 /** @type {import('./index.js').SkillEntry[]} */
 export default [
   { canonical: 'Communication',      category: 'Soft Skills', weight: 0.85, aliases: ['Verbal Communication', 'Written Communication', 'Effective Communication'] },
-  { canonical: 'Leadership',         category: 'Soft Skills', weight: 0.85, aliases: ['Team Leadership', 'People Management', 'Leadership Skills'] },
-  { canonical: 'Teamwork',           category: 'Soft Skills', weight: 0.83, aliases: ['Team Collaboration', 'Collaboration', 'Team Player', 'Collaborative'] },
-  { canonical: 'Problem Solving',    category: 'Soft Skills', weight: 0.85, aliases: ['Problem-Solving', 'Analytical Problem Solving', 'Critical Problem Solving'] },
+  { canonical: 'Leadership',         category: 'Soft Skills', weight: 0.85, aliases: ['Team Leadership', 'People Management', 'Leadership Skills', 'Team Leader', 'Team Lead', 'Project Lead'] },
+  { canonical: 'Teamwork',           category: 'Soft Skills', weight: 0.83, aliases: ['Team Collaboration', 'Collaboration', 'Team Player', 'Collaborative', 'Collaborated', 'Cross-functional Collaboration', 'Team Coordination', 'Coordinated Team Tasks'] },
+  { canonical: 'Problem Solving',    category: 'Soft Skills', weight: 0.85, aliases: ['Problem-Solving', 'Analytical Problem Solving', 'Critical Problem Solving', 'Technical Problem Solving', 'Technical Problem-Solving', 'Troubleshooting', 'Troubleshoot', 'Problem Resolution'] },
   { canonical: 'Critical Thinking',  category: 'Soft Skills', weight: 0.83, aliases: ['Analytical Thinking', 'Critical Analysis'] },
   { canonical: 'Time Management',    category: 'Soft Skills', weight: 0.83, aliases: ['Prioritization', 'Deadline Management', 'Multitasking'] },
   { canonical: 'Adaptability',       category: 'Soft Skills', weight: 0.80, aliases: ['Flexibility', 'Adaptable', 'Versatile'] },
@@ -14,6 +14,6 @@ export default [
   { canonical: 'Negotiation',        category: 'Soft Skills', weight: 0.80, aliases: ['Negotiation Skills', 'Contract Negotiation'] },
   { canonical: 'Decision Making',    category: 'Soft Skills', weight: 0.80, aliases: ['Decision-Making', 'Strategic Decision Making'] },
   { canonical: 'Interpersonal Skills', category: 'Soft Skills', weight: 0.80, aliases: ['Interpersonal Communication', 'People Skills'] },
-  { canonical: 'Organization',       category: 'Soft Skills', weight: 0.80, aliases: ['Organizational Skills', 'Organized'] },
+  { canonical: 'Organization',       category: 'Soft Skills', weight: 0.80, aliases: ['Organizational Skills', 'Organized', 'Organized Documentation', 'Documentation Organization'] },
   { canonical: 'Initiative',         category: 'Soft Skills', weight: 0.78, aliases: ['Self-starter', 'Proactive', 'Self-motivated'] },
 ]

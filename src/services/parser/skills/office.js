@@ -1,6 +1,6 @@
 /** @type {import('./index.js').SkillEntry[]} */
 export default [
-  { canonical: 'Microsoft Office',    category: 'Office', weight: 0.88, aliases: ['MS Office', 'Office Suite', 'Microsoft Office Suite'] },
+  { canonical: 'Microsoft Office',    category: 'Office', weight: 0.88, aliases: ['MS Office', 'Office Suite', 'Microsoft Office Suite', 'Microsoft 365', 'Office 365', 'M365', 'O365'] },
   { canonical: 'Microsoft Word',      category: 'Office', weight: 0.85, aliases: ['MS Word', 'Word Processing'] },
   { canonical: 'Microsoft Excel',     category: 'Office', weight: 0.88, aliases: ['MS Excel', 'Excel Spreadsheets', 'Advanced Excel', 'Excel Formulas'] },
   { canonical: 'Microsoft PowerPoint', category: 'Office', weight: 0.83, aliases: ['MS PowerPoint', 'PowerPoint', 'Presentation Software'] },
@@ -11,4 +11,5 @@ export default [
   { canonical: 'Google Slides',       category: 'Office', weight: 0.78, aliases: ['Google Presentation'] },
   { canonical: 'Zoho',                category: 'Office', weight: 0.75, aliases: ['Zoho CRM', 'Zoho Suite', 'Zoho Books'] },
   { canonical: 'SAP',                 category: 'Office', weight: 0.85, aliases: ['SAP ERP', 'SAP System'] },
+  { canonical: 'Data Entry',          category: 'Office', weight: 0.85, aliases: ['Data Encoding', 'Data Encoder', 'Encoder', 'Receiving Encoder', 'Data Keying', 'Data Input', 'Data Maintenance', 'Record Encoding', 'Encoding Records', 'Encoded Records', 'Record Maintenance', 'Maintain Records', 'Maintained Records', 'Inventory Records'] },
 ]

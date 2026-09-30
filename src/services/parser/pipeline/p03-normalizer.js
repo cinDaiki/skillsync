@@ -66,6 +66,23 @@ export function normalizeText(ctx) {
   // 7. Collapse excessive blank lines
   text = text.replace(MULTI_NL_RE, '\n\n')
 
+  // 7a. Rejoin hyphenated line breaks (e.g. "problem -\nsolving" -> "problem-solving\n")
+  text = text.replace(/([a-zA-Z]{3,})\s*-\s*\n\s*([a-zA-Z]{3,})/g, '$1-$2\n')
+
+  // 7b. Normalize hyphenated words where OCR/PDF extraction inserted spaces around hyphens
+  // (e.g. "problem - solving" -> "problem-solving", "user - friendly" -> "user-friendly")
+  // Preserves date ranges (e.g. "April - July", "2020 - 2022")
+  text = text.replace(/\b([a-zA-Z]{3,})\s+-\s+([a-zA-Z]{3,})\b/g, (match, p1, p2) => {
+    const isDateWord = /^(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sep|october|oct|november|nov|december|dec|present|current)$/i
+    if (isDateWord.test(p1) || isDateWord.test(p2)) {
+      return `${p1} - ${p2}`
+    }
+    return `${p1}-${p2}`
+  })
+
+  // 7c. Fix PDF single-letter OCR / font kerning artifacts in common headings
+  text = text.replace(/\bA\s+CADEMIC\b/gi, 'ACADEMIC')
+
   // 8. Merge soft-wrapped lines
   //    A line is a continuation if:
   //      - Current line doesn't end with sentence punctuation or a colon

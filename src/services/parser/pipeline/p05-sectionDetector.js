@@ -64,6 +64,9 @@ const EXTRA_ALIASES = new Map([
   ['extracurricular activities','VOLUNTEER'],
   ['extracurricular',           'VOLUNTEER'],
   ['activities',                'VOLUNTEER'],
+  ['academic projects',         'PROJECTS'],
+  ['academic project',          'PROJECTS'],
+  ['freelance projects',        'PROJECTS'],
 ])
 
 // Merge extra aliases into main map

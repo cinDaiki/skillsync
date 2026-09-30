@@ -75,9 +75,9 @@ const SKILL_DICTIONARY = [
 
   // ── Universal Professional Skills ──
   "Communication", "Leadership", "Problem Solving", "Critical Thinking", "Teamwork",
-  "Time Management", "Adaptability", "Analytical Skills", "Attention to Detail",
+  "Time Management", "Adaptability", "Analytical Skills", "Attention to Detail", "Organization",
   "Microsoft Office", "Microsoft Word", "Microsoft Excel", "Microsoft PowerPoint",
-  "Presentation Skills", "Report Writing", "Research",
+  "Presentation Skills", "Report Writing", "Research", "Data Entry", "Troubleshooting",
 ];
 
 // ─── Text extractors ───────────────────────────────────────────────────────────

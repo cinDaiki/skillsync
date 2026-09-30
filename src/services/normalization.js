@@ -80,7 +80,29 @@ export function normalizeSkillName(skill) {
     // Git
     "git version control": "git",
     "git scm": "git",
-    "git github": "git"
+    "git github": "git",
+
+    // Soft Skills & Evidence
+    "troubleshooting": "problem solving",
+    "technical problem solving": "problem solving",
+    "collaboration": "teamwork",
+    "team collaboration": "teamwork",
+    "team coordination": "teamwork",
+    "coordinated team tasks": "teamwork",
+    "team leader": "leadership",
+    "team leadership": "leadership",
+
+    // Office & Data
+    "data encoding": "data entry",
+    "data keying": "data entry",
+    "data input": "data entry",
+    "data maintenance": "data entry",
+    "record encoding": "data entry",
+    "encoding records": "data entry",
+    "encoded records": "data entry",
+    "record maintenance": "data entry",
+    "maintain records": "data entry",
+    "maintained records": "data entry"
   };
 
   return aliases[s] || s;
