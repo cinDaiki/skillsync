@@ -21,6 +21,12 @@ let supabaseKey = rawKey;
 const STAGING_URL = 'https://zjzymrpifutqubffvhyt.supabase.co';
 const STAGING_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpqenltcnBpZnV0cXViZmZ2aHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MTgzODgsImV4cCI6MjEwNTk5NDM4OH0.D6LLkFwhWYUDih8qpkClfG-V2lwbTl68OvCfob2r_gc';
 
+// In Node environment (scripts/tests), fallback to Staging if env vars are unset
+if ((!supabaseUrl || !supabaseKey) && typeof window === 'undefined') {
+  supabaseUrl = STAGING_URL;
+  supabaseKey = STAGING_ANON_KEY;
+}
+
 if (typeof window !== 'undefined') {
   const host = window.location.hostname.toLowerCase();
   const isProductionHost =

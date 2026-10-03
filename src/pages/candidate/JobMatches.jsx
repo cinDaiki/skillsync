@@ -12,6 +12,7 @@ import ImproveMatchModal from "../../components/candidate/ImproveMatchModal";
 import CandidateMatchStatusBanner from "../../components/candidate/CandidateMatchStatusBanner";
 import { getCandidateSkillEvidence } from "../../services/ai/jobFitEngine";
 import { isEmployerSuspended, fetchSuspendedEmployerIds, filterAvailableJobs } from "../../services/jobAvailability";
+import { getCareerRelevanceTier, getCategoryLabel, getSubcategoryLabel, getAllCategories } from "../../services/careerRelevanceService";
 import "./JobMatches.css";
 
 function formatPostedDate(dateStr) {
@@ -46,6 +47,8 @@ export default function JobMatches() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("All");
   const [selectedSetup, setSelectedSetup] = useState("All");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedRelevance, setSelectedRelevance] = useState("All");
   const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
 
   const [userId, setUserId] = useState(null);
@@ -164,10 +167,10 @@ export default function JobMatches() {
         .eq("applicant_id", user.id);
       setApplications(appsData || []);
 
-      // 4. Fetch authoritative job_matches for candidate
+      // 4. Fetch authoritative job_matches for candidate (including Phase 4C Career Relevance)
       const { data: matchesData } = await supabase
         .from("job_matches")
-        .select("job_id, match_score, skills_score, education_score, experience_score, match_status, matching_skills, missing_skills")
+        .select("job_id, match_score, skills_score, education_score, experience_score, match_status, matching_skills, missing_skills, career_relevance_score, career_relevance_breakdown")
         .eq("user_id", user.id);
       const mMap = new Map((matchesData || []).map((m) => [m.job_id, m]));
       setMatchesMap(mMap);
@@ -358,7 +361,24 @@ export default function JobMatches() {
     // Bookmark filter
     const matchesBookmark = !showBookmarkedOnly || bookmarks.includes(job.id);
 
-    return matchesSearch && matchesType && matchesSetup && matchesBookmark;
+    // Category filter (Phase 4C)
+    const matchesCategory = selectedCategory === "All" || job.job_category === selectedCategory;
+
+    // Career Relevance filter (Phase 4C)
+    let matchesRelevance = true;
+    if (selectedRelevance !== "All") {
+      const matchRec = matchesMap.get(job.id);
+      const relScore = matchRec?.career_relevance_score ?? 0;
+      if (selectedRelevance === "Highly Related") {
+        matchesRelevance = relScore >= 80;
+      } else if (selectedRelevance === "Related & Above") {
+        matchesRelevance = relScore >= 60;
+      } else if (selectedRelevance === "Adjacent & Above") {
+        matchesRelevance = relScore >= 40;
+      }
+    }
+
+    return matchesSearch && matchesType && matchesSetup && matchesBookmark && matchesCategory && matchesRelevance;
   });
 
   const totalPages = Math.ceil(filteredJobs.length / PAGE_SIZE) || 1;
@@ -452,6 +472,28 @@ export default function JobMatches() {
             <option value="Remote">Remote</option>
           </select>
 
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="filter-select"
+          >
+            <option value="All">All Job Categories</option>
+            {getAllCategories().map((cat) => (
+              <option key={cat.key} value={cat.key}>{cat.label}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedRelevance}
+            onChange={(e) => setSelectedRelevance(e.target.value)}
+            className="filter-select"
+          >
+            <option value="All">All Career Fields</option>
+            <option value="Highly Related">🎯 Highly Related (80%+)</option>
+            <option value="Related & Above">💼 Related (60%+)</option>
+            <option value="Adjacent & Above">🔄 Adjacent (40%+)</option>
+          </select>
+
           <button
             type="button"
             className={`bookmarks-tab-btn ${showBookmarkedOnly ? "active" : ""}`}
@@ -488,11 +530,18 @@ export default function JobMatches() {
                       <p style={{ margin: "2px 0 0 0", fontSize: "13px", color: "#64748b", fontWeight: "600" }}>
                         {[job.company_name || "Employer", formatPostedDate(job.created_at)].filter(Boolean).join(" · ")}
                       </p>
-                      {(job.employer_verification_status === "Approved" || job.employer_verification_status === "Verified" || job.verified_employer) && (
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "700", marginTop: "4px" }}>
-                          ✓ Verified Employer
-                        </span>
-                      )}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginTop: "4px" }}>
+                        {(job.employer_verification_status === "Approved" || job.employer_verification_status === "Verified" || job.verified_employer) && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "700" }}>
+                            ✓ Verified Employer
+                          </span>
+                        )}
+                        {job.job_category && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "#eef2ff", color: "#4338ca", border: "1px solid #c7d2fe", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "700" }}>
+                            📂 {getCategoryLabel(job.job_category)}{job.job_subcategory ? ` · ${getSubcategoryLabel(job.job_category, job.job_subcategory)}` : ""}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {job.salary_range && (
@@ -546,10 +595,31 @@ export default function JobMatches() {
                     flexWrap: "wrap",
                     gap: "6px"
                   }}>
-                    <div style={{ fontSize: "12px", color: isChecking ? "#64748b" : hasMatch ? (isEligible ? "#166534" : "#991b1b") : "#64748b", fontWeight: "600" }}>
-                      Your Match: <strong style={{ fontSize: "13px" }}>{isChecking ? "..." : hasMatch ? `${matchScore}%` : "—"}</strong>
-                      <span style={{ margin: "0 6px", opacity: 0.4 }}>|</span>
-                      Required Match: <strong style={{ fontSize: "13px" }}>{reqScore}%</strong>
+                    <div style={{ fontSize: "12px", color: isChecking ? "#64748b" : hasMatch ? (isEligible ? "#166534" : "#991b1b") : "#64748b", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <span>Your Match: <strong style={{ fontSize: "13px" }}>{isChecking ? "..." : hasMatch ? `${matchScore}%` : "—"}</strong></span>
+                      <span style={{ margin: "0 4px", opacity: 0.4 }}>|</span>
+                      <span>Required Match: <strong style={{ fontSize: "13px" }}>{reqScore}%</strong></span>
+                      {(() => {
+                        const relScore = matchRecord?.career_relevance_score ?? null;
+                        if (relScore === null) return null;
+                        const tier = getCareerRelevanceTier(relScore);
+                        return (
+                          <span style={{
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            padding: "2px 8px",
+                            borderRadius: "10px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            background: relScore >= 80 ? "#ecfdf5" : relScore >= 60 ? "#eff6ff" : relScore >= 40 ? "#fffbeb" : "#f1f5f9",
+                            color: relScore >= 80 ? "#065f46" : relScore >= 60 ? "#1e40af" : relScore >= 40 ? "#92400e" : "#475569",
+                            border: `1px solid ${relScore >= 80 ? "#a7f3d0" : relScore >= 60 ? "#bfdbfe" : relScore >= 40 ? "#fde68a" : "#cbd5e1"}`
+                          }}>
+                            {tier.icon} {tier.label} ({relScore}%)
+                          </span>
+                        );
+                      })()}
                     </div>
                     <span style={{
                       fontSize: "11px",
@@ -748,6 +818,71 @@ export default function JobMatches() {
                     ))}
                   </div>
                 </div>
+
+                {/* ── CAREER RELEVANCE & OCCUPATIONAL DOMAIN ── */}
+                {(() => {
+                  const matchRec = matchesMap.get(selectedJob.id);
+                  const relScore = matchRec?.career_relevance_score ?? null;
+                  if (relScore === null && !selectedJob.job_category) return null;
+                  const tier = relScore !== null ? getCareerRelevanceTier(relScore) : null;
+                  const breakdown = matchRec?.career_relevance_breakdown || {};
+                  const bullets = breakdown.evidenceBullets || [];
+                  const domainSkills = breakdown.domainSkills || [];
+
+                  return (
+                    <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <h4 style={{ color: "#1e1b4b", margin: 0, fontSize: "14px", fontWeight: "800" }}>
+                          🧭 Career Field & Occupational Alignment
+                        </h4>
+                        {tier && (
+                          <span style={{
+                            fontSize: "12px",
+                            fontWeight: "800",
+                            padding: "3px 10px",
+                            borderRadius: "12px",
+                            background: relScore >= 80 ? "#ecfdf5" : relScore >= 60 ? "#eff6ff" : relScore >= 40 ? "#fffbeb" : "#f1f5f9",
+                            color: relScore >= 80 ? "#065f46" : relScore >= 60 ? "#1e40af" : relScore >= 40 ? "#92400e" : "#475569",
+                            border: `1px solid ${relScore >= 80 ? "#a7f3d0" : relScore >= 60 ? "#bfdbfe" : relScore >= 40 ? "#fde68a" : "#cbd5e1"}`
+                          }}>
+                            {tier.icon} {tier.label} ({relScore}%)
+                          </span>
+                        )}
+                      </div>
+
+                      {selectedJob.job_category && (
+                        <p style={{ fontSize: "12px", color: "#475569", margin: "0 0 8px 0" }}>
+                          <strong>Role Domain:</strong> {getCategoryLabel(selectedJob.job_category)}
+                          {selectedJob.job_subcategory ? ` · ${getSubcategoryLabel(selectedJob.job_category, selectedJob.job_subcategory)}` : ""}
+                        </p>
+                      )}
+
+                      {bullets.length > 0 && (
+                        <div style={{ margin: "6px 0" }}>
+                          {bullets.map((b, bIdx) => (
+                            <div key={bIdx} style={{ fontSize: "12px", color: "#334155", display: "flex", alignItems: "flex-start", gap: "6px", marginBottom: "3px" }}>
+                              <span style={{ color: "#4f46e5" }}>•</span>
+                              <span>{b}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {domainSkills.length > 0 && (
+                        <div style={{ marginTop: "6px" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>Matched Domain Skills:</span>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+                            {domainSkills.map((sk, sIdx) => (
+                              <span key={sIdx} style={{ background: "#e0e7ff", color: "#3730a3", fontSize: "11px", fontWeight: "600", padding: "2px 8px", borderRadius: "8px" }}>
+                                {sk}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
                 {(() => {

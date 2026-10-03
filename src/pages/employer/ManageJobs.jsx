@@ -9,6 +9,7 @@ import { parseJobRequirements, encodeApplicationRequirements, PRESET_REQUIREMENT
 import { fetchAuthoritativeEmployerVerification } from "../../utils/employerVerification";
 import SkillTagInput from "../../components/common/SkillTagInput";
 import { parseSkillsToArray } from "../../services/normalization";
+import { getAllCategories, getSubcategoriesForCategory, getCategoryLabel, getSubcategoryLabel } from "../../constants/jobTaxonomy";
 import "./ManageJobs.css";
 
 export default function ManageJobs() {
@@ -65,6 +66,8 @@ export default function ManageJobs() {
     const parsed = parseJobRequirements(job);
     setEditForm({
       title: job.title || "",
+      job_category: job.job_category || "it_software",
+      job_subcategory: job.job_subcategory || "web_development",
       department: job.department || "",
       employment_type: job.employment_type || "Full-time",
       work_setup: job.work_setup || "On-site",
@@ -118,6 +121,8 @@ export default function ManageJobs() {
     // Resubmission rule: saving edits on a rejected, open, or pending job submits it for admin moderation (status: pending_review)
     const payload = {
       title: editForm.title.trim(),
+      job_category: editForm.job_category || null,
+      job_subcategory: editForm.job_subcategory || null,
       department: editForm.department?.trim() || null,
       employment_type: editForm.employment_type,
       work_setup: editForm.work_setup,
@@ -306,6 +311,38 @@ export default function ManageJobs() {
                         <input name="title" value={editForm.title} onChange={e => setEditForm(p => ({...p, title: e.target.value}))} />
                       </label>
                       <label className="job-edit-label">
+                        Job Category
+                        <select
+                          name="job_category"
+                          value={editForm.job_category || "it_software"}
+                          onChange={e => {
+                            const newCat = e.target.value;
+                            const subcats = getSubcategoriesForCategory(newCat);
+                            setEditForm(p => ({
+                              ...p,
+                              job_category: newCat,
+                              job_subcategory: subcats[0]?.key || ""
+                            }));
+                          }}
+                        >
+                          {getAllCategories().map(cat => (
+                            <option key={cat.key} value={cat.key}>{cat.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="job-edit-label">
+                        Job Subcategory
+                        <select
+                          name="job_subcategory"
+                          value={editForm.job_subcategory || ""}
+                          onChange={e => setEditForm(p => ({...p, job_subcategory: e.target.value}))}
+                        >
+                          {getSubcategoriesForCategory(editForm.job_category || "it_software").map(sub => (
+                            <option key={sub.key} value={sub.key}>{sub.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="job-edit-label">
                         Department
                         <input name="department" value={editForm.department || ""} onChange={e => setEditForm(p => ({...p, department: e.target.value}))} />
                       </label>
@@ -443,6 +480,13 @@ export default function ManageJobs() {
                     <div className="job-manage-top">
                       <div className="job-manage-info">
                         <h3>{job.title || "Untitled Job"}</h3>
+                        {job.job_category && (
+                          <div style={{ marginTop: "4px" }}>
+                            <span style={{ fontSize: "11px", fontWeight: "700", color: "#4f46e5", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "2px 8px", borderRadius: "6px" }}>
+                              📂 {getCategoryLabel(job.job_category)}{job.job_subcategory ? ` · ${getSubcategoryLabel(job.job_category, job.job_subcategory)}` : ""}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                         <span className="job-applicant-count-badge">

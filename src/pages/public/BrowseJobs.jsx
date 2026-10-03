@@ -3,6 +3,7 @@ import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import AuthTransitionLink from "../../components/common/AuthTransitionLink";
 import { supabase } from "../../services/supabase";
 import { fetchSuspendedEmployerIds, filterAvailableJobs } from "../../services/jobAvailability";
+import { getAllCategories, getSubcategoriesForCategory, getCategoryLabel, getSubcategoryLabel } from "../../constants/jobTaxonomy";
 import "./BrowseJobs.css";
 
 export default function BrowseJobs() {
@@ -17,6 +18,8 @@ export default function BrowseJobs() {
   // Sidebar interactive filters
   const [setup, setSetup] = useState("Any");
   const [skills, setSkills] = useState("");
+  const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
 
   // States
   const [jobs, setJobs] = useState([]);
@@ -143,8 +146,18 @@ export default function BrowseJobs() {
       );
     }
 
+    // 6. Category filter (Phase 4C)
+    if (category) {
+      result = result.filter((job) => job.job_category === category);
+    }
+
+    // 7. Subcategory filter (Phase 4C)
+    if (subcategory) {
+      result = result.filter((job) => job.job_subcategory === subcategory);
+    }
+
     setFilteredJobs(result);
-  }, [jobs, keyword, location, type, setup, skills]);
+  }, [jobs, keyword, location, type, setup, skills, category, subcategory]);
 
   // Search button handler
   function handleSearchSubmit() {
@@ -162,6 +175,8 @@ export default function BrowseJobs() {
     setType("");
     setSetup("Any");
     setSkills("");
+    setCategory("");
+    setSubcategory("");
     setSearchParams({});
   }
 
@@ -277,6 +292,37 @@ export default function BrowseJobs() {
           <aside className="browse-sidebar">
             <div className="browse-sidebar-card">
               <h3>Filters</h3>
+
+              <div className="browse-filter-group">
+                <label>Job Category</label>
+                <select
+                  value={category}
+                  onChange={(e) => {
+                    setCategory(e.target.value);
+                    setSubcategory("");
+                  }}
+                >
+                  <option value="">All Categories</option>
+                  {getAllCategories().map((cat) => (
+                    <option key={cat.key} value={cat.key}>{cat.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {category && (
+                <div className="browse-filter-group">
+                  <label>Subcategory</label>
+                  <select
+                    value={subcategory}
+                    onChange={(e) => setSubcategory(e.target.value)}
+                  >
+                    <option value="">All Subcategories</option>
+                    {getSubcategoriesForCategory(category).map((sub) => (
+                      <option key={sub.key} value={sub.key}>{sub.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="browse-filter-group">
                 <label>Work Setup</label>
@@ -407,6 +453,11 @@ export default function BrowseJobs() {
                     </div>
 
                     <div className="job-meta" style={{ display: "flex", gap: "8px", flexWrap: "wrap", margin: 0 }}>
+                      {job.job_category && (
+                        <span style={{ padding: "8px 12px", borderRadius: "999px", background: "#eef2ff", color: "#4338ca", border: "1px solid #c7d2fe", fontSize: "13px", fontWeight: "900", lineHeight: 1 }}>
+                          📂 {getCategoryLabel(job.job_category)}{job.job_subcategory ? ` · ${getSubcategoryLabel(job.job_category, job.job_subcategory)}` : ""}
+                        </span>
+                      )}
                       <span style={{ padding: "8px 12px", borderRadius: "999px", background: "#f3ebff", color: "#6f1dce", fontSize: "13px", fontWeight: "900", lineHeight: 1 }}>
                         {job.employment_type || "Not specified"}
                       </span>

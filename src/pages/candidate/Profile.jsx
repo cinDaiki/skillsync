@@ -13,6 +13,12 @@ import { uploadVerificationDocument, uploadCertificateFile, getCertificateSigned
 import { runMatchingForCandidate } from "../../services/matchingEngine";
 import ProfilePictureUploader from "../../components/common/ProfilePictureUploader";
 import { isDevMode } from "../../services/devMode";
+import {
+  fetchCandidateCareerPreferences,
+  saveCandidateCareerPreferences,
+  getAllCategories,
+  getSubcategoriesForCategory
+} from "../../services/careerRelevanceService";
 
 const defaultProfile = {
   fullName: "",
@@ -68,6 +74,15 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState(null);
   const [activeTab, setActiveTab] = useState("view");
+
+  // Career Preferences state (Phase 4C)
+  const [careerPreferences, setCareerPreferences] = useState({
+    preferredCategories: [],
+    preferredSubcategories: [],
+    preferredRoles: [],
+    careerStage: ""
+  });
+  const [roleInput, setRoleInput] = useState("");
 
   // Modals state
   const [showExpModal, setShowExpModal] = useState(false);
@@ -230,6 +245,10 @@ export default function Profile() {
       skills: JSON.stringify(nextSkills),
       certifications: JSON.stringify(nextCert),
       years_experience: expYears,
+      preferred_categories: careerPreferences.preferredCategories || [],
+      preferred_subcategories: careerPreferences.preferredSubcategories || [],
+      preferred_roles: careerPreferences.preferredRoles || [],
+      career_stage: careerPreferences.careerStage || null,
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id' });
 
@@ -260,6 +279,9 @@ export default function Profile() {
 
     if (data) {
       applyProfileState(data, user);
+      fetchCandidateCareerPreferences(user.id).then(({ preferences }) => {
+        if (preferences) setCareerPreferences(preferences);
+      }).catch(console.error);
       cacheProfileLocally(
         user.id, 
         profile, 
@@ -804,6 +826,12 @@ export default function Profile() {
             onClick={() => { setActiveTab("verification"); setMessage({ text: "", type: "success" }); }}
           >
             Identity Verification
+          </button>
+          <button
+            className={`profile-tab-btn ${activeTab === "career" ? "active" : ""}`}
+            onClick={() => { setActiveTab("career"); setMessage({ text: "", type: "success" }); }}
+          >
+            🎯 Career Preferences
           </button>
         </div>
 
@@ -1451,6 +1479,226 @@ export default function Profile() {
           </div>
         )}
 
+        {/* ── CAREER PREFERENCES TAB (Phase 4C) ── */}
+        {activeTab === "career" && (
+          <div className="profile-edit-section">
+            <div className="section-header" style={{ marginBottom: "20px" }}>
+              <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#1e1b4b" }}>
+                Target Career Path & Preferences
+              </h3>
+              <p style={{ fontSize: "13px", color: "#64748b", lineHeight: "1.5" }}>
+                Tell SkillSync what roles and industries you are targeting. SkillSync calculates your 
+                <strong> Career Relevance Score</strong> to ensure you find jobs matching your aspirations.
+              </p>
+            </div>
+
+            {/* Career Stage */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ fontSize: "13px", fontWeight: "700", color: "#1e1b4b", display: "block", marginBottom: "6px" }}>
+                Career Stage
+              </label>
+              <select
+                value={careerPreferences.careerStage || ""}
+                onChange={(e) => setCareerPreferences(prev => ({ ...prev, careerStage: e.target.value }))}
+                style={{ width: "100%", maxWidth: "420px", padding: "10px", borderRadius: "8px", border: "1px solid #cbd5e1" }}
+              >
+                <option value="">Select your current career stage</option>
+                <option value="Entry Level (0-1 year)">Entry Level (0-1 year)</option>
+                <option value="Early Career (1-3 years)">Early Career (1-3 years)</option>
+                <option value="Mid Level (3-5 years)">Mid Level (3-5 years)</option>
+                <option value="Senior (5+ years)">Senior (5+ years)</option>
+                <option value="Career Transition / Switcher">Career Transition / Switcher</option>
+              </select>
+            </div>
+
+            {/* Preferred Categories (max 3) */}
+            <div style={{ marginBottom: "24px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <label style={{ fontSize: "13px", fontWeight: "700", color: "#1e1b4b" }}>
+                  Preferred Occupational Categories (Select up to 3)
+                </label>
+                <span style={{ fontSize: "12px", color: (careerPreferences.preferredCategories || []).length === 3 ? "#e11d48" : "#64748b", fontWeight: "600" }}>
+                  {(careerPreferences.preferredCategories || []).length} / 3 selected
+                </span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                {getAllCategories().map((cat) => {
+                  const isSelected = (careerPreferences.preferredCategories || []).includes(cat.key);
+                  return (
+                    <button
+                      key={cat.key}
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          setCareerPreferences(prev => ({
+                            ...prev,
+                            preferredCategories: (prev.preferredCategories || []).filter(k => k !== cat.key),
+                            preferredSubcategories: (prev.preferredSubcategories || []).filter(subKey => {
+                              const subcats = getSubcategoriesForCategory(cat.key);
+                              return !subcats.some(s => s.key === subKey);
+                            })
+                          }));
+                        } else if ((careerPreferences.preferredCategories || []).length < 3) {
+                          setCareerPreferences(prev => ({
+                            ...prev,
+                            preferredCategories: [...(prev.preferredCategories || []), cat.key]
+                          }));
+                        }
+                      }}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: "20px",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                        cursor: "pointer",
+                        border: isSelected ? "1px solid #4f46e5" : "1px solid #cbd5e1",
+                        background: isSelected ? "#eef2ff" : "#ffffff",
+                        color: isSelected ? "#4f46e5" : "#475569",
+                        transition: "all 0.15s ease"
+                      }}
+                    >
+                      {isSelected ? "✓ " : "+ "}{cat.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Preferred Subcategories (max 6) */}
+            {(careerPreferences.preferredCategories || []).length > 0 && (
+              <div style={{ marginBottom: "24px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <label style={{ fontSize: "13px", fontWeight: "700", color: "#1e1b4b" }}>
+                    Specialized Subcategories (Select up to 6)
+                  </label>
+                  <span style={{ fontSize: "12px", color: (careerPreferences.preferredSubcategories || []).length === 6 ? "#e11d48" : "#64748b", fontWeight: "600" }}>
+                    {(careerPreferences.preferredSubcategories || []).length} / 6 selected
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                  {(careerPreferences.preferredCategories || []).flatMap(catKey => getSubcategoriesForCategory(catKey)).map((sub) => {
+                    const isSelected = (careerPreferences.preferredSubcategories || []).includes(sub.key);
+                    return (
+                      <button
+                        key={sub.key}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setCareerPreferences(prev => ({
+                              ...prev,
+                              preferredSubcategories: (prev.preferredSubcategories || []).filter(k => k !== sub.key)
+                            }));
+                          } else if ((careerPreferences.preferredSubcategories || []).length < 6) {
+                            setCareerPreferences(prev => ({
+                              ...prev,
+                              preferredSubcategories: [...(prev.preferredSubcategories || []), sub.key]
+                            }));
+                          }
+                        }}
+                        style={{
+                          padding: "5px 12px",
+                          borderRadius: "16px",
+                          fontSize: "12px",
+                          fontWeight: "500",
+                          cursor: "pointer",
+                          border: isSelected ? "1px solid #059669" : "1px solid #e2e8f0",
+                          background: isSelected ? "#ecfdf5" : "#f8fafc",
+                          color: isSelected ? "#059669" : "#475569"
+                        }}
+                      >
+                        {isSelected ? "✓ " : "+ "}{sub.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Target Job Titles */}
+            <div style={{ marginBottom: "24px" }}>
+              <label style={{ fontSize: "13px", fontWeight: "700", color: "#1e1b4b", display: "block", marginBottom: "6px" }}>
+                Target Job Titles / Preferred Roles
+              </label>
+              <div style={{ display: "flex", gap: "8px", marginBottom: "8px", maxWidth: "500px" }}>
+                <input
+                  type="text"
+                  placeholder="e.g. Frontend Developer, React Engineer"
+                  value={roleInput}
+                  onChange={(e) => setRoleInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && roleInput.trim()) {
+                      e.preventDefault();
+                      const val = roleInput.trim();
+                      if (!(careerPreferences.preferredRoles || []).includes(val)) {
+                        setCareerPreferences(p => ({ ...p, preferredRoles: [...(p.preferredRoles || []), val] }));
+                      }
+                      setRoleInput("");
+                    }
+                  }}
+                  style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const val = roleInput.trim();
+                    if (val && !(careerPreferences.preferredRoles || []).includes(val)) {
+                      setCareerPreferences(p => ({ ...p, preferredRoles: [...(p.preferredRoles || []), val] }));
+                    }
+                    setRoleInput("");
+                  }}
+                  style={{ padding: "8px 16px", background: "#4f46e5", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}
+                >
+                  Add Role
+                </button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                {(careerPreferences.preferredRoles || []).map((role, idx) => (
+                  <span
+                    key={idx}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#f1f5f9", padding: "4px 10px", borderRadius: "12px", fontSize: "12px", color: "#334155" }}
+                  >
+                    {role}
+                    <button
+                      type="button"
+                      onClick={() => setCareerPreferences(p => ({ ...p, preferredRoles: (p.preferredRoles || []).filter((_, i) => i !== idx) }))}
+                      style={{ border: "none", background: "none", cursor: "pointer", color: "#94a3b8", fontSize: "14px" }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="profile-save-btn"
+              onClick={async () => {
+                setSaving(true);
+                const activeId = userId || getCurrentUser()?.id;
+                if (!activeId) {
+                  setMessage({ text: "Please sign in to save preferences.", type: "error" });
+                  setSaving(false);
+                  return;
+                }
+                try {
+                  const res = await saveCandidateCareerPreferences(activeId, careerPreferences);
+                  if (!res.success) throw new Error(res.error);
+                  runMatchingForCandidate(activeId).catch(console.error);
+                  setMessage({ text: "Career preferences saved successfully! AI matches recalculated.", type: "success" });
+                } catch (err) {
+                  setMessage({ text: "Failed to save career preferences: " + err.message, type: "error" });
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={saving}
+              style={{ marginTop: "12px" }}
+            >
+              {saving ? "Saving Preferences..." : "Save Career Preferences"}
+            </button>
+          </div>
+        )}
       </section>
 
       {/* ── EXPERIENCE MODAL ── */}

@@ -11,12 +11,15 @@ import { PRESET_REQUIREMENTS, encodeApplicationRequirements } from "../../utils/
 import { fetchAuthoritativeEmployerVerification, getEmployerVerificationState } from "../../utils/employerVerification";
 import SkillTagInput from "../../components/common/SkillTagInput";
 import { parseSkillsToArray } from "../../services/normalization";
+import { getAllCategories, getSubcategoriesForCategory } from "../../constants/jobTaxonomy";
 
 export default function PostJob() {
   const navigate = useNavigate();
   const toast = useToast();
   const [formData, setFormData] = useState({
     title: "",
+    job_category: "it_software",
+    job_subcategory: "web_development",
     department: "",
     employment_type: "Full-time",
     work_setup: "On-site",
@@ -77,7 +80,16 @@ export default function PostJob() {
 
   function handleChange(e) {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === "job_category") {
+      const subcats = getSubcategoriesForCategory(value);
+      setFormData(prev => ({
+        ...prev,
+        job_category: value,
+        job_subcategory: subcats[0]?.key || ""
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   }
 
   function handleToggleReq(name) {
@@ -175,6 +187,8 @@ export default function PostJob() {
 
     const payload = {
       title: formData.title.trim(),
+      job_category: formData.job_category || null,
+      job_subcategory: formData.job_subcategory || null,
       department: formData.department.trim(),
       employment_type: formData.employment_type,
       work_setup: formData.work_setup,
@@ -222,6 +236,9 @@ export default function PostJob() {
     setLoading(false);
     setTimeout(() => navigate("/employer/jobs"), 1200);
   }
+
+  const allCategories = getAllCategories();
+  const availableSubcats = getSubcategoriesForCategory(formData.job_category);
 
   return (
     <DashboardLayout
@@ -294,6 +311,22 @@ export default function PostJob() {
           <div className="profile-form-grid">
             <label><span>Job Title *</span>
               <input type="text" name="title" placeholder="e.g. Senior React Developer" value={formData.title} onChange={handleChange} required />
+            </label>
+
+            <label><span>Job Category *</span>
+              <select name="job_category" value={formData.job_category} onChange={handleChange} required>
+                {allCategories.map(cat => (
+                  <option key={cat.key} value={cat.key}>{cat.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label><span>Job Subcategory *</span>
+              <select name="job_subcategory" value={formData.job_subcategory} onChange={handleChange}>
+                {availableSubcats.map(sub => (
+                  <option key={sub.key} value={sub.key}>{sub.label}</option>
+                ))}
+              </select>
             </label>
 
             <label><span>Department</span>
