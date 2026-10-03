@@ -15,6 +15,7 @@ import { triggerSimulationNotification }     from '../../services/notificationSe
 import { fetchSemanticMatchesForCandidate }  from '../../services/ai/semanticMatchingService'
 import { getMatchTier }                      from '../../services/ai/recommendationService'
 import { useToast }                          from '../../contexts/ToastContext'
+import CareerRelevanceBadge                  from '../../components/candidate/CareerRelevanceBadge'
 import './AIJobMatches.css'
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -22,12 +23,28 @@ import './AIJobMatches.css'
 function MatchScoreBadge({ score }) {
   const tier = getMatchTier(score)
   return (
-    <span
-      className="ai-jobs-score-badge"
-      style={{ color: tier.color, background: tier.bg }}
+    <div
+      className="rec-job-score-badge"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '6px 12px',
+        borderRadius: '12px',
+        background: tier.bg,
+        border: `1px solid ${tier.color}40`,
+        color: tier.color,
+        minWidth: '105px',
+        textAlign: 'center',
+        lineHeight: 1.15,
+        boxSizing: 'border-box'
+      }}
     >
-      {score}%
-    </span>
+      <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.85, marginBottom: '2px' }}>JOB FIT</span>
+      <span style={{ fontSize: '18px', fontWeight: '950', lineHeight: '1.1' }}>{score}%</span>
+      <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', marginTop: '2px' }}>{tier.label}</span>
+    </div>
   )
 }
 
@@ -271,7 +288,14 @@ export default function AIJobMatches() {
                           .filter(Boolean).join(' · ')}
                       </p>
                     </div>
-                    <MatchScoreBadge score={job.matchScore} />
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexShrink: 0 }}>
+                      <MatchScoreBadge score={job.matchScore} />
+                      <CareerRelevanceBadge
+                        score={job.career_relevance_score ?? job.careerRelevanceScore}
+                        breakdown={job.career_relevance_breakdown ?? job.careerRelevanceBreakdown}
+                        jobCategory={job.job_category}
+                      />
+                    </div>
                   </div>
 
                   {/* Skill previews */}
@@ -333,6 +357,8 @@ export default function AIJobMatches() {
           job={reportJob}
           matchScore={reportJob.matchScore}
           semanticScore={reportJob.semanticScore}
+          careerRelevanceScore={reportJob.career_relevance_score ?? reportJob.careerRelevanceScore}
+          careerRelevanceBreakdown={reportJob.career_relevance_breakdown ?? reportJob.careerRelevanceBreakdown}
           matchedSkills={reportJob.matchedSkills}
           missingSkills={reportJob.missingSkills}
           recommendation={reportJob.recommendations || reportJob.matchReason}

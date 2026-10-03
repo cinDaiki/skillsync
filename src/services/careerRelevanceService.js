@@ -55,6 +55,57 @@ export function getCareerRelevanceTier(score) {
 }
 
 /**
+ * Extract / format clean evidence explanation bullets from authoritative server breakdown
+ */
+export function getCareerRelevanceEvidenceBullets(breakdown, jobCategory = null) {
+  if (!breakdown || typeof breakdown !== "object") return [];
+  if (Array.isArray(breakdown.evidenceBullets) && breakdown.evidenceBullets.length > 0) {
+    return breakdown.evidenceBullets;
+  }
+
+  const bullets = [];
+  const catLabel = jobCategory ? getCategoryLabel(jobCategory) : "role domain";
+
+  // 1. Domain Skills (30%)
+  if (Array.isArray(breakdown.domainSkills) && breakdown.domainSkills.length > 0) {
+    bullets.push(`${catLabel} skills align with this role (${breakdown.domainSkills.slice(0, 4).join(", ")})`);
+  } else if (breakdown.skillsScore !== undefined && breakdown.skillsScore > 0) {
+    bullets.push(`Partial domain skills align with this role`);
+  }
+
+  // 2. Work History (20%)
+  if (breakdown.workHistoryScore >= 70) {
+    bullets.push(`Work history strongly aligned with ${catLabel}`);
+  } else if (breakdown.workHistoryScore >= 40) {
+    bullets.push(`Work history has transferable experience for ${catLabel}`);
+  }
+
+  // 3. Projects (20%)
+  if (breakdown.projectsScore >= 70) {
+    bullets.push(`Relevant projects and portfolio in ${catLabel}`);
+  } else if (breakdown.projectsScore >= 40) {
+    bullets.push(`Portfolio projects with applicable domain skills`);
+  }
+
+  // 4. Career Preferences (15%)
+  if (breakdown.preferencesScore >= 70) {
+    bullets.push(`Directly matches current ${catLabel} career preference`);
+  }
+
+  // 5. Education Field (5%)
+  if (breakdown.educationFieldScore >= 70) {
+    bullets.push(`Academic background / coursework in ${catLabel}`);
+  }
+
+  // 6. Semantic (10%)
+  if (breakdown.semanticScore >= 70) {
+    bullets.push(`High conceptual role title and background alignment`);
+  }
+
+  return bullets;
+}
+
+/**
  * Compute and save Career Relevance via authoritative server RPC
  */
 export async function computeCareerRelevance(jobId, userId = null) {

@@ -5,7 +5,9 @@ import { useToast } from '../../contexts/ToastContext';
 import SkillGapAnalysis from '../candidate/SkillGapAnalysis';
 import ImproveMatchModal from '../candidate/ImproveMatchModal';
 import CandidateMatchStatusBanner from '../candidate/CandidateMatchStatusBanner';
+import CareerRelevanceBadge from '../candidate/CareerRelevanceBadge';
 import { getJobApplicationEligibility, recalculateAuthoritativeMatch } from '../../services/applicationService';
+import { getCareerRelevanceTier, getCareerRelevanceEvidenceBullets, getCategoryLabel, getSubcategoryLabel } from '../../services/careerRelevanceService';
 
 /**
  * Match Score Badge with tier styling
@@ -26,8 +28,9 @@ function MatchScoreBadge({ score, matchStatus }) {
   }
 
   return (
-    <div className={`rec-job-score-badge ${tierClass}`}>
-      <span className="rec-job-score-num">{score}% Job Fit</span>
+    <div className={`rec-job-score-badge ${tierClass}`} style={{ minWidth: "105px", boxSizing: "border-box" }}>
+      <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
+      <span className="rec-job-score-num">{score}%</span>
       <span className="rec-job-score-label">{tierLabel}</span>
     </div>
   );
@@ -376,7 +379,14 @@ export default function RecommendedJobs({
                         )}
                       </div>
                     </div>
-                    <MatchScoreBadge score={job.matchScore} />
+                    <div className="rec-job-card-badges-group" style={{ display: "flex", gap: "8px", alignItems: "stretch", flexShrink: 0 }}>
+                      <MatchScoreBadge score={job.matchScore} matchStatus={job.matchStatus} />
+                      <CareerRelevanceBadge
+                        score={job.career_relevance_score ?? job.careerRelevanceScore}
+                        breakdown={job.career_relevance_breakdown ?? job.careerRelevanceBreakdown}
+                        jobCategory={job.job_category}
+                      />
+                    </div>
                   </div>
 
                   {job.salary_range && (
@@ -450,6 +460,14 @@ export default function RecommendedJobs({
                         <strong>{job.educationScore}%</strong>
                       </div>
                     )}
+                    <div className="rec-score-pill" style={{ background: "#f5f3ff", borderColor: "#ddd6fe" }}>
+                      <span style={{ color: "#6d28d9" }}>Career Relevance:</span>
+                      <strong style={{ color: "#58158f" }}>
+                        {(job.career_relevance_score !== null && job.career_relevance_score !== undefined)
+                          ? `${job.career_relevance_score}%`
+                          : job.job_category ? "Not yet available" : "Uncategorized"}
+                      </strong>
+                    </div>
                   </div>
 
                   {/* Footer Actions */}
@@ -640,6 +658,89 @@ export default function RecommendedJobs({
                     recalculating={recalculatingMatch}
                   />
                 </div>
+
+                {/* ── CAREER RELEVANCE & OCCUPATIONAL DOMAIN ── */}
+                {(() => {
+                  const relScore = selectedJob.career_relevance_score ?? selectedJob.careerRelevanceScore ?? null;
+                  const breakdown = selectedJob.career_relevance_breakdown ?? selectedJob.careerRelevanceBreakdown ?? null;
+                  const hasRelScore = relScore !== null && relScore !== undefined && !Number.isNaN(Number(relScore));
+                  const tier = hasRelScore ? getCareerRelevanceTier(relScore) : null;
+                  const bullets = getCareerRelevanceEvidenceBullets(breakdown, selectedJob.job_category);
+                  const domainSkills = breakdown?.domainSkills || [];
+
+                  return (
+                    <div className="rec-modal-section" style={{ background: "#f8fafc", padding: "14px 18px", borderRadius: "10px", border: "1px solid #e2e8f0", marginTop: "16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
+                        <h4 style={{ color: "#1e1b4b", margin: 0, fontSize: "14px", fontWeight: "800" }}>
+                          🧭 Career Field & Occupational Alignment
+                        </h4>
+                        {hasRelScore ? (
+                          <span style={{
+                            fontSize: "12px",
+                            fontWeight: "800",
+                            padding: "3px 10px",
+                            borderRadius: "12px",
+                            background: relScore >= 80 ? "#ecfdf5" : relScore >= 60 ? "#eff6ff" : relScore >= 40 ? "#fffbeb" : "#f1f5f9",
+                            color: relScore >= 80 ? "#065f46" : relScore >= 60 ? "#1e40af" : relScore >= 40 ? "#92400e" : "#475569",
+                            border: `1px solid ${relScore >= 80 ? "#a7f3d0" : relScore >= 60 ? "#bfdbfe" : relScore >= 40 ? "#fde68a" : "#cbd5e1"}`
+                          }}>
+                            {tier.icon} {tier.label} ({relScore}%)
+                          </span>
+                        ) : (
+                          <span style={{
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            padding: "3px 10px",
+                            borderRadius: "12px",
+                            background: "#f1f5f9",
+                            color: "#64748b",
+                            border: "1px solid #e2e8f0"
+                          }}>
+                            {selectedJob.job_category ? "Relevance: Not yet available" : "Uncategorized job"}
+                          </span>
+                        )}
+                      </div>
+
+                      {selectedJob.job_category ? (
+                        <p style={{ fontSize: "12px", color: "#475569", margin: "0 0 8px 0" }}>
+                          <strong>Role Domain:</strong> {getCategoryLabel(selectedJob.job_category)}
+                          {selectedJob.job_subcategory ? ` · ${getSubcategoryLabel(selectedJob.job_category, selectedJob.job_subcategory)}` : ""}
+                        </p>
+                      ) : (
+                        <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 8px 0", fontStyle: "italic" }}>
+                          This is a legacy or uncategorized job. Career relevance domain scoring is not applied.
+                        </p>
+                      )}
+
+                      {bullets.length > 0 && (
+                        <div style={{ margin: "8px 0 4px 0" }}>
+                          <span style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                            Why:
+                          </span>
+                          {bullets.map((b, bIdx) => (
+                            <div key={bIdx} style={{ fontSize: "12px", color: "#334155", display: "flex", alignItems: "flex-start", gap: "6px", marginBottom: "3px" }}>
+                              <span style={{ color: "#4f46e5" }}>•</span>
+                              <span>{b}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {domainSkills.length > 0 && (
+                        <div style={{ marginTop: "8px" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>Matched Domain Skills:</span>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+                            {domainSkills.map((sk, sIdx) => (
+                              <span key={sIdx} style={{ background: "#e0e7ff", color: "#3730a3", fontSize: "11px", fontWeight: "600", padding: "2px 8px", borderRadius: "8px" }}>
+                                {sk}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
                 {(() => {
