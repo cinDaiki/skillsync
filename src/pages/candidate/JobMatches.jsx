@@ -547,18 +547,31 @@ export default function JobMatches() {
 
                     <div style={{ display: "flex", gap: "8px", alignItems: "flex-start", flexWrap: "wrap", flexShrink: 0 }}>
                       {/* Job Fit Badge */}
-                      <div
-                        className={`rec-job-score-badge ${matchScore >= 80 ? 'excellent' : matchScore >= 60 ? 'good' : matchScore >= 40 ? 'partial' : 'skills-gap'}`}
-                        style={{ minWidth: "105px", boxSizing: "border-box" }}
-                      >
-                        <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
-                        <span className="rec-job-score-num">{hasMatch ? `${matchScore}%` : "—"}</span>
-                        <span className="rec-job-score-label">
-                          {hasMatch
-                            ? (matchScore >= 80 ? "Strong Match" : matchScore >= 60 ? "Good Match" : matchScore >= 40 ? "Potential Match" : "Skills Gap")
-                            : "No Profile"}
-                        </span>
-                      </div>
+                      {(() => {
+                        const isUncomputed = !hasMatch || (Number(matchScore) === 0 && (matchRecord?.match_status === 'Recommended' || matchRecord?.match_status === 'Uncategorized' || matchRecord?.match_status === 'Pending' || matchRecord?.match_status === 'Uncomputed'));
+                        if (isUncomputed) {
+                          return (
+                            <div className="rec-job-score-badge uncomputed" style={{ minWidth: "105px", boxSizing: "border-box", background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b" }}>
+                              <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
+                              <span className="rec-job-score-num" style={{ fontSize: "14px", margin: "2px 0" }}>N/A</span>
+                              <span className="rec-job-score-label">Not Available</span>
+                            </div>
+                          );
+                        }
+                        const numScore = Math.round(Number(matchScore));
+                        return (
+                          <div
+                            className={`rec-job-score-badge ${numScore >= 80 ? 'excellent' : numScore >= 60 ? 'good' : numScore >= 40 ? 'partial' : 'skills-gap'}`}
+                            style={{ minWidth: "105px", boxSizing: "border-box" }}
+                          >
+                            <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
+                            <span className="rec-job-score-num">{numScore}%</span>
+                            <span className="rec-job-score-label">
+                              {numScore >= 80 ? "Strong Match" : numScore >= 60 ? "Good Match" : numScore >= 40 ? "Potential Match" : "Skills Gap"}
+                            </span>
+                          </div>
+                        );
+                      })()}
 
                       {/* Career Relevance Badge */}
                       <CareerRelevanceBadge
