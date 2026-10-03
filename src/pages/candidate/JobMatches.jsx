@@ -573,12 +573,6 @@ export default function JobMatches() {
                         );
                       })()}
 
-                      {/* Career Relevance Badge */}
-                      <CareerRelevanceBadge
-                        score={matchRecord?.career_relevance_score}
-                        breakdown={matchRecord?.career_relevance_breakdown}
-                        jobCategory={job.job_category}
-                      />
 
                       {job.salary_range && (
                         <div style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "6px 12px", borderRadius: "8px", fontSize: "12px", fontWeight: "800", display: "flex", alignItems: "center" }}>

@@ -99,7 +99,7 @@ export default function CareerRelevanceBadge({
           title={isCategorized ? "Relevance score not yet calculated" : "Job is not categorized in taxonomy"}
         >
           <span>🧭 Career Relevance:</span>
-          <span>{isCategorized ? "Not yet available" : "Uncategorized job"}</span>
+          <span>N/A</span>
         </span>
       );
     }

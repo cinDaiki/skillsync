@@ -321,11 +321,6 @@ export default function AIJobMatches() {
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexShrink: 0 }}>
                       <MatchScoreBadge score={job.matchScore} matchStatus={job.matchStatus} />
-                      <CareerRelevanceBadge
-                        score={job.career_relevance_score ?? job.careerRelevanceScore}
-                        breakdown={job.career_relevance_breakdown ?? job.careerRelevanceBreakdown}
-                        jobCategory={job.job_category}
-                      />
                     </div>
                   </div>
 
@@ -350,6 +345,7 @@ export default function AIJobMatches() {
                         <div className="ai-job-mini-scores">
                           <span>Semantic: <strong>{job.semanticScore}%</strong></span>
                           <span>Skills: <strong>{job.skillsScore}%</strong></span>
+                          <span>Career Relevance: <strong>{(job.career_relevance_score !== null && job.career_relevance_score !== undefined) ? `${job.career_relevance_score}%` : "N/A"}</strong></span>
                           <span style={{ color: isEligible ? "#15803d" : "#be123c", fontWeight: "600" }}>
                             Req: <strong>{threshold}%</strong>
                           </span>

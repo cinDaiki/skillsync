@@ -395,11 +395,6 @@ export default function RecommendedJobs({
                     </div>
                     <div className="rec-job-card-badges-group" style={{ display: "flex", gap: "8px", alignItems: "stretch", flexShrink: 0 }}>
                       <MatchScoreBadge score={job.matchScore} matchStatus={job.matchStatus} />
-                      <CareerRelevanceBadge
-                        score={job.career_relevance_score ?? job.careerRelevanceScore}
-                        breakdown={job.career_relevance_breakdown ?? job.careerRelevanceBreakdown}
-                        jobCategory={job.job_category}
-                      />
                     </div>
                   </div>
 
@@ -479,7 +474,7 @@ export default function RecommendedJobs({
                       <strong style={{ color: "#58158f" }}>
                         {(job.career_relevance_score !== null && job.career_relevance_score !== undefined)
                           ? `${job.career_relevance_score}%`
-                          : job.job_category ? "Not yet available" : "Uncategorized"}
+                          : "N/A"}
                       </strong>
                     </div>
                   </div>
