@@ -20,8 +20,39 @@ import './AIJobMatches.css'
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-function MatchScoreBadge({ score }) {
-  const tier = getMatchTier(score)
+function MatchScoreBadge({ score, matchStatus }) {
+  const isUncomputed = score === null || score === undefined || 
+    (Number(score) === 0 && (matchStatus === 'Recommended' || matchStatus === 'Uncategorized' || matchStatus === 'Pending' || matchStatus === 'Uncomputed' || !matchStatus));
+
+  if (isUncomputed) {
+    return (
+      <div
+        className="rec-job-score-badge"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '6px 12px',
+          borderRadius: '12px',
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          color: '#64748b',
+          minWidth: '105px',
+          textAlign: 'center',
+          lineHeight: 1.15,
+          boxSizing: 'border-box'
+        }}
+      >
+        <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.85, marginBottom: '2px' }}>JOB FIT</span>
+        <span style={{ fontSize: '14px', fontWeight: '950', lineHeight: '1.1', margin: '2px 0' }}>N/A</span>
+        <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', marginTop: '2px' }}>Not Available</span>
+      </div>
+    );
+  }
+
+  const numScore = Math.round(Number(score));
+  const tier = getMatchTier(numScore);
   return (
     <div
       className="rec-job-score-badge"
@@ -42,8 +73,8 @@ function MatchScoreBadge({ score }) {
       }}
     >
       <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.85, marginBottom: '2px' }}>JOB FIT</span>
-      <span style={{ fontSize: '18px', fontWeight: '950', lineHeight: '1.1' }}>{score}%</span>
-      <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', marginTop: '2px' }}>{tier.label}</span>
+      <span style={{ fontSize: '18px', fontWeight: '950', lineHeight: '1.1' }}>{numScore}%</span>
+      <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', marginTop: '2px' }}>{matchStatus || tier.label}</span>
     </div>
   )
 }
@@ -289,7 +320,7 @@ export default function AIJobMatches() {
                       </p>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexShrink: 0 }}>
-                      <MatchScoreBadge score={job.matchScore} />
+                      <MatchScoreBadge score={job.matchScore} matchStatus={job.matchStatus} />
                       <CareerRelevanceBadge
                         score={job.career_relevance_score ?? job.careerRelevanceScore}
                         breakdown={job.career_relevance_breakdown ?? job.careerRelevanceBreakdown}

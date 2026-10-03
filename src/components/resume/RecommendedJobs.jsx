@@ -13,16 +13,30 @@ import { getCareerRelevanceTier, getCareerRelevanceEvidenceBullets, getCategoryL
  * Match Score Badge with tier styling
  */
 function MatchScoreBadge({ score, matchStatus }) {
+  const isUncomputed = score === null || score === undefined || 
+    (Number(score) === 0 && (matchStatus === 'Recommended' || matchStatus === 'Uncategorized' || matchStatus === 'Pending' || matchStatus === 'Uncomputed' || !matchStatus));
+
+  if (isUncomputed) {
+    return (
+      <div className="rec-job-score-badge uncomputed" style={{ minWidth: "105px", boxSizing: "border-box", background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b" }}>
+        <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
+        <span className="rec-job-score-num" style={{ fontSize: "14px", margin: "2px 0" }}>N/A</span>
+        <span className="rec-job-score-label">Not Available</span>
+      </div>
+    );
+  }
+
+  const numScore = Math.round(Number(score));
   let tierClass = 'skills-gap';
   let tierLabel = matchStatus || 'Skills Gap';
 
-  if (score >= 80) {
+  if (numScore >= 80) {
     tierClass = 'excellent';
     tierLabel = matchStatus || 'Strong Match';
-  } else if (score >= 60) {
+  } else if (numScore >= 60) {
     tierClass = 'good';
     tierLabel = matchStatus || 'Good Match';
-  } else if (score >= 40) {
+  } else if (numScore >= 40) {
     tierClass = 'partial';
     tierLabel = matchStatus || 'Potential Match';
   }
@@ -30,7 +44,7 @@ function MatchScoreBadge({ score, matchStatus }) {
   return (
     <div className={`rec-job-score-badge ${tierClass}`} style={{ minWidth: "105px", boxSizing: "border-box" }}>
       <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
-      <span className="rec-job-score-num">{score}%</span>
+      <span className="rec-job-score-num">{numScore}%</span>
       <span className="rec-job-score-label">{tierLabel}</span>
     </div>
   );
@@ -637,7 +651,7 @@ export default function RecommendedJobs({
                 <div className="rec-modal-section" style={{ marginTop: "16px" }}>
                   <h4>🎯 AI Job Fit Breakdown</h4>
                   <div className="rec-modal-score-banner" style={{ marginTop: "8px" }}>
-                    <MatchScoreBadge score={selectedJob.matchScore} />
+                    <MatchScoreBadge score={selectedJob.matchScore} matchStatus={selectedJob.matchStatus} />
                     <div className="rec-modal-score-details">
                       <p><strong>Match Reason:</strong> {selectedJob.matchReason || 'Strong alignment with your profile.'}</p>
                     </div>
