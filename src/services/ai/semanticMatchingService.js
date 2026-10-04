@@ -203,7 +203,24 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
       // ── 4. Persist server-authoritative matches via RPC ──────────────────────
       const tRpcStart = performance.now();
       let serverSavedCount = 0;
+
+      // Avoid unnecessary repeated authoritative writes if fresh job_matches exist (< 15 mins old with career relevance)
+      const { data: existingMatches } = await supabase
+        .from('job_matches')
+        .select('job_id, updated_at, career_relevance_score')
+        .eq('user_id', userId);
+
+      const freshJobIds = new Set(
+        (existingMatches || [])
+          .filter(m => m.updated_at && m.career_relevance_score !== null && (Date.now() - new Date(m.updated_at).getTime() < 15 * 60 * 1000))
+          .map(m => m.job_id)
+      );
+
       for (const job of jobs) {
+        if (freshJobIds.has(job.id)) {
+          serverSavedCount++;
+          continue;
+        }
         try {
           const { data: rpcData, error: rpcErr } = await supabase.rpc("compute_and_save_job_match", {
             p_job_id: job.id
