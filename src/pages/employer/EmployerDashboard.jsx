@@ -4,6 +4,7 @@ import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
 import { getNotifications, markAsRead, markAllAsRead, clearAllNotifications } from "../../services/notificationService";
 import { fetchAuthoritativeEmployerVerification, getEmployerVerificationState } from "../../utils/employerVerification";
+import { getEmployerWeeklyUsage } from "../../services/jobService";
 import "./EmployerDashboard.css";
 
 export default function EmployerDashboard() {
@@ -15,6 +16,7 @@ export default function EmployerDashboard() {
   const [employerProfile, setEmployerProfile] = useState(null);
   const [loadingVerification, setLoadingVerification] = useState(true);
   const [verificationState, setVerificationState] = useState(() => getEmployerVerificationState());
+  const [weeklyUsage, setWeeklyUsage] = useState(null);
   const [activityLogs, setActivityLogs] = useState([]);
   const [recommendedCandidates, setRecommendedCandidates] = useState([]);
 
@@ -42,6 +44,14 @@ export default function EmployerDashboard() {
       .order("created_at", { ascending: false });
     const myJobs = jobsData || [];
     setJobs(myJobs);
+
+    // Weekly job posting usage (Phase 5)
+    try {
+      const { data: usageData } = await getEmployerWeeklyUsage();
+      if (usageData) setWeeklyUsage(usageData);
+    } catch (err) {
+      console.warn("[EmployerDashboard] Failed to load weekly usage:", err);
+    }
 
     // Applications for those jobs
     let enrichedApps = [];
@@ -285,8 +295,15 @@ export default function EmployerDashboard() {
         </div>
       )}
 
-      {/* Stats grid — 7 cards */}
+      {/* Stats grid — 8 cards */}
       <div className="enterprise-stats-grid">
+        <Link to="/employer/post-job" className="enterprise-stat-card" style={{ textDecoration: "none", color: "inherit" }}>
+          <div className="enterprise-stat-icon purple">📊</div>
+          <div className="enterprise-stat-info">
+            <h3>{weeklyUsage ? `${weeklyUsage.used_count} / ${weeklyUsage.weekly_limit}` : "—"}</h3>
+            <p>Weekly Posts</p>
+          </div>
+        </Link>
         <div className="enterprise-stat-card">
           <div className="enterprise-stat-icon purple">▣</div>
           <div className="enterprise-stat-info">

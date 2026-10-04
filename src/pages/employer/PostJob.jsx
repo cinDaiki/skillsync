@@ -12,6 +12,7 @@ import { fetchAuthoritativeEmployerVerification, getEmployerVerificationState } 
 import SkillTagInput from "../../components/common/SkillTagInput";
 import { parseSkillsToArray } from "../../services/normalization";
 import { getAllCategories, getSubcategoriesForCategory } from "../../constants/jobTaxonomy";
+import { createEmployerJob, getEmployerWeeklyUsage } from "../../services/jobService";
 
 export default function PostJob() {
   const navigate = useNavigate();
@@ -41,6 +42,10 @@ export default function PostJob() {
   const [verificationError, setVerificationError] = useState(null);
   const [verificationState, setVerificationState] = useState(() => getEmployerVerificationState());
 
+  // Weekly job posting limit state (Phase 5: max 5 new job posts per week)
+  const [weeklyUsage, setWeeklyUsage] = useState(null);
+  const [loadingUsage, setLoadingUsage] = useState(true);
+
   // Application Document Requirements State
   const [appReqs, setAppReqs] = useState(
     PRESET_REQUIREMENTS.filter(p => p.defaultSelected).map(p => p.name)
@@ -52,7 +57,22 @@ export default function PostJob() {
 
   useEffect(() => {
     checkEmployerVerification();
+    loadWeeklyUsage();
   }, []);
+
+  async function loadWeeklyUsage() {
+    setLoadingUsage(true);
+    try {
+      const { data, error } = await getEmployerWeeklyUsage();
+      if (!error && data) {
+        setWeeklyUsage(data);
+      }
+    } catch (err) {
+      console.error("[PostJob] Failed to load weekly usage:", err);
+    } finally {
+      setLoadingUsage(false);
+    }
+  }
 
   async function checkEmployerVerification() {
     setCheckingVerification(true);
@@ -141,6 +161,7 @@ export default function PostJob() {
   }
 
   const isVerifiedEmployer = verificationState.canPostJob;
+  const isLimitReached = weeklyUsage && weeklyUsage.used_count >= weeklyUsage.weekly_limit;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -154,6 +175,12 @@ export default function PostJob() {
 
     if (!verificationState.canPostJob) {
       toast.error(verificationState.message || "Verification Required: Your employer account must be verified before you can publish job postings.");
+      setLoading(false);
+      return;
+    }
+
+    if (isLimitReached) {
+      toast.error("You've reached your weekly limit of 5 new job posts. You can create another job when your weekly posting window resets on Monday.");
       setLoading(false);
       return;
     }
@@ -206,17 +233,22 @@ export default function PostJob() {
       employer_id: user.id,
     };
 
-    const { data, error } = await supabase.from("jobs").insert([payload]).select();
+    const { data: newJob, usage: updatedUsage, error } = await createEmployerJob(payload);
 
     if (error) {
-       toast.error("Failed to post job: " + error.message); 
+       toast.error(error.message || "Failed to post job."); 
+       if (error.code === 'WEEKLY_JOB_POST_LIMIT_REACHED') {
+         loadWeeklyUsage();
+       }
        setLoading(false); 
        return;
     }
 
-    if (data && data[0]) {
-      const newJob = data[0];
+    if (updatedUsage) {
+      setWeeklyUsage(updatedUsage);
+    }
 
+    if (newJob) {
       // Rule-based matching (existing)
       runMatchingForJob(newJob.id).catch(console.error);
 
@@ -306,6 +338,66 @@ export default function PostJob() {
             </p>
           </div>
         )}
+
+        {/* Weekly Job Posting Allowance & Usage Indicator (Phase 5) */}
+        <div
+          className="weekly-posting-limit-card"
+          style={{
+            margin: "16px 0 24px 0",
+            padding: "16px 20px",
+            background: isLimitReached ? "#fef2f2" : "#f8fafc",
+            border: isLimitReached ? "1px solid #fca5a5" : "1px solid #e2e8f0",
+            borderRadius: "10px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ fontSize: "20px" }}>{isLimitReached ? "🛑" : "📊"}</span>
+              <div>
+                <strong style={{ fontSize: "14px", color: isLimitReached ? "#991b1b" : "#1e293b", display: "block" }}>
+                  Weekly Job Posting
+                </strong>
+                <span style={{ fontSize: "13px", color: isLimitReached ? "#b91c1c" : "#475569", fontWeight: "600" }}>
+                  {loadingUsage
+                    ? "Checking weekly posting allowance..."
+                    : isLimitReached
+                    ? "Weekly posting limit reached"
+                    : `${weeklyUsage?.used_count ?? 0} of ${weeklyUsage?.weekly_limit ?? 5} new jobs used this week`}
+                </span>
+                {!loadingUsage && isLimitReached && (
+                  <span style={{ fontSize: "12px", color: "#b91c1c", marginLeft: "6px" }}>
+                    (5 of 5 new jobs used this week)
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {weeklyUsage && (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "4px 12px",
+                  borderRadius: "20px",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  background: isLimitReached ? "#fee2e2" : "#ede9fe",
+                  color: isLimitReached ? "#991b1b" : "#58158f",
+                  border: isLimitReached ? "1px solid #f87171" : "1px solid #ddd6fe",
+                }}
+              >
+                {isLimitReached ? "Limit Reached" : `${weeklyUsage.remaining_count} remaining`}
+              </div>
+            )}
+          </div>
+
+          <div style={{ fontSize: "12px", color: isLimitReached ? "#991b1b" : "#64748b", borderTop: isLimitReached ? "1px solid #fecaca" : "1px solid #f1f5f9", paddingTop: "6px" }}>
+            ℹ️ Your weekly posting allowance resets on Monday.
+          </div>
+        </div>
 
         <form className="profile-form" onSubmit={handleSubmit}>
           <div className="profile-form-grid">
@@ -493,9 +585,16 @@ export default function PostJob() {
             <button
               type="submit"
               className="profile-save-btn"
-              disabled={loading || checkingVerification || !verificationState.canPostJob}
+              disabled={loading || checkingVerification || !verificationState.canPostJob || isLimitReached}
+              style={isLimitReached ? { opacity: 0.6, cursor: "not-allowed", background: "#94a3b8" } : {}}
             >
-              {loading ? "Posting..." : checkingVerification ? "Checking Verification..." : "Publish Job Post"}
+              {loading
+                ? "Posting..."
+                : checkingVerification
+                ? "Checking Verification..."
+                : isLimitReached
+                ? "Weekly posting limit reached"
+                : "Publish Job Post"}
             </button>
             <button type="button" className="profile-cancel-btn" onClick={() => navigate("/employer/jobs")}>
               Cancel
