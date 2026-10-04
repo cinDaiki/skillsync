@@ -161,7 +161,11 @@ export default function PostJob() {
   }
 
   const isVerifiedEmployer = verificationState.canPostJob;
-  const isLimitReached = weeklyUsage && weeklyUsage.used_count >= weeklyUsage.weekly_limit;
+  const usedCount = weeklyUsage ? (Number(weeklyUsage.used_count) || 0) : 0;
+  const weeklyLimit = weeklyUsage ? (Number(weeklyUsage.weekly_limit) || 5) : 5;
+  const isLimitReached = weeklyUsage && usedCount >= weeklyLimit;
+  const isOverLimit = weeklyUsage && usedCount > weeklyLimit;
+  const remainingCount = weeklyUsage ? Math.max(0, weeklyLimit - usedCount) : 5;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -180,7 +184,11 @@ export default function PostJob() {
     }
 
     if (isLimitReached) {
-      toast.error("You've reached your weekly limit of 5 new job posts. You can create another job when your weekly posting window resets on Monday.");
+      toast.error(
+        isOverLimit
+          ? `You have used ${usedCount} new job posts this week (weekly limit: ${weeklyLimit}). You can create another job when your weekly posting window resets on Monday.`
+          : `You've reached your weekly limit of ${weeklyLimit} new job posts. You can create another job when your weekly posting window resets on Monday.`
+      );
       setLoading(false);
       return;
     }
@@ -358,18 +366,20 @@ export default function PostJob() {
               <span style={{ fontSize: "20px" }}>{isLimitReached ? "🛑" : "📊"}</span>
               <div>
                 <strong style={{ fontSize: "14px", color: isLimitReached ? "#991b1b" : "#1e293b", display: "block" }}>
-                  Weekly Job Posting
+                  Weekly Job Posting Allowance
                 </strong>
                 <span style={{ fontSize: "13px", color: isLimitReached ? "#b91c1c" : "#475569", fontWeight: "600" }}>
                   {loadingUsage
                     ? "Checking weekly posting allowance..."
+                    : isOverLimit
+                    ? `${usedCount} new jobs used this week · Weekly limit: ${weeklyLimit}`
                     : isLimitReached
-                    ? "Weekly posting limit reached"
-                    : `${weeklyUsage?.used_count ?? 0} of ${weeklyUsage?.weekly_limit ?? 5} new jobs used this week`}
+                    ? `Weekly posting limit reached (${usedCount} of ${weeklyLimit} used)`
+                    : `${usedCount} of ${weeklyLimit} new jobs used this week`}
                 </span>
                 {!loadingUsage && isLimitReached && (
                   <span style={{ fontSize: "12px", color: "#b91c1c", marginLeft: "6px" }}>
-                    (5 of 5 new jobs used this week)
+                    — Weekly posting limit reached
                   </span>
                 )}
               </div>
@@ -389,13 +399,13 @@ export default function PostJob() {
                   border: isLimitReached ? "1px solid #f87171" : "1px solid #ddd6fe",
                 }}
               >
-                {isLimitReached ? "Limit Reached" : `${weeklyUsage.remaining_count} remaining`}
+                {isLimitReached ? "Limit Reached" : `${remainingCount} remaining`}
               </div>
             )}
           </div>
 
           <div style={{ fontSize: "12px", color: isLimitReached ? "#991b1b" : "#64748b", borderTop: isLimitReached ? "1px solid #fecaca" : "1px solid #f1f5f9", paddingTop: "6px" }}>
-            ℹ️ Your weekly posting allowance resets on Monday.
+            ℹ️ Your weekly posting allowance resets on Monday. {isOverLimit ? "Pre-existing jobs created earlier this week count toward your weekly allocation." : ""}
           </div>
         </div>
 

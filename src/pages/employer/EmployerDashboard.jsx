@@ -301,7 +301,14 @@ export default function EmployerDashboard() {
           <div className="enterprise-stat-icon purple">📊</div>
           <div className="enterprise-stat-info">
             <h3>{weeklyUsage ? `${weeklyUsage.used_count} / ${weeklyUsage.weekly_limit}` : "—"}</h3>
-            <p>Weekly Posts</p>
+            <p>
+              Weekly Posts
+              {weeklyUsage && weeklyUsage.used_count >= weeklyUsage.weekly_limit && (
+                <span style={{ fontSize: "11px", color: "#dc2626", marginLeft: "4px", fontWeight: "700" }}>
+                  (Limit Reached)
+                </span>
+              )}
+            </p>
           </div>
         </Link>
         <div className="enterprise-stat-card">

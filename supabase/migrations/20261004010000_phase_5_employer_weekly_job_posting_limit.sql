@@ -154,7 +154,8 @@ BEGIN
     AND created_at < v_week_end;
 
   IF v_used_count >= v_weekly_limit THEN
-    RAISE EXCEPTION 'WEEKLY_JOB_POST_LIMIT_REACHED: You have reached your weekly limit of 5 new job posts. You can create another job when your weekly posting window resets.';
+    RAISE EXCEPTION 'WEEKLY_JOB_POST_LIMIT_REACHED: You have reached your weekly limit of 5 new job posts. You can create another job when your weekly posting window resets.'
+      USING ERRCODE = 'P0001', DETAIL = 'WEEKLY_JOB_POST_LIMIT_REACHED', HINT = 'Wait until next Monday 00:00:00 Asia/Manila for your posting window to reset.';
   END IF;
 
   -- F. Validate and Extract Job Fields
@@ -300,7 +301,8 @@ BEGIN
       AND created_at < v_week_end;
 
     IF v_used_count >= v_weekly_limit THEN
-      RAISE EXCEPTION 'WEEKLY_JOB_POST_LIMIT_REACHED: You have reached your weekly limit of 5 new job posts. You can create another job when your weekly posting window resets.';
+      RAISE EXCEPTION 'WEEKLY_JOB_POST_LIMIT_REACHED: You have reached your weekly limit of 5 new job posts. You can create another job when your weekly posting window resets.'
+        USING ERRCODE = 'P0001', DETAIL = 'WEEKLY_JOB_POST_LIMIT_REACHED', HINT = 'Wait until next Monday 00:00:00 Asia/Manila for your posting window to reset.';
     END IF;
   END IF;
 

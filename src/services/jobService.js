@@ -45,8 +45,10 @@ export const createEmployerJob = async (jobData) => {
 
     if (error) {
       const isLimitReached =
+        error.details === 'WEEKLY_JOB_POST_LIMIT_REACHED' ||
         error.message?.includes('WEEKLY_JOB_POST_LIMIT_REACHED') ||
-        error.details?.includes('WEEKLY_JOB_POST_LIMIT_REACHED')
+        error.details?.includes('WEEKLY_JOB_POST_LIMIT_REACHED') ||
+        error.hint?.includes('WEEKLY_JOB_POST_LIMIT_REACHED');
 
       if (isLimitReached) {
         return {
