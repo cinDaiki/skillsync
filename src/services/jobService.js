@@ -62,7 +62,12 @@ export const createEmployerJob = async (jobData) => {
       return { data: null, error }
     }
 
-    return { data: data?.job, usage: data?.usage, error: null }
+    return {
+      data: data?.job,
+      usage: data?.usage,
+      publication: data?.publication,
+      error: null
+    }
   } catch (err) {
     return { data: null, error: err }
   }

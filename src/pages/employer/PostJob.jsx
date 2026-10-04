@@ -237,11 +237,10 @@ export default function PostJob() {
       minimum_match_percentage: matchThreshold,
       description: formData.description.trim(),
       deadline: formData.deadline || null,
-      status: "pending_review", // Newly created jobs require admin moderation
       employer_id: user.id,
     };
 
-    const { data: newJob, usage: updatedUsage, error } = await createEmployerJob(payload);
+    const { data: newJob, usage: updatedUsage, publication, error } = await createEmployerJob(payload);
 
     if (error) {
        toast.error(error.message || "Failed to post job."); 
@@ -272,7 +271,12 @@ export default function PostJob() {
       })()
     }
 
-    toast.success("Job submitted for administrator review! Status: Pending Review.");
+    const isAutoPublished = publication?.auto_published || newJob?.status === "open";
+    if (isAutoPublished) {
+      toast.success("Job published successfully and is now live!");
+    } else {
+      toast.success("Job submitted for administrator review! Status: Pending Review.");
+    }
     setLoading(false);
     setTimeout(() => navigate("/employer/jobs"), 1200);
   }
@@ -407,6 +411,12 @@ export default function PostJob() {
           <div style={{ fontSize: "12px", color: isLimitReached ? "#991b1b" : "#64748b", borderTop: isLimitReached ? "1px solid #fecaca" : "1px solid #f1f5f9", paddingTop: "6px" }}>
             ℹ️ Your weekly posting allowance resets on Monday. {isOverLimit ? "Pre-existing jobs created earlier this week count toward your weekly allocation." : ""}
           </div>
+
+          {isVerifiedEmployer && !isLimitReached && (
+            <div style={{ fontSize: "12px", color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "6px", padding: "6px 10px", marginTop: "4px" }}>
+              ✨ <strong>Verified Employer:</strong> Newly created jobs are automatically published and live immediately (status: Open).
+            </div>
+          )}
         </div>
 
         <form className="profile-form" onSubmit={handleSubmit}>
