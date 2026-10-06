@@ -360,7 +360,19 @@ export default function ManageEmployers() {
                     <div>Location: <strong>{employer.location}</strong></div>
                     <div>Phone: <strong>{employer.contact_number || "Not provided"}</strong></div>
                     <div>Registered: <strong>{formatDate(employer.created_at)}</strong></div>
+                    {employer.submitted_at && (
+                      <div>Submitted: <strong>{formatDate(employer.submitted_at)}</strong></div>
+                    )}
+                    {employer.reviewed_at && (
+                      <div>Reviewed: <strong>{formatDate(employer.reviewed_at)}</strong></div>
+                    )}
                   </div>
+
+                  {employer.verification_reason && (
+                    <div style={{ marginTop: "10px", padding: "8px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", fontSize: "12px", color: "#991b1b" }}>
+                      <strong>Rejection Reason:</strong> {employer.verification_reason}
+                    </div>
+                  )}
 
                   {/* Verification Documents Review Section */}
                   {docCount > 0 && (

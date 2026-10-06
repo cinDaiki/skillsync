@@ -106,13 +106,49 @@ export function getEmployerVerificationState({ profile, employerProfile } = {}) 
       isApproved: false,
       isPending: false,
       isRejected: true,
+      isNotSubmitted: false,
       isSuspended: false,
       canPostJob: false,
       bannerType: "rejected",
       badgeText: "❌ Rejected",
       badgeClass: "badge-rejected",
       reason: profile?.verification_reason || employerProfile?.verification_reason || "Verification documents did not meet platform guidelines.",
-      message: "Your verification documents were rejected. Please update your documents in Company Profile."
+      message: "Your verification documents were rejected. Please update your documents in Company Profile.",
+      submitted_at: employerProfile?.submitted_at || null,
+      reviewed_at: employerProfile?.reviewed_at || null,
+      reviewed_by: employerProfile?.reviewed_by || null
+    };
+  }
+
+  // Check if documents have never been submitted
+  const hasUploadedDocs = Boolean(
+    employerProfile?.business_permit_url ||
+    employerProfile?.sec_registration_url ||
+    employerProfile?.id_image_url ||
+    employerProfile?.selfie_image_url ||
+    profile?.id_image_url ||
+    profile?.selfie_image_url
+  );
+  const hasSubmittedAt = Boolean(employerProfile?.submitted_at);
+
+  if (!hasUploadedDocs && !hasSubmittedAt) {
+    return {
+      status: "Not Submitted",
+      rawStatus: "Not Submitted",
+      isApproved: false,
+      isPending: false,
+      isRejected: false,
+      isNotSubmitted: true,
+      isSuspended: false,
+      canPostJob: false,
+      bannerType: "not_submitted",
+      badgeText: "📋 Not Submitted",
+      badgeClass: "badge-not-submitted",
+      reason: "",
+      message: "Employer verification has not been submitted yet. Please upload required verification documents to start posting jobs.",
+      submitted_at: null,
+      reviewed_at: null,
+      reviewed_by: null
     };
   }
 
@@ -123,13 +159,17 @@ export function getEmployerVerificationState({ profile, employerProfile } = {}) 
     isApproved: false,
     isPending: true,
     isRejected: false,
+    isNotSubmitted: false,
     isSuspended: false,
     canPostJob: false,
     bannerType: "pending",
     badgeText: "⏳ Pending Verification",
     badgeClass: "badge-pending",
     reason: "",
-    message: "Your account is awaiting administrator review. You cannot publish jobs until approved."
+    message: "Your account is awaiting administrator review. You cannot publish jobs until approved.",
+    submitted_at: employerProfile?.submitted_at || null,
+    reviewed_at: employerProfile?.reviewed_at || null,
+    reviewed_by: employerProfile?.reviewed_by || null
   };
 }
 

@@ -318,6 +318,9 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
           sec_registration_url: ep?.sec_registration_url || null,
           company_logo_url: ep?.company_logo_url || null,
           cover_photo_url: ep?.cover_photo_url || null,
+          submitted_at: ep?.submitted_at || null,
+          reviewed_at: ep?.reviewed_at || null,
+          reviewed_by: ep?.reviewed_by || null,
           verification_status: (() => {
             const raw = ep?.verification_status || p.verification_status || "Pending";
             const s = String(raw).trim().toLowerCase();
@@ -1442,19 +1445,40 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
   console.log(`[AdminService] Diagnostic: Attempting updateEmployerVerification for Target User ID: ${userId}, Status: ${normalizedStatus}, Reason: "${reasonNote}"`);
 
   try {
-    const { error: rpcError } = await supabase.rpc("admin_update_employer_verification", {
+    // Server-authoritative review RPC (Phase 7: review_employer_verification)
+    let { error: rpcError } = await supabase.rpc("review_employer_verification", {
       target_user_id: userId,
       new_status: normalizedStatus,
       reason_note: reasonNote || null,
     });
 
+    if (rpcError && (rpcError.code === "PGRST202" || rpcError.message?.includes("function public.review_employer_verification") || rpcError.message?.includes("could not find"))) {
+      // Fallback to legacy compatibility wrapper
+      const fallback = await supabase.rpc("admin_update_employer_verification", {
+        target_user_id: userId,
+        new_status: normalizedStatus,
+        reason_note: reasonNote || null,
+      });
+      rpcError = fallback.error;
+    }
+
     if (!rpcError) {
-      console.log(`[AdminService] Diagnostic: RPC admin_update_employer_verification succeeded for ${userId}`);
-      // Note: The RPC already writes to admin_audit_logs internally.
+      console.log(`[AdminService] Diagnostic: RPC review_employer_verification succeeded for ${userId}`);
       return { error: null };
     }
 
-    console.warn("[AdminService] RPC admin_update_employer_verification returned error or 404:", {
+    // Handle structured server exceptions
+    if (rpcError.message?.includes("VERIFICATION_REJECTION_REASON_REQUIRED")) {
+      return { error: new Error("A detailed rejection reason is required when rejecting verification.") };
+    }
+    if (rpcError.message?.includes("VERIFICATION_REVIEW_CONFLICT")) {
+      return { error: new Error("Conflict: This verification request has already been reviewed.") };
+    }
+    if (rpcError.message?.includes("FORBIDDEN")) {
+      return { error: new Error("Forbidden: Platform administrator authorization required.") };
+    }
+
+    console.warn("[AdminService] RPC review_employer_verification returned error or fallback needed:", {
       message: rpcError.message,
       code: rpcError.code,
       details: rpcError.details,

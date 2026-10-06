@@ -27,6 +27,8 @@ export default function CompanyProfile() {
     contactNumber: "",
     about: "",
     verification_status: "Pending",
+    submitted_at: null,
+    reviewed_at: null,
     id_image_url: "",
     selfie_image_url: "",
     business_permit_url: "",
@@ -99,6 +101,8 @@ export default function CompanyProfile() {
         contactNumber: data.contact_number || "",
         about: data.about || "",
         verification_status: data.verification_status || "Pending",
+        submitted_at: data.submitted_at || null,
+        reviewed_at: data.reviewed_at || null,
         id_image_url: data.id_image_url || "",
         selfie_image_url: data.selfie_image_url || "",
         business_permit_url: data.business_permit_url || "",
@@ -198,52 +202,68 @@ export default function CompanyProfile() {
         if (data) finalData.cover_photo_url = data;
       }
 
-      // 1. Upsert into employer_profiles with explicit conflict target
-      console.log("[CompanyProfile] employer_profiles upsert payload:", finalData);
-      const { error: empError } = await supabase
-        .from("employer_profiles")
-        .upsert([finalData], { onConflict: "id" });
+      // Check whether this submission is an employer verification request (unverified, resubmission, or new docs)
+      const isVerificationSubmit = !verificationState.isApproved || uploadFiles.id_image || uploadFiles.selfie_image || uploadFiles.business_permit || uploadFiles.sec_registration;
 
-      if (empError) {
-        console.error("[CompanyProfile] employer_profiles upsert error:", {
-          message: empError.message,
-          code: empError.code,
-          details: empError.details,
-          hint: empError.hint,
-          status: empError.status
+      if (isVerificationSubmit) {
+        console.log("[CompanyProfile] Submitting server-authoritative verification request...");
+        const { data: rpcResult, error: rpcError } = await supabase.rpc("submit_employer_verification", {
+          p_company_name: company.companyName,
+          p_industry: company.industry,
+          p_location: company.location,
+          p_contact_number: company.contactNumber || null,
+          p_business_permit_url: finalData.business_permit_url || null,
+          p_sec_registration_url: finalData.sec_registration_url || null,
+          p_id_image_url: finalData.id_image_url || null,
+          p_selfie_image_url: finalData.selfie_image_url || null,
+          p_about: company.about || null,
+          p_website: company.website || null,
+          p_company_size: company.companySize || null
         });
-        throw empError;
+
+        if (rpcError) {
+          console.error("[CompanyProfile] submit_employer_verification RPC error:", rpcError);
+          if (rpcError.message?.includes("VERIFICATION_ALREADY_PENDING")) {
+            throw new Error("You already have a verification submission awaiting administrator review.");
+          }
+          if (rpcError.message?.includes("VERIFICATION_DOCUMENT_REQUIRED")) {
+            throw new Error("At least one verification document (Government ID, Business Permit, or SEC Registration) must be uploaded.");
+          }
+          if (rpcError.message?.includes("ACCOUNT_SUSPENDED")) {
+            throw new Error("Your account is currently suspended. Verification submission is disabled.");
+          }
+          throw rpcError;
+        }
+
+        // Save public branding updates if present
+        if (finalData.company_logo_url || finalData.cover_photo_url) {
+          await supabase
+            .from("employer_profiles")
+            .update({
+              company_logo_url: finalData.company_logo_url,
+              cover_photo_url: finalData.cover_photo_url
+            })
+            .eq("id", userId);
+        }
+
+        setMessage({
+          text: "Verification submitted successfully! Your documents are now awaiting administrator review.",
+          type: "success"
+        });
+      } else {
+        // Standard profile update for already verified employer
+        const { error: empError } = await supabase
+          .from("employer_profiles")
+          .upsert([finalData], { onConflict: "id" });
+
+        if (empError) throw empError;
+
+        setMessage({
+          text: "Company profile updated successfully.",
+          type: "success"
+        });
       }
 
-      // 2. Sync valid profile fields to public.profiles table (only columns that exist on profiles table)
-      const profileUpdates = {
-        contact_number: company.contactNumber,
-        updated_at: new Date().toISOString()
-      };
-      if (finalData.id_image_url) profileUpdates.id_image_url = finalData.id_image_url;
-      if (finalData.selfie_image_url) profileUpdates.selfie_image_url = finalData.selfie_image_url;
-
-      console.log("[CompanyProfile] profiles update payload:", profileUpdates);
-      const { error: profError } = await supabase
-        .from("profiles")
-        .update(profileUpdates)
-        .eq("id", userId);
-
-      if (profError) {
-        console.error("[CompanyProfile] profiles update error:", {
-          message: profError.message,
-          code: profError.code,
-          details: profError.details,
-          hint: profError.hint,
-          status: profError.status
-        });
-        throw profError;
-      }
-
-      setMessage({
-        text: "Profile saved successfully. Your verification documents have been submitted for review.",
-        type: "success"
-      });
       setIsEditing(false);
       
       // Clear file inputs
@@ -251,11 +271,11 @@ export default function CompanyProfile() {
         id_image: null, selfie_image: null, business_permit: null, sec_registration: null, company_logo: null, cover_photo: null
       });
       
-      loadCompanyProfile();
+      await loadCompanyProfile();
     } catch (error) {
       console.error("[CompanyProfile] Save Technical Error:", error);
       setMessage({
-        text: "Unable to save profile. Please try again.",
+        text: error?.message || "Unable to save profile. Please try again.",
         type: "error"
       });
     } finally {
@@ -379,23 +399,71 @@ export default function CompanyProfile() {
             <div className="verification-tab">
               <div style={{
                 padding: '16px',
-                background: verificationState.isApproved ? '#dcfce7' : verificationState.isSuspended || verificationState.isRejected ? '#fee2e2' : '#fef9c3',
+                background: verificationState.isApproved ? '#dcfce7' : verificationState.isSuspended || verificationState.isRejected ? '#fee2e2' : verificationState.isNotSubmitted ? '#fef3c7' : '#fef9c3',
+                border: `1px solid ${verificationState.isApproved ? '#bbf7d0' : verificationState.isSuspended || verificationState.isRejected ? '#fca5a5' : verificationState.isNotSubmitted ? '#fde68a' : '#fef08a'}`,
                 borderRadius: '8px',
                 marginBottom: '20px'
               }}>
                 <h3 style={{
                   margin: 0,
-                  color: verificationState.isApproved ? '#166534' : verificationState.isSuspended || verificationState.isRejected ? '#991b1b' : '#854d0e'
+                  color: verificationState.isApproved ? '#166534' : verificationState.isSuspended || verificationState.isRejected ? '#991b1b' : verificationState.isNotSubmitted ? '#92400e' : '#854d0e'
                 }}>
-                  Verification Status: {verificationState.status}
+                  {verificationState.isApproved ? "✓ Verified Employer" : verificationState.isNotSubmitted ? "Employer Verification: Not Submitted" : `Verification Status: ${verificationState.status}`}
                 </h3>
                 <p style={{ fontSize: '13px', margin: '4px 0 0 0', color: '#475569' }}>
-                  {verificationState.message}
+                  {verificationState.isApproved
+                    ? "Your identity and business are verified. New jobs can be published immediately, subject to your weekly posting limit."
+                    : verificationState.message}
                 </p>
+                {company.submitted_at && verificationState.isPending && (
+                  <p style={{ fontSize: '12px', margin: '6px 0 0 0', color: '#854d0e', fontWeight: '600' }}>
+                    Submitted on: {new Date(company.submitted_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                )}
                 {verificationState.isRejected && verificationState.reason && (
-                  <p style={{ fontSize: '12px', margin: '6px 0 0 0', color: '#b91c1c', fontWeight: '600' }}>
+                  <p style={{ fontSize: '12px', margin: '6px 0 0 0', color: '#b91c1c', fontWeight: '700' }}>
                     Rejection Reason: {verificationState.reason}
                   </p>
+                )}
+                {!isEditing && verificationState.isRejected && (
+                  <div style={{ marginTop: '12px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      style={{
+                        padding: '6px 14px',
+                        background: '#dc2626',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Resubmit Verification Documents
+                    </button>
+                  </div>
+                )}
+                {!isEditing && verificationState.isNotSubmitted && (
+                  <div style={{ marginTop: '12px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      style={{
+                        padding: '6px 14px',
+                        background: '#b45309',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Start Verification Submission
+                    </button>
+                  </div>
                 )}
               </div>
 
