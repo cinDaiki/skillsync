@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import Home from "./pages/public/Home/Home";
 import BrowseJobs from "./pages/public/BrowseJobs";
@@ -324,6 +324,24 @@ function App() {
               <AdminProfile />
             </RoleRoute>
           }
+        />
+
+        {/* Backward-compatibility alias redirects */}
+        <Route
+          path="/admin/verification"
+          element={<Navigate to="/admin/employers?status=pending" replace />}
+        />
+        <Route
+          path="/admin/employer-verification"
+          element={<Navigate to="/admin/employers?status=pending" replace />}
+        />
+        <Route
+          path="/admin/moderation"
+          element={<Navigate to="/admin/jobs?status=pending_review" replace />}
+        />
+        <Route
+          path="/admin/job-moderation"
+          element={<Navigate to="/admin/jobs?status=pending_review" replace />}
         />
 
         {/* Error & Notice pages */}

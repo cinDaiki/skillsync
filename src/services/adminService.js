@@ -268,7 +268,14 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
       return { data: [], totalCount: 0, page, totalPages: 0, error: profileErr };
     }
 
-    let employersList = (allEmployers || []).filter(isAccountActive);
+    let employersList = allEmployers || [];
+    const normStatus = String(status || "").trim().toLowerCase();
+
+    if (normStatus === "suspended") {
+      employersList = employersList.filter(isAccountSuspended);
+    } else if (normStatus !== "all" && normStatus !== "") {
+      employersList = employersList.filter(isAccountActive);
+    }
 
     // Merge employer_profiles details
     const empIds = employersList.map((p) => p.id);
@@ -346,13 +353,15 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
     }
 
     // Apply Status Filter
-    if (status !== "All" && status !== "all") {
-      if (status === "Approved") {
+    if (normStatus !== "all" && normStatus !== "") {
+      if (normStatus === "approved" || normStatus === "verified") {
         employersList = employersList.filter((p) => p.verification_status === "Approved" || p.verification_status === "Verified");
-      } else if (status === "Pending") {
+      } else if (normStatus === "pending" || normStatus === "pending verification") {
         employersList = employersList.filter((p) => !p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification");
-      } else if (status === "Rejected") {
+      } else if (normStatus === "rejected") {
         employersList = employersList.filter((p) => p.verification_status === "Rejected");
+      } else if (normStatus === "suspended") {
+        employersList = employersList.filter(isAccountSuspended);
       } else {
         employersList = employersList.filter((p) => p.verification_status === status);
       }
@@ -738,14 +747,17 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
     }
 
     if (status !== "all" && status !== "All") {
-      if (status === "open" || status === "Open") {
+      const s = String(status || "").trim().toLowerCase();
+      if (s === "open") {
         query = query.eq("status", "open");
-      } else if (status === "pending_review" || status === "Pending Review") {
+      } else if (s === "pending_review" || s === "pending") {
         query = query.eq("status", "pending_review");
-      } else if (status === "rejected" || status === "Rejected") {
+      } else if (s === "rejected") {
         query = query.eq("status", "rejected");
-      } else if (status === "closed" || status === "Closed") {
+      } else if (s === "closed") {
         query = query.eq("status", "closed");
+      } else if (s === "suspended") {
+        query = query.eq("status", "suspended");
       } else {
         query = query.eq("status", status);
       }

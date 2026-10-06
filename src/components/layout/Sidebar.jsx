@@ -7,15 +7,13 @@ import { useAuthAction } from "../../context/AuthActionContext";
 const sidebarLinks = {
   admin: [
     { label: "Dashboard", icon: "⌂", path: "/admin/dashboard" },
-    { label: "Jobseekers", icon: "👤", path: "/admin/jobseekers" },
+    { section: "MANAGEMENT" },
     { label: "Employers", icon: "🏢", path: "/admin/employers" },
-    { label: "Suspended Accounts", icon: "🚫", path: "/admin/suspended-accounts" },
-    { label: "Suspension Appeals", icon: "⚖️", path: "/admin/suspension-appeals" },
-    { label: "Manage Jobs", icon: "💼", path: "/admin/jobs" },
-    { label: "Applications", icon: "📋", path: "/admin/applications" },
-    { label: "Resume Vault", icon: "📁", path: "/admin/resumes" },
-    { label: "Reports", icon: "⚙", path: "/admin/reports" },
-    { label: "Audit Logs", icon: "📜", path: "/admin/audit-logs" },
+    { label: "Jobs", icon: "💼", path: "/admin/jobs" },
+    { label: "Users", icon: "👥", path: "/admin/users" },
+    { section: "INSIGHTS" },
+    { label: "Reports", icon: "📊", path: "/admin/reports" },
+    { section: "ACCOUNT" },
     { label: "My Profile", icon: "👤", path: "/admin/profile" },
   ],
 
@@ -93,18 +91,41 @@ export default function Sidebar({ role }) {
       </div>
 
       <nav className="sidebar-nav">
-        {links.map((link) => (
-          <NavLink
-            key={link.label}
-            to={link.path}
-            className={({ isActive }) =>
-              isActive ? "sidebar-link active" : "sidebar-link"
-            }
-          >
-            <span>{link.icon}</span>
-            {link.label}
-          </NavLink>
-        ))}
+        {links.map((link) => {
+          if (link.section) {
+            return (
+              <div
+                key={link.section}
+                className="sidebar-section-header"
+                style={{
+                  fontSize: "11px",
+                  fontWeight: "800",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: "rgba(255, 255, 255, 0.55)",
+                  padding: "10px 14px 2px",
+                  margin: "4px 0 0",
+                  gridColumn: "1 / -1",
+                }}
+              >
+                {link.section}
+              </div>
+            );
+          }
+
+          return (
+            <NavLink
+              key={link.label}
+              to={link.path}
+              className={({ isActive }) =>
+                isActive ? "sidebar-link active" : "sidebar-link"
+              }
+            >
+              <span>{link.icon}</span>
+              {link.label}
+            </NavLink>
+          );
+        })}
       </nav>
 
       <button

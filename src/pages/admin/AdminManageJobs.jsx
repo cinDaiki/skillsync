@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { useToast } from "../../contexts/ToastContext";
 import { supabase } from "../../services/supabase";
@@ -7,16 +8,46 @@ import { parseJobRequirements } from "../../utils/jobRequirementsHelper";
 
 export default function AdminManageJobs() {
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const getJobStatusFromParam = (param) => {
+    const p = String(param || "").trim().toLowerCase();
+    if (p === "pending_review" || p === "pending") return "pending_review";
+    if (p === "open" || p === "active") return "open";
+    if (p === "closed") return "closed";
+    if (p === "rejected") return "rejected";
+    if (p === "suspended") return "suspended";
+    return "all";
+  };
+
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(() => getJobStatusFromParam(searchParams.get("status")));
   const [workSetupFilter, setWorkSetupFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+
+  // Sync state if URL searchParams change externally (e.g. back/forward navigation)
+  useEffect(() => {
+    const urlStatus = getJobStatusFromParam(searchParams.get("status"));
+    setStatusFilter(urlStatus);
+  }, [searchParams]);
+
+  const handleStatusFilterChange = (newStatus) => {
+    setStatusFilter(newStatus);
+    setPage(1);
+    const newParams = new URLSearchParams(searchParams);
+    if (newStatus && newStatus !== "all") {
+      newParams.set("status", newStatus);
+    } else {
+      newParams.delete("status");
+    }
+    setSearchParams(newParams, { replace: true });
+  };
 
   // Modal states
   const [viewJobModal, setViewJobModal] = useState(null); // job object
@@ -116,7 +147,7 @@ export default function AdminManageJobs() {
   return (
     <DashboardLayout
       role="admin"
-      title="Job Moderation Engine"
+      title="Job Management"
       subtitle="Audit pending job postings, verify employer information, approve live listings, or issue rejection feedback."
     >
       <div className="admin-page-container" style={{ padding: "24px" }}>
@@ -124,7 +155,7 @@ export default function AdminManageJobs() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
           <div>
             <h1 style={{ fontSize: "24px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
-              💼 Job Moderation Workspace
+              💼 Job Management
             </h1>
             <p style={{ color: "#64748b", fontSize: "14px", marginTop: "4px" }}>
               Filter postings by review status, inspect employer credentials, and publish verified opportunities.
@@ -143,88 +174,102 @@ export default function AdminManageJobs() {
         )}
 
         {/* Filter Controls Bar */}
-        <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
-          <input
-            type="text"
-            placeholder="🔍 Search title, company, or required skills..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            style={{
-              flex: "1",
-              minWidth: "240px",
-              padding: "10px 14px",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              fontSize: "14px",
-              outline: "none",
-            }}
-          />
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+          {/* Status Tabs */}
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }} role="tablist" aria-label="Job status filters">
+            {[
+              { label: "All", value: "all" },
+              { label: "Pending Review", value: "pending_review" },
+              { label: "Open", value: "open" },
+              { label: "Closed", value: "closed" },
+              { label: "Rejected", value: "rejected" },
+              { label: "Suspended", value: "suspended" },
+            ].map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={statusFilter === tab.value}
+                onClick={() => handleStatusFilterChange(tab.value)}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontWeight: "700",
+                  border: statusFilter === tab.value ? "none" : "1px solid #cbd5e1",
+                  background: statusFilter === tab.value ? "#2563eb" : "#fff",
+                  color: statusFilter === tab.value ? "#fff" : "#475569",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              fontSize: "14px",
-              background: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            <option value="all">All Statuses</option>
-            <option value="pending_review">Pending Review</option>
-            <option value="open">Open / Active</option>
-            <option value="rejected">Rejected</option>
-            <option value="closed">Closed</option>
-          </select>
+          {/* Search & Secondary Filters */}
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+            <input
+              type="text"
+              placeholder="🔍 Search title, company, or required skills..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              style={{
+                flex: "1",
+                minWidth: "240px",
+                padding: "10px 14px",
+                borderRadius: "8px",
+                border: "1px solid #cbd5e1",
+                fontSize: "14px",
+                outline: "none",
+              }}
+            />
 
-          <select
-            value={workSetupFilter}
-            onChange={(e) => {
-              setWorkSetupFilter(e.target.value);
-              setPage(1);
-            }}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              fontSize: "14px",
-              background: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            <option value="all">All Work Setups</option>
-            <option value="On-site">On-site</option>
-            <option value="Remote">Remote</option>
-            <option value="Hybrid">Hybrid</option>
-          </select>
+            <select
+              value={workSetupFilter}
+              onChange={(e) => {
+                setWorkSetupFilter(e.target.value);
+                setPage(1);
+              }}
+              style={{
+                padding: "10px 14px",
+                borderRadius: "8px",
+                border: "1px solid #cbd5e1",
+                fontSize: "14px",
+                background: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              <option value="all">All Work Setups</option>
+              <option value="On-site">On-site</option>
+              <option value="Remote">Remote</option>
+              <option value="Hybrid">Hybrid</option>
+            </select>
 
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
-              setPage(1);
-            }}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              fontSize: "14px",
-              background: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            <option value={10}>10 per page</option>
-            <option value={20}>20 per page</option>
-            <option value={50}>50 per page</option>
-          </select>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+              style={{
+                padding: "10px 14px",
+                borderRadius: "8px",
+                border: "1px solid #cbd5e1",
+                fontSize: "14px",
+                background: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              <option value={10}>10 per page</option>
+              <option value={20}>20 per page</option>
+              <option value={50}>50 per page</option>
+            </select>
+          </div>
         </div>
 
         {/* Job Cards Grid */}
@@ -234,7 +279,19 @@ export default function AdminManageJobs() {
           </div>
         ) : jobs.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px", color: "#64748b", background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
-            No job postings found matching search and filter criteria.
+            {search.trim()
+              ? `No job postings found matching "${search.trim()}".`
+              : statusFilter === "pending_review"
+              ? "No job postings currently pending review."
+              : statusFilter === "open"
+              ? "No open job postings found."
+              : statusFilter === "rejected"
+              ? "No rejected job postings found."
+              : statusFilter === "closed"
+              ? "No closed job postings found."
+              : statusFilter === "suspended"
+              ? "No suspended job postings found."
+              : "No job postings found matching filter criteria."}
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: "16px" }}>

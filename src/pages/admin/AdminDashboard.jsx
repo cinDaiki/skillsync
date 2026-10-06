@@ -124,11 +124,11 @@ export default function AdminDashboard() {
 
         {/* Top Metric Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px", marginBottom: "24px" }}>
-          <Link to="/admin/jobseekers" style={{ textDecoration: "none" }}>
+          <Link to="/admin/users?role=candidate" style={{ textDecoration: "none" }}>
             <div style={{ background: "#fff", padding: "20px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div style={{ fontSize: "13px", color: "#64748b", fontWeight: "700" }}>👤 JOBSEEKERS</div>
               <div style={{ fontSize: "28px", fontWeight: "800", color: "#0f172a", marginTop: "4px" }}>{stats.jobSeekers}</div>
-              <div style={{ fontSize: "12px", color: "#2563eb", marginTop: "6px", fontWeight: "600" }}>Manage Candidates →</div>
+              <div style={{ fontSize: "12px", color: "#2563eb", marginTop: "6px", fontWeight: "600" }}>Manage Users →</div>
             </div>
           </Link>
 
@@ -142,7 +142,7 @@ export default function AdminDashboard() {
             </div>
           </Link>
 
-          <Link to="/admin/jobs" style={{ textDecoration: "none" }}>
+          <Link to="/admin/jobs?status=open" style={{ textDecoration: "none" }}>
             <div style={{ background: "#fff", padding: "20px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div style={{ fontSize: "13px", color: "#64748b", fontWeight: "700" }}>💼 ACTIVE JOBS</div>
               <div style={{ fontSize: "28px", fontWeight: "800", color: "#16a34a", marginTop: "4px" }}>{stats.openJobs}</div>
@@ -150,7 +150,7 @@ export default function AdminDashboard() {
             </div>
           </Link>
 
-          <Link to="/admin/jobs" style={{ textDecoration: "none" }}>
+          <Link to="/admin/employers?status=pending" style={{ textDecoration: "none" }}>
             <div style={{ background: "#fff", padding: "20px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
               <div style={{ fontSize: "13px", color: "#64748b", fontWeight: "700" }}>⏳ PENDING REVIEWS</div>
               <div style={{ fontSize: "28px", fontWeight: "800", color: "#d97706", marginTop: "4px" }}>
@@ -173,7 +173,7 @@ export default function AdminDashboard() {
               <span style={{ fontSize: "13px", color: "#b45309" }}>Review uploaded business permits and IDs.</span>
             </div>
             <Link
-              to="/admin/employers"
+              to="/admin/employers?status=pending"
               style={{ background: "#d97706", color: "#fff", padding: "8px 14px", borderRadius: "8px", textDecoration: "none", fontSize: "13px", fontWeight: "700" }}
             >
               Verify Employers
@@ -188,7 +188,7 @@ export default function AdminDashboard() {
               <span style={{ fontSize: "13px", color: "#1d4ed8" }}>Moderate submitted employer opportunities.</span>
             </div>
             <Link
-              to="/admin/jobs"
+              to="/admin/jobs?status=pending_review"
               style={{ background: "#2563eb", color: "#fff", padding: "8px 14px", borderRadius: "8px", textDecoration: "none", fontSize: "13px", fontWeight: "700" }}
             >
               Moderate Jobs

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
 import {
@@ -14,6 +15,8 @@ import {
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 
 export default function ManageUsers() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [profiles, setProfiles] = useState([]);
   const [applications, setApplications] = useState([]);
   const [resumes, setResumes] = useState([]);
@@ -24,9 +27,48 @@ export default function ManageUsers() {
   
   // Search and Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [verifyFilter, setVerifyFilter] = useState("all"); // NEW: filter by verification status
+  const [roleFilter, setRoleFilter] = useState(() => searchParams.get("role") || "all");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") || "all");
+  const [verifyFilter, setVerifyFilter] = useState(() => searchParams.get("verify") || "all");
+
+  useEffect(() => {
+    const roleParam = searchParams.get("role");
+    if (roleParam && ["candidate", "employer", "all"].includes(roleParam.toLowerCase())) {
+      setRoleFilter(roleParam.toLowerCase());
+    }
+    const statusParam = searchParams.get("status");
+    if (statusParam && ["active", "suspended", "all"].includes(statusParam.toLowerCase())) {
+      setStatusFilter(statusParam.toLowerCase());
+    }
+    const verifyParam = searchParams.get("verify");
+    if (verifyParam && ["under_review", "pending", "verified", "rejected", "all"].includes(verifyParam.toLowerCase())) {
+      setVerifyFilter(verifyParam.toLowerCase());
+    }
+  }, [searchParams]);
+
+  const handleRoleFilterChange = (role) => {
+    setRoleFilter(role);
+    const newParams = new URLSearchParams(searchParams);
+    if (role !== "all") newParams.set("role", role);
+    else newParams.delete("role");
+    setSearchParams(newParams, { replace: true });
+  };
+
+  const handleStatusFilterChange = (st) => {
+    setStatusFilter(st);
+    const newParams = new URLSearchParams(searchParams);
+    if (st !== "all") newParams.set("status", st);
+    else newParams.delete("status");
+    setSearchParams(newParams, { replace: true });
+  };
+
+  const handleVerifyFilterChange = (vf) => {
+    setVerifyFilter(vf);
+    const newParams = new URLSearchParams(searchParams);
+    if (vf !== "all") newParams.set("verify", vf);
+    else newParams.delete("verify");
+    setSearchParams(newParams, { replace: true });
+  };
   
   const [toast, setToast] = useState({ text: "", type: "success" });
   const [loadError, setLoadError] = useState("");
@@ -258,8 +300,12 @@ export default function ManageUsers() {
         <section className="dashboard-panel">
           <div className="panel-header users-panel-header" style={{ borderBottom: "none", marginBottom: "8px" }}>
             <div className="panel-header-content">
-              <h2>Registered Platform Users ({filteredUsers.length})</h2>
-              <p>Search candidates or employers, inspect complete files, suspend access, or modify profile parameters.</p>
+              <h1 style={{ fontSize: "24px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+                👥 User Management ({filteredUsers.length})
+              </h1>
+              <p style={{ color: "#64748b", fontSize: "14px", marginTop: "4px" }}>
+                Search candidates and employers, inspect complete files, suspend access, or modify profile parameters.
+              </p>
             </div>
           </div>
 
@@ -281,19 +327,19 @@ export default function ManageUsers() {
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{ height: "44px", padding: "0 14px", fontSize: "14px", border: "1px solid #d0d5dd", borderRadius: "10px", outline: "none" }}
             />
-            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
+            <select value={roleFilter} onChange={(e) => handleRoleFilterChange(e.target.value)}
               style={{ height: "44px", padding: "0 10px", fontSize: "14px", border: "1px solid #d0d5dd", borderRadius: "10px", outline: "none" }}>
               <option value="all">All Roles</option>
               <option value="candidate">Job Seekers</option>
               <option value="employer">Employers</option>
             </select>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+            <select value={statusFilter} onChange={(e) => handleStatusFilterChange(e.target.value)}
               style={{ height: "44px", padding: "0 10px", fontSize: "14px", border: "1px solid #d0d5dd", borderRadius: "10px", outline: "none" }}>
               <option value="all">All Statuses</option>
               <option value="active">Active Accounts</option>
               <option value="suspended">Suspended Accounts</option>
             </select>
-            <select value={verifyFilter} onChange={(e) => setVerifyFilter(e.target.value)}
+            <select value={verifyFilter} onChange={(e) => handleVerifyFilterChange(e.target.value)}
               style={{ height: "44px", padding: "0 10px", fontSize: "13px", border: pendingVerifyCount > 0 && verifyFilter !== "under_review" ? "2px solid #f59e0b" : "1px solid #d0d5dd", borderRadius: "10px", outline: "none", fontWeight: "800" }}>
               <option value="all">All Verifications</option>
               <option value="under_review">🔔 Needs Review {pendingVerifyCount > 0 ? `(${pendingVerifyCount})` : ""}</option>
