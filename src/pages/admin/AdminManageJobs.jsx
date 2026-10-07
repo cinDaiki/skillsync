@@ -566,7 +566,7 @@ export default function AdminManageJobs() {
                       <div>⏳ {formatDate(job.created_at)}</div>
                     </div>
 
-                    {/* Moderation / Rejection Reason Banner */}
+                    {/* Moderation / Rejection Reason Banner (Only shown when actively suspended/rejected) */}
                     {(isSuspended || isRejected) && job.rejection_reason && (
                       <div
                         style={{
@@ -579,7 +579,7 @@ export default function AdminManageJobs() {
                           marginBottom: "12px",
                         }}
                       >
-                        <strong>Moderation Note:</strong> "{job.rejection_reason}"
+                        <strong>Active Moderation Reason:</strong> "{job.rejection_reason}"
                       </div>
                     )}
                   </div>
@@ -1156,6 +1156,29 @@ export default function AdminManageJobs() {
                 ✕
               </button>
             </div>
+
+            {/* Active Moderation Reason (Only when actively suspended or rejected) */}
+            {(viewJobModal.status === "suspended" || viewJobModal.status === "rejected") && viewJobModal.rejection_reason && (
+              <div
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fca5a5",
+                  borderRadius: "8px",
+                  padding: "10px 14px",
+                  fontSize: "13px",
+                  color: "#991b1b",
+                  marginBottom: "16px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <span>🚫</span>
+                <div>
+                  <strong>Active Moderation Reason:</strong> "{viewJobModal.rejection_reason}"
+                </div>
+              </div>
+            )}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px", padding: "12px", background: "#f8fafc", borderRadius: "8px", fontSize: "13px" }}>
               <div>Employment Type: <strong>{viewJobModal.employment_type || "Full-time"}</strong></div>

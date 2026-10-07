@@ -1,10 +1,13 @@
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import {
   fetchAdminDashboardStats,
   fetchAttentionRequiredStats,
   fetchAdminAuditLogs,
+  exportPlatformSummaryCSV,
+  exportJobsReportCSV,
+  exportUsersReportCSV,
 } from "../../services/adminService";
 
 export default function AdminDashboard() {
@@ -27,6 +30,19 @@ export default function AdminDashboard() {
   const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const exportMenuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
+        setExportMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     loadDashboardData();
@@ -128,22 +144,181 @@ export default function AdminDashboard() {
 
         {/* ─── PLATFORM SUMMARY SECTION (Merged from Reports) ─── */}
         <div style={{ marginBottom: "28px" }}>
-          <div style={{ marginBottom: "12px" }}>
-            <h2
-              style={{
-                fontSize: "13px",
-                fontWeight: "800",
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                color: "#64748b",
-                margin: "0 0 4px 0",
-              }}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-end",
+              marginBottom: "14px",
+              flexWrap: "wrap",
+              gap: "12px",
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  fontSize: "13px",
+                  fontWeight: "800",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: "#64748b",
+                  margin: "0 0 4px 0",
+                }}
+              >
+                Platform Summary
+              </h2>
+              <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
+                Live metrics across registered users, job listings, and candidate applications.
+              </p>
+            </div>
+
+            <div
+              ref={exportMenuRef}
+              style={{ position: "relative", display: "flex", gap: "8px", alignItems: "center" }}
             >
-              Platform Summary
-            </h2>
-            <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
-              Live metrics across registered users, job listings, and candidate applications.
-            </p>
+              <button
+                type="button"
+                id="admin-dashboard-export-csv-btn"
+                disabled={exporting}
+                onClick={() => setExportMenuOpen(!exportMenuOpen)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "7px 14px",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: exporting ? "not-allowed" : "pointer",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span>📥</span> Export CSV ▾
+              </button>
+
+              <Link
+                to="/admin/reports"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  padding: "7px 12px",
+                  background: "#f8fafc",
+                  color: "#475569",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  textDecoration: "none",
+                }}
+              >
+                <span>↗</span> Detailed Reports
+              </Link>
+
+              {exportMenuOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: "6px",
+                    background: "#ffffff",
+                    borderRadius: "10px",
+                    boxShadow: "0 10px 25px -5px rgba(0,0,0,0.15), 0 0 1px 1px rgba(0,0,0,0.05)",
+                    border: "1px solid #e2e8f0",
+                    padding: "6px",
+                    zIndex: 50,
+                    minWidth: "230px",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      exportPlatformSummaryCSV(platformStats);
+                      setExportMenuOpen(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "8px 12px",
+                      background: "none",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "13px",
+                      color: "#1e293b",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+                  >
+                    📊 <span>Platform Summary (CSV)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setExporting(true);
+                      setExportMenuOpen(false);
+                      await exportJobsReportCSV();
+                      setExporting(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "8px 12px",
+                      background: "none",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "13px",
+                      color: "#1e293b",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+                  >
+                    💼 <span>Job Listings Report (CSV)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setExporting(true);
+                      setExportMenuOpen(false);
+                      await exportUsersReportCSV();
+                      setExporting(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "8px 12px",
+                      background: "none",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "13px",
+                      color: "#1e293b",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+                  >
+                    👥 <span>Users Directory (CSV)</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div

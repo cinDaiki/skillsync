@@ -732,6 +732,154 @@ export async function fetchAdminDashboardStats() {
 }
 
 /**
+ * Triggers client-side download of generated CSV content
+ */
+export function triggerCSVDownload(filename, csvContent) {
+  if (typeof window === "undefined") return;
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Exports canonical Platform Summary metrics to CSV
+ */
+export function exportPlatformSummaryCSV(stats) {
+  const timestamp = new Date().toISOString();
+  const dateStr = timestamp.slice(0, 10);
+
+  const headers = ["Metric", "Value", "Generated At"];
+  const rows = [
+    ["Job Seekers", stats?.jobSeekers ?? 0, timestamp],
+    ["Employers", stats?.employers ?? 0, timestamp],
+    ["Total Job Posts", stats?.totalJobs ?? 0, timestamp],
+    ["Open Jobs", stats?.openJobs ?? 0, timestamp],
+    ["Closed Jobs", stats?.closedJobs ?? 0, timestamp],
+    ["Total Applications", stats?.totalApplications ?? 0, timestamp],
+  ];
+
+  const csvRows = [
+    headers.join(","),
+    ...rows.map((r) => r.map((val) => `"${String(val).replace(/"/g, '""')}"`).join(",")),
+  ];
+
+  const filename = `skillsync-platform-summary-${dateStr}.csv`;
+  triggerCSVDownload(filename, csvRows.join("\n"));
+  return { success: true, filename };
+}
+
+/**
+ * Exports comprehensive jobs inventory to CSV
+ */
+export async function exportJobsReportCSV() {
+  try {
+    const { data: jobs, error } = await supabase
+      .from("jobs")
+      .select("id, title, department, location, work_setup, employment_type, status, rejection_reason, created_at, employer_id")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("[AdminService] exportJobsReportCSV error:", error);
+      return { error };
+    }
+
+    const timestamp = new Date().toISOString();
+    const dateStr = timestamp.slice(0, 10);
+
+    const headers = [
+      "Job ID",
+      "Job Title",
+      "Department",
+      "Location",
+      "Work Setup",
+      "Employment Type",
+      "Status",
+      "Moderation Note",
+      "Posted Date",
+    ];
+
+    const rows = (jobs || []).map((j) => [
+      j.id,
+      j.title || "Untitled",
+      j.department || "General",
+      j.location || "Remote",
+      j.work_setup || "",
+      j.employment_type || "",
+      j.status || "open",
+      j.rejection_reason || "",
+      j.created_at || "",
+    ]);
+
+    const csvRows = [
+      headers.join(","),
+      ...rows.map((r) => r.map((val) => `"${String(val || "").replace(/"/g, '""')}"`).join(",")),
+    ];
+
+    const filename = `skillsync-jobs-report-${dateStr}.csv`;
+    triggerCSVDownload(filename, csvRows.join("\n"));
+    return { success: true, filename };
+  } catch (err) {
+    console.error("[AdminService] exportJobsReportCSV exception:", err);
+    return { error: err };
+  }
+}
+
+/**
+ * Exports user profiles breakdown to CSV
+ */
+export async function exportUsersReportCSV() {
+  try {
+    const { data: profiles, error } = await fetchAdminProfiles();
+
+    if (error) {
+      console.error("[AdminService] exportUsersReportCSV error:", error);
+      return { error };
+    }
+
+    const timestamp = new Date().toISOString();
+    const dateStr = timestamp.slice(0, 10);
+
+    const headers = [
+      "User ID",
+      "Full Name",
+      "Email",
+      "Role",
+      "Verification Status",
+      "Suspended",
+      "Created Date",
+    ];
+
+    const rows = (profiles || []).map((p) => [
+      p.id,
+      p.full_name || "Unnamed",
+      p.email || "",
+      p.role || "candidate",
+      p.verification_status || "Pending",
+      isAccountSuspended(p) ? "Yes" : "No",
+      p.created_at || "",
+    ]);
+
+    const csvRows = [
+      headers.join(","),
+      ...rows.map((r) => r.map((val) => `"${String(val || "").replace(/"/g, '""')}"`).join(",")),
+    ];
+
+    const filename = `skillsync-users-report-${dateStr}.csv`;
+    triggerCSVDownload(filename, csvRows.join("\n"));
+    return { success: true, filename };
+  } catch (err) {
+    console.error("[AdminService] exportUsersReportCSV exception:", err);
+    return { error: err };
+  }
+}
+
+/**
  * Actionable attention metrics for Admin Dashboard
  */
 export async function fetchAttentionRequiredStats() {
