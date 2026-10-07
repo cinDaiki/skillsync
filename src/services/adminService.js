@@ -694,11 +694,16 @@ export async function fetchAdminDashboardStats() {
     "admin_get_dashboard_stats"
   );
 
+  const { data: profiles } = await fetchAdminProfiles();
+  const profileList = profiles || [];
+  const jsCount = filterJobSeekers(profileList).length;
+  const empCount = filterEmployers(profileList).length;
+
   if (!rpcError && rpcData) {
     return {
       data: {
-        jobSeekers: rpcData.job_seekers ?? 0,
-        employers: rpcData.employers ?? 0,
+        jobSeekers: jsCount || (rpcData.job_seekers ?? 0),
+        employers: empCount || (rpcData.employers ?? 0),
         totalJobs: rpcData.total_jobs ?? 0,
         openJobs: rpcData.open_jobs ?? 0,
         closedJobs: rpcData.closed_jobs ?? 0,
@@ -708,17 +713,15 @@ export async function fetchAdminDashboardStats() {
     };
   }
 
-  const { data: profiles } = await fetchAdminProfiles();
-  const { data: jobs } = await supabase.from("jobs").select("*");
-  const { data: applications } = await supabase.from("applications").select("*");
+  const { data: jobs } = await supabase.from("jobs").select("status");
+  const { data: applications } = await supabase.from("applications").select("id");
 
-  const profileList = profiles || [];
   const jobList = jobs || [];
 
   return {
     data: {
-      jobSeekers: profileList.filter((p) => isJobSeeker(p.role)).length,
-      employers: profileList.filter((p) => p.role === "employer").length,
+      jobSeekers: jsCount,
+      employers: empCount,
       totalJobs: jobList.length,
       openJobs: jobList.filter((j) => j.status === "open").length,
       closedJobs: jobList.filter((j) => j.status === "closed").length,
@@ -726,6 +729,50 @@ export async function fetchAdminDashboardStats() {
     },
     error: rpcError,
   };
+}
+
+/**
+ * Actionable attention metrics for Admin Dashboard
+ */
+export async function fetchAttentionRequiredStats() {
+  try {
+    const [profilesRes, jobReportsRes, appealsRes] = await Promise.all([
+      fetchAdminProfiles(),
+      supabase.from("job_reports").select("job_id").eq("status", "pending"),
+      supabase.from("suspension_appeals").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    ]);
+
+    const profileList = profilesRes.data || [];
+    const employers = profileList.filter((p) => p.role === "employer" && isAccountActive(p));
+    const pendingEmployersCount = employers.filter((e) => (e.verification_status || "Pending") === "Pending").length;
+    const suspendedAccountsCount = profileList.filter((p) => isAccountSuspended(p)).length;
+
+    const repJobRows = jobReportsRes.data || [];
+    const reportedJobsCount = new Set(repJobRows.map((r) => r.job_id).filter(Boolean)).size;
+
+    const pendingAppealsCount = appealsRes.count || 0;
+
+    return {
+      data: {
+        pendingEmployers: pendingEmployersCount,
+        reportedJobs: reportedJobsCount,
+        suspendedAccounts: suspendedAccountsCount,
+        pendingAppeals: pendingAppealsCount,
+      },
+      error: null,
+    };
+  } catch (err) {
+    console.error("[AdminService] fetchAttentionRequiredStats exception:", err);
+    return {
+      data: {
+        pendingEmployers: 0,
+        reportedJobs: 0,
+        suspendedAccounts: 0,
+        pendingAppeals: 0,
+      },
+      error: err,
+    };
+  }
 }
 
 /**
@@ -748,7 +795,20 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
 
     if (status !== "all" && status !== "All") {
       const s = String(status || "").trim().toLowerCase();
-      if (s === "open") {
+      if (s === "reported") {
+        const { data: reportedRows, error: repErr } = await supabase
+          .from("job_reports")
+          .select("job_id")
+          .eq("status", "pending");
+        if (repErr) {
+          console.error("[AdminService] error querying job_reports:", repErr.message);
+        }
+        const reportedJobIds = Array.from(new Set((reportedRows || []).map((r) => r.job_id).filter(Boolean)));
+        if (reportedJobIds.length === 0) {
+          return { data: [], totalCount: 0, page, totalPages: 0, error: null };
+        }
+        query = query.in("id", reportedJobIds);
+      } else if (s === "open") {
         query = query.eq("status", "open");
       } else if (s === "pending_review" || s === "pending") {
         query = query.eq("status", "pending_review");
@@ -756,7 +816,7 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
         query = query.eq("status", "rejected");
       } else if (s === "closed") {
         query = query.eq("status", "closed");
-      } else if (s === "suspended") {
+      } else if (s === "suspended" || s === "disabled") {
         query = query.eq("status", "suspended");
       } else {
         query = query.eq("status", status);
@@ -775,6 +835,25 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
     }
 
     let jobsList = jobs || [];
+    const jobIds = jobsList.map((j) => j.id).filter(Boolean);
+
+    // Fetch pending and total report counts for these jobs
+    let jobReportsMap = new Map();
+    if (jobIds.length > 0) {
+      const { data: repList } = await supabase
+        .from("job_reports")
+        .select("id, job_id, status")
+        .in("job_id", jobIds);
+      (repList || []).forEach((r) => {
+        if (!jobReportsMap.has(r.job_id)) {
+          jobReportsMap.set(r.job_id, { pending: 0, total: 0 });
+        }
+        const counts = jobReportsMap.get(r.job_id);
+        counts.total += 1;
+        if (r.status === "pending") counts.pending += 1;
+      });
+    }
+
     const empIds = Array.from(new Set(jobsList.map((j) => j.employer_id).filter(Boolean)));
 
     if (empIds.length > 0) {
@@ -815,9 +894,12 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
         const p = profMap.get(j.employer_id);
         const ep = empProfMap.get(j.employer_id);
         const stats = empStatsMap.get(j.employer_id) || { total: 0, open: 0, pending: 0, rejected: 0, closed: 0 };
+        const repInfo = jobReportsMap.get(j.id) || { pending: 0, total: 0 };
 
         return {
           ...j,
+          pending_report_count: repInfo.pending,
+          total_report_count: repInfo.total,
           profiles: p || null,
           employer_info: {
             id: j.employer_id,
@@ -832,6 +914,24 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
             business_permit_url: ep?.business_permit_url || null,
             sec_registration_url: ep?.sec_registration_url || null,
             job_stats: stats,
+          },
+        };
+      });
+    } else {
+      jobsList = jobsList.map((j) => {
+        const repInfo = jobReportsMap.get(j.id) || { pending: 0, total: 0 };
+        return {
+          ...j,
+          pending_report_count: repInfo.pending,
+          total_report_count: repInfo.total,
+          employer_info: {
+            id: j.employer_id,
+            company_name: j.company_name || "Company",
+            contact_name: j.employer_name || "Employer",
+            contact_email: j.employer_email || "Not specified",
+            location: j.location || "Not specified",
+            industry: "Not specified",
+            verification_status: "Pending",
           },
         };
       });
@@ -1597,58 +1697,81 @@ export async function moderateJobStatus(jobId, status, reasonNote = "") {
 
 /**
  * Candidate Jobseeker reports suspicious / scam / fraudulent job
+ * Server-authoritative RPC derives reporter_id = auth.uid()
  */
-export async function submitJobReport({ jobId, reporterId, reason, details }) {
-  const payload = {
-    job_id: jobId,
-    reporter_id: reporterId,
-    reason: reason || "Suspicious Job Posting",
-    details: details || "",
-    status: "pending",
-    created_at: new Date().toISOString()
-  };
+export async function submitJobReport({ jobId, reason, details }) {
+  try {
+    const { data, error: rpcError } = await supabase.rpc("submit_job_report", {
+      p_job_id: jobId,
+      p_reason_code: reason || "other",
+      p_details: details || null,
+    });
 
-  const { data, error } = await supabase.from("job_reports").insert([payload]).select();
-  if (error) {
-    console.warn("[JobReports] Supabase report insert error (falling back to local cache):", error.message);
-    const existing = JSON.parse(localStorage.getItem("skillsync_job_reports") || "[]");
-    existing.push({ ...payload, id: `local_report_${Date.now()}` });
-    localStorage.setItem("skillsync_job_reports", JSON.stringify(existing));
-    return { data: payload, error: null };
+    if (rpcError) {
+      console.error("[AdminService] submit_job_report RPC error:", rpcError.message);
+      return { data: null, error: rpcError };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    console.error("[AdminService] submitJobReport exception:", err);
+    return { data: null, error: err };
   }
-  return { data: data ? data[0] : payload, error: null };
 }
 
 /**
  * Fetches all job reports for admin review
  */
-export async function fetchJobReports() {
-  const { data, error } = await supabase
-    .from("job_reports")
-    .select("*, jobs(title, employer_id, location, company_name), profiles:reporter_id(full_name, email)")
-    .order("created_at", { ascending: false });
+export async function fetchJobReports(jobId = null) {
+  try {
+    let query = supabase
+      .from("job_reports")
+      .select("*, jobs(id, title, employer_id, location, company_name), reporter:reporter_id(id, full_name, email)")
+      .order("created_at", { ascending: false });
 
-  if (error) {
-    const local = JSON.parse(localStorage.getItem("skillsync_job_reports") || "[]");
-    return { data: local, error: null };
+    if (jobId) {
+      query = query.eq("job_id", jobId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("[AdminService] fetchJobReports error:", error.message);
+      const { data: rawData, error: rawError } = await supabase
+        .from("job_reports")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (rawError) return { data: [], error: rawError };
+      return { data: rawData || [], error: null };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    console.error("[AdminService] fetchJobReports exception:", err);
+    return { data: [], error: err };
   }
-  return { data: data || [], error: null };
 }
 
 /**
- * Resolves job report
+ * Resolves job report via server-authoritative admin_resolve_job_report RPC
  */
-export async function resolveJobReport(reportId, status, resolutionNote = "") {
-  const { error } = await supabase
-    .from("job_reports")
-    .update({
-      status,
-      resolution_note: resolutionNote,
-      resolved_at: new Date().toISOString()
-    })
-    .eq("id", reportId);
+export async function resolveJobReport(reportId, decision = "dismissed", resolutionNote = "") {
+  try {
+    const { data, error: rpcError } = await supabase.rpc("admin_resolve_job_report", {
+      p_report_id: reportId,
+      p_decision: decision,
+      p_resolution_note: resolutionNote || null,
+    });
 
-  return { error };
+    if (rpcError) {
+      console.error("[AdminService] admin_resolve_job_report RPC error:", rpcError.message);
+      return { data: null, error: rpcError };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    console.error("[AdminService] resolveJobReport exception:", err);
+    return { data: null, error: err };
+  }
 }
 
 /**

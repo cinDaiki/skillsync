@@ -2,24 +2,26 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import {
-  fetchAdminProfiles,
-  fetchAdminJobs,
+  fetchAdminDashboardStats,
+  fetchAttentionRequiredStats,
   fetchAdminAuditLogs,
-  isAccountActive,
-  isAccountSuspended,
 } from "../../services/adminService";
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState({
+  const [platformStats, setPlatformStats] = useState({
     jobSeekers: 0,
     employers: 0,
-    pendingEmployers: 0,
-    approvedEmployers: 0,
     totalJobs: 0,
     openJobs: 0,
-    pendingJobs: 0,
-    rejectedJobs: 0,
-    suspendedUsers: 0,
+    closedJobs: 0,
+    totalApplications: 0,
+  });
+
+  const [attentionStats, setAttentionStats] = useState({
+    pendingEmployers: 0,
+    reportedJobs: 0,
+    suspendedAccounts: 0,
+    pendingAppeals: 0,
   });
 
   const [auditLogs, setAuditLogs] = useState([]);
@@ -35,39 +37,19 @@ export default function AdminDashboard() {
     setLoadError("");
 
     try {
-      const [profilesRes, jobsRes, auditRes] = await Promise.all([
-        fetchAdminProfiles(),
-        fetchAdminJobs({ page: 1, pageSize: 200 }),
-        fetchAdminAuditLogs({ page: 1, pageSize: 15 }),
+      const [platformRes, attentionRes, auditRes] = await Promise.all([
+        fetchAdminDashboardStats(),
+        fetchAttentionRequiredStats(),
+        fetchAdminAuditLogs({ page: 1, pageSize: 12 }),
       ]);
 
-      const profileList = profilesRes.data || [];
-      const jobsList = jobsRes.data || [];
-      const auditList = auditRes.data || [];
-
-      const seekers = profileList.filter((p) => (p.role === "candidate" || p.role === "job_seeker" || p.role === "jobseeker") && isAccountActive(p));
-      const employers = profileList.filter((p) => p.role === "employer" && isAccountActive(p));
-      const pendingEmps = employers.filter((e) => (e.verification_status || "Pending") === "Pending").length;
-      const approvedEmps = employers.filter((e) => e.verification_status === "Approved" || e.verification_status === "Verified").length;
-      const suspended = profileList.filter((p) => isAccountSuspended(p)).length;
-
-      const openJobsCount = jobsList.filter((j) => j.status === "open").length;
-      const pendingJobsCount = jobsList.filter((j) => j.status === "pending_review").length;
-      const rejectedJobsCount = jobsList.filter((j) => j.status === "rejected").length;
-
-      setStats({
-        jobSeekers: seekers.length,
-        employers: employers.length,
-        pendingEmployers: pendingEmps,
-        approvedEmployers: approvedEmps,
-        totalJobs: jobsList.length,
-        openJobs: openJobsCount,
-        pendingJobs: pendingJobsCount,
-        rejectedJobs: rejectedJobsCount,
-        suspendedUsers: suspended,
-      });
-
-      setAuditLogs(auditList);
+      if (platformRes.data) {
+        setPlatformStats(platformRes.data);
+      }
+      if (attentionRes.data) {
+        setAttentionStats(attentionRes.data);
+      }
+      setAuditLogs(auditRes.data || []);
     } catch (err) {
       console.error("[AdminDashboard] Load error:", err);
       setLoadError("Failed to load dashboard metrics. Please try again.");
@@ -91,19 +73,31 @@ export default function AdminDashboard() {
     let bg = "#f1f5f9";
     let color = "#475569";
 
-    if (act.includes("APPROVED")) {
+    if (act.includes("APPROVED") || act.includes("RESTORED")) {
       bg = "#dcfce7";
       color = "#15803d";
-    } else if (act.includes("REJECTED")) {
+    } else if (act.includes("REJECTED") || act.includes("ACTIONED")) {
       bg = "#fee2e2";
       color = "#b91c1c";
     } else if (act.includes("SUSPENDED")) {
       bg = "#450a0a";
       color = "#ffffff";
+    } else if (act.includes("DISMISSED")) {
+      bg = "#f3f4f6";
+      color = "#4b5563";
     }
 
     return (
-      <span style={{ padding: "3px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "700", background: bg, color: color }}>
+      <span
+        style={{
+          padding: "3px 8px",
+          borderRadius: "10px",
+          fontSize: "11px",
+          fontWeight: "700",
+          background: bg,
+          color: color,
+        }}
+      >
         {action}
       </span>
     );
@@ -113,108 +107,466 @@ export default function AdminDashboard() {
     <DashboardLayout
       role="admin"
       title="Admin Dashboard"
-      subtitle="Overview of platform users, verification pipeline, job moderation, and security activity."
+      subtitle="Overview of platform metrics, moderation queue, and security activity."
     >
       <div className="admin-page-container" style={{ padding: "24px" }}>
         {loadError && (
-          <div style={{ padding: "12px 16px", background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "8px", color: "#991b1b", fontSize: "13px", marginBottom: "20px" }}>
+          <div
+            style={{
+              padding: "12px 16px",
+              background: "#fee2e2",
+              border: "1px solid #fca5a5",
+              borderRadius: "8px",
+              color: "#991b1b",
+              fontSize: "13px",
+              marginBottom: "20px",
+            }}
+          >
             {loadError}
           </div>
         )}
 
-        {/* Top Metric Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px", marginBottom: "24px" }}>
-          <Link to="/admin/users?role=candidate" style={{ textDecoration: "none" }}>
-            <div style={{ background: "#fff", padding: "20px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-              <div style={{ fontSize: "13px", color: "#64748b", fontWeight: "700" }}>👤 JOBSEEKERS</div>
-              <div style={{ fontSize: "28px", fontWeight: "800", color: "#0f172a", marginTop: "4px" }}>{stats.jobSeekers}</div>
-              <div style={{ fontSize: "12px", color: "#2563eb", marginTop: "6px", fontWeight: "600" }}>Manage Users →</div>
-            </div>
-          </Link>
+        {/* ─── PLATFORM SUMMARY SECTION (Merged from Reports) ─── */}
+        <div style={{ marginBottom: "28px" }}>
+          <div style={{ marginBottom: "12px" }}>
+            <h2
+              style={{
+                fontSize: "13px",
+                fontWeight: "800",
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                color: "#64748b",
+                margin: "0 0 4px 0",
+              }}
+            >
+              Platform Summary
+            </h2>
+            <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
+              Live metrics across registered users, job listings, and candidate applications.
+            </p>
+          </div>
 
-          <Link to="/admin/employers" style={{ textDecoration: "none" }}>
-            <div style={{ background: "#fff", padding: "20px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-              <div style={{ fontSize: "13px", color: "#64748b", fontWeight: "700" }}>🏢 EMPLOYERS</div>
-              <div style={{ fontSize: "28px", fontWeight: "800", color: "#0f172a", marginTop: "4px" }}>{stats.employers}</div>
-              <div style={{ fontSize: "12px", color: "#16a34a", marginTop: "6px", fontWeight: "600" }}>
-                {stats.approvedEmployers} Verified • {stats.pendingEmployers} Pending
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: "14px",
+            }}
+          >
+            {/* 1. Job Seekers */}
+            <Link
+              to="/admin/users?role=candidate"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div
+                style={{
+                  background: "#fff",
+                  padding: "18px 20px",
+                  borderRadius: "12px",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "14px",
+                  transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                }}
+              >
+                <span style={{ fontSize: "28px" }}>👥</span>
+                <div>
+                  <div style={{ fontSize: "26px", fontWeight: "800", color: "#0f172a", lineHeight: 1.1 }}>
+                    {loading ? "..." : platformStats.jobSeekers}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", fontWeight: "600", marginTop: "2px" }}>
+                    Job Seekers
+                  </div>
+                </div>
               </div>
-            </div>
-          </Link>
+            </Link>
 
-          <Link to="/admin/jobs?status=open" style={{ textDecoration: "none" }}>
-            <div style={{ background: "#fff", padding: "20px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-              <div style={{ fontSize: "13px", color: "#64748b", fontWeight: "700" }}>💼 ACTIVE JOBS</div>
-              <div style={{ fontSize: "28px", fontWeight: "800", color: "#16a34a", marginTop: "4px" }}>{stats.openJobs}</div>
-              <div style={{ fontSize: "12px", color: "#64748b", marginTop: "6px" }}>{stats.totalJobs} Total Listings</div>
-            </div>
-          </Link>
+            {/* 2. Employers */}
+            <Link
+              to="/admin/employers"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div
+                style={{
+                  background: "#fff",
+                  padding: "18px 20px",
+                  borderRadius: "12px",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "14px",
+                }}
+              >
+                <span style={{ fontSize: "28px" }}>▤</span>
+                <div>
+                  <div style={{ fontSize: "26px", fontWeight: "800", color: "#0f172a", lineHeight: 1.1 }}>
+                    {loading ? "..." : platformStats.employers}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", fontWeight: "600", marginTop: "2px" }}>
+                    Employers
+                  </div>
+                </div>
+              </div>
+            </Link>
 
-          <Link to="/admin/employers?status=pending" style={{ textDecoration: "none" }}>
-            <div style={{ background: "#fff", padding: "20px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-              <div style={{ fontSize: "13px", color: "#64748b", fontWeight: "700" }}>⏳ PENDING REVIEWS</div>
-              <div style={{ fontSize: "28px", fontWeight: "800", color: "#d97706", marginTop: "4px" }}>
-                {stats.pendingEmployers + stats.pendingJobs}
+            {/* 3. Total Job Posts */}
+            <Link
+              to="/admin/jobs"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div
+                style={{
+                  background: "#fff",
+                  padding: "18px 20px",
+                  borderRadius: "12px",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "14px",
+                }}
+              >
+                <span style={{ fontSize: "28px" }}>▣</span>
+                <div>
+                  <div style={{ fontSize: "26px", fontWeight: "800", color: "#0f172a", lineHeight: 1.1 }}>
+                    {loading ? "..." : platformStats.totalJobs}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", fontWeight: "600", marginTop: "2px" }}>
+                    Total Job Posts
+                  </div>
+                </div>
               </div>
-              <div style={{ fontSize: "12px", color: "#b45309", marginTop: "6px", fontWeight: "600" }}>
-                {stats.pendingEmployers} Emps • {stats.pendingJobs} Jobs
+            </Link>
+
+            {/* 4. Open Jobs */}
+            <Link
+              to="/admin/jobs?status=open"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div
+                style={{
+                  background: "#fff",
+                  padding: "18px 20px",
+                  borderRadius: "12px",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "14px",
+                }}
+              >
+                <span style={{ fontSize: "28px" }}>◎</span>
+                <div>
+                  <div style={{ fontSize: "26px", fontWeight: "800", color: "#16a34a", lineHeight: 1.1 }}>
+                    {loading ? "..." : platformStats.openJobs}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", fontWeight: "600", marginTop: "2px" }}>
+                    Open Jobs
+                  </div>
+                </div>
               </div>
-            </div>
-          </Link>
+            </Link>
+
+            {/* 5. Closed Jobs */}
+            <Link
+              to="/admin/jobs?status=closed"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div
+                style={{
+                  background: "#fff",
+                  padding: "18px 20px",
+                  borderRadius: "12px",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "14px",
+                }}
+              >
+                <span style={{ fontSize: "28px" }}>□</span>
+                <div>
+                  <div style={{ fontSize: "26px", fontWeight: "800", color: "#64748b", lineHeight: 1.1 }}>
+                    {loading ? "..." : platformStats.closedJobs}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", fontWeight: "600", marginTop: "2px" }}>
+                    Closed Jobs
+                  </div>
+                </div>
+              </div>
+            </Link>
+
+            {/* 6. Total Applications */}
+            <Link
+              to="/admin/applications"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div
+                style={{
+                  background: "#fff",
+                  padding: "18px 20px",
+                  borderRadius: "12px",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "14px",
+                }}
+              >
+                <span style={{ fontSize: "28px" }}>↗</span>
+                <div>
+                  <div style={{ fontSize: "26px", fontWeight: "800", color: "#2563eb", lineHeight: 1.1 }}>
+                    {loading ? "..." : platformStats.totalApplications}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", fontWeight: "600", marginTop: "2px" }}>
+                    Total Applications
+                  </div>
+                </div>
+              </div>
+            </Link>
+          </div>
         </div>
 
-        {/* Quick Action Alert Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "24px" }}>
-          <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "12px", padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <strong style={{ fontSize: "15px", color: "#92400e", display: "block" }}>
-                🏢 {stats.pendingEmployers} Pending Employer Verifications
-              </strong>
-              <span style={{ fontSize: "13px", color: "#b45309" }}>Review uploaded business permits and IDs.</span>
-            </div>
+        {/* ─── ATTENTION REQUIRED SECTION ─── */}
+        <div style={{ marginBottom: "28px" }}>
+          <div style={{ marginBottom: "12px" }}>
+            <h2
+              style={{
+                fontSize: "13px",
+                fontWeight: "800",
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                color: "#92400e",
+                margin: "0 0 4px 0",
+              }}
+            >
+              Attention Required
+            </h2>
+            <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0 }}>
+              Actionable moderation items awaiting administrator review and resolution.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gap: "14px",
+            }}
+          >
+            {/* 1. Pending Employer Verifications */}
             <Link
               to="/admin/employers?status=pending"
-              style={{ background: "#d97706", color: "#fff", padding: "8px 14px", borderRadius: "8px", textDecoration: "none", fontSize: "13px", fontWeight: "700" }}
+              style={{ textDecoration: "none", color: "inherit" }}
             >
-              Verify Employers
+              <div
+                style={{
+                  background: "#fffbeb",
+                  border: "1px solid #fde68a",
+                  borderRadius: "12px",
+                  padding: "16px 18px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: "14px", color: "#92400e", display: "block" }}>
+                    🏢 Pending Employer Verifications
+                  </strong>
+                  <span style={{ fontSize: "12px", color: "#b45309", marginTop: "2px", display: "block" }}>
+                    Review business credentials & IDs
+                  </span>
+                </div>
+                <span
+                  style={{
+                    background: "#d97706",
+                    color: "#fff",
+                    padding: "4px 10px",
+                    borderRadius: "12px",
+                    fontSize: "13px",
+                    fontWeight: "800",
+                  }}
+                >
+                  {loading ? "..." : attentionStats.pendingEmployers}
+                </span>
+              </div>
             </Link>
-          </div>
 
-          <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "12px", padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <strong style={{ fontSize: "15px", color: "#1e40af", display: "block" }}>
-                💼 {stats.pendingJobs} Pending Job Postings
-              </strong>
-              <span style={{ fontSize: "13px", color: "#1d4ed8" }}>Moderate submitted employer opportunities.</span>
-            </div>
+            {/* 2. Reported Job Posts */}
             <Link
-              to="/admin/jobs?status=pending_review"
-              style={{ background: "#2563eb", color: "#fff", padding: "8px 14px", borderRadius: "8px", textDecoration: "none", fontSize: "13px", fontWeight: "700" }}
+              to="/admin/jobs?status=reported"
+              style={{ textDecoration: "none", color: "inherit" }}
             >
-              Moderate Jobs
+              <div
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  borderRadius: "12px",
+                  padding: "16px 18px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: "14px", color: "#991b1b", display: "block" }}>
+                    🚩 Reported Job Posts
+                  </strong>
+                  <span style={{ fontSize: "12px", color: "#dc2626", marginTop: "2px", display: "block" }}>
+                    Investigate candidate abuse flags
+                  </span>
+                </div>
+                <span
+                  style={{
+                    background: "#dc2626",
+                    color: "#fff",
+                    padding: "4px 10px",
+                    borderRadius: "12px",
+                    fontSize: "13px",
+                    fontWeight: "800",
+                  }}
+                >
+                  {loading ? "..." : attentionStats.reportedJobs}
+                </span>
+              </div>
+            </Link>
+
+            {/* 3. Suspended Accounts */}
+            <Link
+              to="/admin/suspended-accounts"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div
+                style={{
+                  background: "#faf5ff",
+                  border: "1px solid #e9d5ff",
+                  borderRadius: "12px",
+                  padding: "16px 18px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: "14px", color: "#6b21a8", display: "block" }}>
+                    🚫 Suspended Accounts
+                  </strong>
+                  <span style={{ fontSize: "12px", color: "#7e22ce", marginTop: "2px", display: "block" }}>
+                    Monitor penalized accounts
+                  </span>
+                </div>
+                <span
+                  style={{
+                    background: "#7e22ce",
+                    color: "#fff",
+                    padding: "4px 10px",
+                    borderRadius: "12px",
+                    fontSize: "13px",
+                    fontWeight: "800",
+                  }}
+                >
+                  {loading ? "..." : attentionStats.suspendedAccounts}
+                </span>
+              </div>
+            </Link>
+
+            {/* 4. Suspension Appeals */}
+            <Link
+              to="/admin/suspension-appeals"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div
+                style={{
+                  background: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "12px",
+                  padding: "16px 18px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: "14px", color: "#1e40af", display: "block" }}>
+                    ⚖️ Suspension Appeals
+                  </strong>
+                  <span style={{ fontSize: "12px", color: "#2563eb", marginTop: "2px", display: "block" }}>
+                    Adjudicate user appeal filings
+                  </span>
+                </div>
+                <span
+                  style={{
+                    background: "#2563eb",
+                    color: "#fff",
+                    padding: "4px 10px",
+                    borderRadius: "12px",
+                    fontSize: "13px",
+                    fontWeight: "800",
+                  }}
+                >
+                  {loading ? "..." : attentionStats.pendingAppeals}
+                </span>
+              </div>
             </Link>
           </div>
         </div>
 
-        {/* Recent Security & Audit Activity Stream */}
-        <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-            <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+        {/* ─── RECENT MODERATION ACTIVITY STREAM ─── */}
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: "12px",
+            border: "1px solid #e2e8f0",
+            padding: "20px",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "16px",
+            }}
+          >
+            <h3 style={{ fontSize: "16px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
               📜 Recent Platform Moderation Activity
             </h3>
-            <Link to="/admin/audit-logs" style={{ color: "#2563eb", fontSize: "13px", fontWeight: "700", textDecoration: "none" }}>
+            <Link
+              to="/admin/audit-logs"
+              style={{ color: "#2563eb", fontSize: "13px", fontWeight: "700", textDecoration: "none" }}
+            >
               View All Audit Logs →
             </Link>
           </div>
 
           {loading ? (
-            <div style={{ padding: "24px", textAlign: "center", color: "#64748b" }}>Loading moderation log stream...</div>
+            <div style={{ padding: "24px", textAlign: "center", color: "#64748b" }}>
+              Loading moderation log stream...
+            </div>
           ) : auditLogs.length === 0 ? (
-            <div style={{ padding: "24px", textAlign: "center", color: "#64748b" }}>No audit log activity recorded yet.</div>
+            <div style={{ padding: "24px", textAlign: "center", color: "#64748b" }}>
+              No audit log activity recorded yet.
+            </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {auditLogs.map((log) => (
-                <div key={log.id} style={{ padding: "12px 14px", border: "1px solid #f1f5f9", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc" }}>
+                <div
+                  key={log.id}
+                  style={{
+                    padding: "12px 14px",
+                    border: "1px solid #f1f5f9",
+                    borderRadius: "8px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    background: "#f8fafc",
+                  }}
+                >
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                       {getActionBadge(log.action)}

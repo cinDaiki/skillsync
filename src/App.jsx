@@ -301,11 +301,7 @@ function App() {
 
         <Route
           path="/admin/reports"
-          element={
-            <RoleRoute allowedRoles={[ROLES.ADMIN]}>
-              <Reports />
-            </RoleRoute>
-          }
+          element={<Navigate to="/admin/dashboard" replace />}
         />
 
         <Route
