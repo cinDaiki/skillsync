@@ -1180,6 +1180,29 @@ export default function AdminManageJobs() {
               </div>
             )}
 
+            {/* Historical Moderation Note (When job is active/open but historical moderation note was preserved) */}
+            {viewJobModal.status === "open" && viewJobModal.rejection_reason && (
+              <div
+                style={{
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: "8px",
+                  padding: "10px 14px",
+                  fontSize: "13px",
+                  color: "#166534",
+                  marginBottom: "16px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <span>ℹ️</span>
+                <div>
+                  <strong>Historical Moderation Note (Resolved):</strong> "{viewJobModal.rejection_reason}"
+                </div>
+              </div>
+            )}
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px", padding: "12px", background: "#f8fafc", borderRadius: "8px", fontSize: "13px" }}>
               <div>Employment Type: <strong>{viewJobModal.employment_type || "Full-time"}</strong></div>
               <div>Work Setup: <strong>{viewJobModal.work_setup || "On-site"}</strong></div>
