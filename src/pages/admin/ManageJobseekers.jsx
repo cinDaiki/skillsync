@@ -8,10 +8,13 @@ import {
   updateCandidateAdministrativeDetails,
   displayUserName,
   isAccountSuspended,
+  parseJsonField,
+  formatFileSize,
   SUSPENSION_REASON_OPTIONS,
   SUSPENSION_DURATION_PRESETS,
 } from "../../services/adminService";
-import { getPrivateDocumentSignedUrl } from "../../services/api";
+import { getPrivateDocumentSignedUrl, getCertificateSignedUrl } from "../../services/api";
+import { getCategoryLabel, getSubcategoryLabel } from "../../constants/jobTaxonomy";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 
 export default function ManageJobseekers() {
@@ -19,7 +22,6 @@ export default function ManageJobseekers() {
   const [summary, setSummary] = useState({ total: 0, active: 0, suspended: 0, verified: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [verificationFilter, setVerificationFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -145,14 +147,23 @@ export default function ManageJobseekers() {
     setPage(1);
   };
 
-  const handleStatusChange = (e) => {
-    setStatusFilter(e.target.value);
-    setPage(1);
-  };
-
   const handleVerificationFilterChange = (e) => {
     setVerificationFilter(e.target.value);
     setPage(1);
+  };
+
+  const handleViewCertificate = async (fileUrl) => {
+    if (!fileUrl) return;
+    try {
+      const { url } = await getCertificateSignedUrl(fileUrl);
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        window.open(fileUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      window.open(fileUrl, "_blank", "noopener,noreferrer");
+    }
   };
 
   // --- VERIFICATION HANDLERS ---
@@ -417,27 +428,27 @@ export default function ManageJobseekers() {
         }}>
           <div style={{ background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Total Candidates</span>
-            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a", margin: "6px 0 0" }}>{summary.total || totalCount}</h3>
+            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a", margin: "6px 0 0" }}>{summary.total ?? 0}</h3>
           </div>
 
           <div style={{ background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", borderLeft: "4px solid #16a34a", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Active Accounts</span>
-            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#16a34a", margin: "6px 0 0" }}>{summary.active}</h3>
+            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#16a34a", margin: "6px 0 0" }}>{summary.active ?? 0}</h3>
           </div>
 
           <div style={{ background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", borderLeft: "4px solid #f59e0b", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Pending Verification</span>
-            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#b45309", margin: "6px 0 0" }}>{summary.pending}</h3>
+            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#b45309", margin: "6px 0 0" }}>{summary.pending ?? 0}</h3>
           </div>
 
           <div style={{ background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", borderLeft: "4px solid #3b82f6", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Verified Candidates</span>
-            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#2563eb", margin: "6px 0 0" }}>{summary.verified}</h3>
+            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#2563eb", margin: "6px 0 0" }}>{summary.verified ?? 0}</h3>
           </div>
 
           <div style={{ background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", borderLeft: "4px solid #dc2626", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Suspended Accounts</span>
-            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#dc2626", margin: "6px 0 0" }}>{summary.suspended}</h3>
+            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#dc2626", margin: "6px 0 0" }}>{summary.suspended ?? 0}</h3>
           </div>
         </div>
 
@@ -740,33 +751,69 @@ export default function ManageJobseekers() {
         {selectedCandidate && (() => {
           const cand = selectedCandidate;
           const isSuspended = isAccountSuspended(cand);
-          const isVerified = cand.verification_status === "Verified" || cand.verification_status === "Approved";
           const hasResume = Boolean(cand.resume_url || cand.resume?.file_url);
+
+          const educationList = parseJsonField(cand.education, []);
+          const workExpList = parseJsonField(cand.work_experience || cand.experience, []);
+          const certList = parseJsonField(cand.certifications, []);
+          const portfolioData = parseJsonField(cand.portfolio_links, {});
+          const socialData = parseJsonField(cand.social_links, {});
+
+          // Parse skills safely
+          let skillList = [];
+          if (Array.isArray(cand.skills)) {
+            skillList = cand.skills;
+          } else if (typeof cand.skills === "string" && cand.skills.trim()) {
+            skillList = cand.skills.split(",").map((s) => s.trim()).filter(Boolean);
+          }
+
+          // Career preferences
+          const prefCategories = cand.preferred_categories || cand.career_preferences?.preferredCategories || [];
+          const prefSubcategories = cand.preferred_subcategories || cand.career_preferences?.preferredSubcategories || [];
+          const prefRoles = cand.preferred_roles || cand.career_preferences?.preferredRoles || [];
+          const careerStage = cand.career_stage || cand.career_preferences?.careerStage || null;
+
+          // Social and Portfolio links
+          const portfolioUrl = portfolioData.portfolioUrl || portfolioData.portfolio || null;
+          const githubUrl = socialData.githubUrl || socialData.github || portfolioData.githubUrl || null;
+          const linkedinUrl = socialData.linkedinUrl || socialData.linkedin || portfolioData.linkedinUrl || null;
+          const twitterUrl = socialData.twitterUrl || socialData.twitter || portfolioData.twitterUrl || null;
 
           return (
             <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
-              <div style={{ background: "#ffffff", borderRadius: "16px", maxWidth: "680px", width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)" }}>
+              <div style={{ background: "#ffffff", borderRadius: "16px", maxWidth: "780px", width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)" }}>
                 {/* Header */}
                 <div style={{ padding: "20px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                    <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "linear-gradient(135deg, #8b18ff, #58158f)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", fontWeight: "800" }}>
-                      {(cand.full_name || cand.email || "C").charAt(0).toUpperCase()}
-                    </div>
+                    {cand.profile_picture_url ? (
+                      <img
+                        src={cand.profile_picture_url}
+                        alt={displayUserName(cand)}
+                        style={{ width: "50px", height: "50px", borderRadius: "50%", objectFit: "cover", border: "2px solid #8b18ff" }}
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div style={{ width: "50px", height: "50px", borderRadius: "50%", background: "linear-gradient(135deg, #8b18ff, #58158f)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", fontWeight: "800" }}>
+                        {(cand.full_name || cand.email || "C").charAt(0).toUpperCase()}
+                      </div>
+                    )}
                     <div>
-                      <h3 style={{ margin: 0, fontSize: "18px", color: "#0f172a" }}>{displayUserName(cand)}</h3>
-                      <p style={{ margin: "2px 0 0", fontSize: "13px", color: "#64748b" }}>Candidate Account Profile</p>
+                      <h3 style={{ margin: 0, fontSize: "19px", color: "#0f172a", fontWeight: "800" }}>{displayUserName(cand)}</h3>
+                      <p style={{ margin: "2px 0 0", fontSize: "13px", color: "#64748b" }}>
+                        Candidate Account Profile · Registered {formatDate(cand.created_at)}
+                      </p>
                     </div>
                   </div>
-                  <button type="button" onClick={() => setSelectedCandidate(null)} style={{ background: "none", border: "none", fontSize: "22px", cursor: "pointer", color: "#64748b" }}>×</button>
+                  <button type="button" onClick={() => setSelectedCandidate(null)} style={{ background: "none", border: "none", fontSize: "24px", cursor: "pointer", color: "#64748b", lineHeight: 1 }}>×</button>
                 </div>
 
                 {/* Body */}
                 <div style={{ padding: "24px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "20px" }}>
                   {/* Account & Verification Status Banner */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderRadius: "10px", background: "#f8fafc", border: "1px solid #e2e8f0", flexWrap: "wrap", gap: "10px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "12px", padding: "14px", borderRadius: "12px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
                     <div>
-                      <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Account Status:</span>
-                      <div style={{ marginTop: "2px" }}>
+                      <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Account Status</span>
+                      <div style={{ marginTop: "3px" }}>
                         <span style={{ padding: "3px 8px", borderRadius: "12px", fontSize: "12px", fontWeight: "700", background: isSuspended ? "#fee2e2" : "#dcfce7", color: isSuspended ? "#991b1b" : "#15803d" }}>
                           {isSuspended ? "🚫 Suspended" : "✓ Active"}
                         </span>
@@ -774,101 +821,388 @@ export default function ManageJobseekers() {
                     </div>
 
                     <div>
-                      <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Identity Verification:</span>
-                      <div style={{ marginTop: "2px" }}>
+                      <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Identity Verification</span>
+                      <div style={{ marginTop: "3px" }}>
                         {renderVerificationBadge(cand.verification_status, cand.id_image_url)}
                       </div>
                     </div>
 
                     <div>
-                      <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Profile Completion:</span>
-                      <div style={{ marginTop: "2px", fontWeight: "700", fontSize: "13px", color: "#0f172a" }}>
+                      <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Profile Completion</span>
+                      <div style={{ marginTop: "3px", fontWeight: "800", fontSize: "14px", color: "#0f172a" }}>
                         {cand.profile_completion || 0}%
+                      </div>
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Search Visibility</span>
+                      <div style={{ marginTop: "3px" }}>
+                        <span style={{
+                          padding: "3px 8px",
+                          borderRadius: "12px",
+                          fontSize: "12px",
+                          fontWeight: "700",
+                          background: cand.visibility !== false ? "#eff6ff" : "#f1f5f9",
+                          color: cand.visibility !== false ? "#1d4ed8" : "#475569",
+                          border: `1px solid ${cand.visibility !== false ? "#bfdbfe" : "#cbd5e1"}`
+                        }}>
+                          {cand.visibility !== false ? "👁️ Public" : "🔒 Private"}
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   {/* 1. Basic & Contact Information */}
-                  <div>
-                    <h4 style={{ margin: "0 0 10px 0", fontSize: "14px", fontWeight: "700", color: "#1e293b" }}>📞 Contact & Identity Information</h4>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "13px" }}>
-                      <div><span style={{ color: "#64748b" }}>Email:</span> <strong style={{ color: "#0f172a" }}>{cand.email}</strong></div>
-                      <div><span style={{ color: "#64748b" }}>Phone:</span> <strong style={{ color: "#0f172a" }}>{cand.contact_number || "Not provided"}</strong></div>
-                      <div><span style={{ color: "#64748b" }}>Location:</span> <strong style={{ color: "#0f172a" }}>{cand.address || cand.location || "Not specified"}</strong></div>
-                      <div><span style={{ color: "#64748b" }}>Registered:</span> <strong style={{ color: "#0f172a" }}>{formatDate(cand.created_at)}</strong></div>
+                  <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px" }}>
+                    <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                      📞 Basic Profile & Contact Information
+                    </h4>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "10px", fontSize: "13px" }}>
+                      <div><span style={{ color: "#64748b" }}>Full Name:</span> <strong style={{ color: "#0f172a", display: "block" }}>{cand.full_name || "Not provided"}</strong></div>
+                      <div><span style={{ color: "#64748b" }}>Email:</span> <strong style={{ color: "#0f172a", display: "block" }}>{cand.email || "Not provided"}</strong></div>
+                      <div><span style={{ color: "#64748b" }}>Phone Number:</span> <strong style={{ color: "#0f172a", display: "block" }}>{cand.contact_number || "Not provided"}</strong></div>
+                      <div><span style={{ color: "#64748b" }}>Location / Address:</span> <strong style={{ color: "#0f172a", display: "block" }}>{cand.address || cand.location || "Not provided"}</strong></div>
+                      <div><span style={{ color: "#64748b" }}>Registration Date:</span> <strong style={{ color: "#0f172a", display: "block" }}>{formatDate(cand.created_at)}</strong></div>
+                      <div>
+                        <span style={{ color: "#64748b" }}>Search Visibility:</span>
+                        <strong style={{ color: "#0f172a", display: "block" }}>
+                          {cand.visibility !== false ? "Public (Visible to employers)" : "Private (Hidden from search)"}
+                        </strong>
+                      </div>
                     </div>
                   </div>
 
-                  {/* 2. Professional Background */}
-                  <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
-                    <h4 style={{ margin: "0 0 10px 0", fontSize: "14px", fontWeight: "700", color: "#1e293b" }}>🎓 Professional Background</h4>
-                    <div style={{ marginBottom: "10px" }}>
-                      <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "700", display: "block", marginBottom: "4px" }}>Skills:</span>
-                      {renderSkills(cand.skills)}
-                    </div>
+                  {/* 2. Skills & Competencies */}
+                  <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px" }}>
+                    <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                      🛠 Skills & Competencies
+                    </h4>
+                    {skillList.length > 0 ? (
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        {skillList.map((sk, idx) => {
+                          const label = typeof sk === "object" ? `${sk.name || "Skill"}${sk.proficiency || sk.level ? ` (${sk.proficiency || sk.level})` : ""}` : String(sk);
+                          return (
+                            <span
+                              key={idx}
+                              style={{
+                                background: "#f0f9ff",
+                                color: "#0369a1",
+                                border: "1px solid #bae6fd",
+                                padding: "4px 10px",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                              }}
+                            >
+                              {label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: "13px", color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
+                    )}
+                  </div>
 
-                    <div style={{ marginBottom: "10px" }}>
-                      <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "700", display: "block", marginBottom: "4px" }}>Education:</span>
-                      {cand.education && Array.isArray(cand.education) && cand.education.length > 0 ? (
-                        <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "13px", color: "#334155" }}>
-                          {cand.education.map((e, i) => (
-                            <li key={i}>{typeof e === "object" ? `${e.degree || "Degree"} — ${e.school || e.institution || "School"}` : String(e)}</li>
+                  {/* 3. Education & Work Experience */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px" }}>
+                    {/* Education */}
+                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px" }}>
+                      <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                        🎓 Education History
+                      </h4>
+                      {educationList.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                          {educationList.map((e, i) => (
+                            <div key={i} style={{ padding: "10px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #f1f5f9", fontSize: "13px" }}>
+                              <strong style={{ color: "#0f172a", display: "block" }}>
+                                {typeof e === "object" ? (e.degree || e.qualification || "Degree not specified") : String(e)}
+                              </strong>
+                              {typeof e === "object" && (
+                                <>
+                                  <div style={{ color: "#475569", marginTop: "2px" }}>
+                                    {e.field || e.course ? <span>Field: {e.field || e.course} · </span> : null}
+                                    <span>{e.school || e.institution || "Institution not specified"}</span>
+                                  </div>
+                                  <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>
+                                    Year / Dates: {e.gradYear || e.year || e.dates || (e.startDate && e.endDate ? `${e.startDate} - ${e.endDate}` : e.startDate || e.endDate) || "Not provided"}
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           ))}
-                        </ul>
+                        </div>
+                      ) : (cand.degree || cand.course) ? (
+                        <div style={{ padding: "10px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #f1f5f9", fontSize: "13px" }}>
+                          <strong style={{ color: "#0f172a", display: "block" }}>{cand.degree || "Degree not specified"}</strong>
+                          {cand.course && <div style={{ color: "#475569", marginTop: "2px" }}>Course: {cand.course}</div>}
+                        </div>
                       ) : (
-                        <span style={{ fontSize: "13px", color: "#94a3b8" }}>No education records added</span>
+                        <span style={{ fontSize: "13px", color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
                       )}
                     </div>
 
-                    <div>
-                      <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "700", display: "block", marginBottom: "4px" }}>Work Experience:</span>
-                      {cand.experience && Array.isArray(cand.experience) && cand.experience.length > 0 ? (
-                        <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "13px", color: "#334155" }}>
-                          {cand.experience.map((w, i) => (
-                            <li key={i}>{typeof w === "object" ? `${w.role || w.title || "Position"} at ${w.company || "Company"}` : String(w)}</li>
+                    {/* Work Experience */}
+                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px" }}>
+                      <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                        💼 Employment & Work Experience
+                      </h4>
+                      {workExpList.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                          {workExpList.map((w, i) => (
+                            <div key={i} style={{ padding: "10px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #f1f5f9", fontSize: "13px" }}>
+                              <strong style={{ color: "#0f172a", display: "block" }}>
+                                {typeof w === "object" ? (w.title || w.role || w.position || "Position not specified") : String(w)}
+                              </strong>
+                              {typeof w === "object" && (
+                                <>
+                                  <div style={{ color: "#475569", marginTop: "2px" }}>
+                                    Employer: {w.company || w.employer || "Employer not specified"}
+                                  </div>
+                                  <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>
+                                    Dates: {(w.startDate && w.endDate ? `${w.startDate} - ${w.endDate}` : w.startDate || w.endDate) || "Not provided"}
+                                  </div>
+                                  {w.description && (
+                                    <div style={{ color: "#334155", fontSize: "12px", marginTop: "4px", whiteSpace: "pre-line" }}>
+                                      {w.description}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           ))}
-                        </ul>
+                        </div>
+                      ) : (cand.years_experience !== null && cand.years_experience !== undefined && Number(cand.years_experience) > 0) ? (
+                        <div style={{ padding: "10px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #f1f5f9", fontSize: "13px" }}>
+                          <strong style={{ color: "#0f172a" }}>{cand.years_experience} years estimated experience</strong>
+                        </div>
                       ) : (
-                        <span style={{ fontSize: "13px", color: "#94a3b8" }}>No work experience added</span>
+                        <span style={{ fontSize: "13px", color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
                       )}
                     </div>
                   </div>
 
-                  {/* 3. Documents & Verification */}
-                  <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "16px" }}>
-                    <h4 style={{ margin: "0 0 10px 0", fontSize: "14px", fontWeight: "700", color: "#1e293b" }}>📄 Documents & Identity Verification</h4>
-                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                      {cand.id_image_url ? (
-                        <button
-                          type="button"
-                          onClick={() => setVerificationReviewCandidate(cand)}
-                          style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a", padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
-                        >
-                          🛡 Review Verification Evidence
-                        </button>
-                      ) : (
-                        <span style={{ fontSize: "13px", color: "#94a3b8" }}>No ID documents submitted yet</span>
-                      )}
+                  {/* 4. Projects, Portfolio & Social Links */}
+                  <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px" }}>
+                    <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                      🌐 Projects, Portfolio & Social Profiles
+                    </h4>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px", fontSize: "13px" }}>
+                      <div>
+                        <span style={{ color: "#64748b" }}>Portfolio Website:</span>
+                        <div style={{ marginTop: "2px" }}>
+                          {portfolioUrl ? (
+                            <a href={portfolioUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb", fontWeight: "600", textDecoration: "none", wordBreak: "break-all" }}>
+                              🔗 {portfolioUrl} ↗
+                            </a>
+                          ) : (
+                            <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
+                          )}
+                        </div>
+                      </div>
 
-                      {hasResume && (
-                        <button
-                          type="button"
-                          onClick={() => setActiveResumeViewer({
-                            id: cand.id,
-                            profiles: cand,
-                            displayName: displayUserName(cand),
-                            resume: { file_url: cand.resume_url || cand.resume?.file_url }
-                          })}
-                          style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
-                        >
-                          📄 View Candidate Resume
-                        </button>
+                      <div>
+                        <span style={{ color: "#64748b" }}>GitHub Profile:</span>
+                        <div style={{ marginTop: "2px" }}>
+                          {githubUrl ? (
+                            <a href={githubUrl.startsWith("http") ? githubUrl : `https://github.com/${githubUrl}`} target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb", fontWeight: "600", textDecoration: "none", wordBreak: "break-all" }}>
+                              🐙 {githubUrl} ↗
+                            </a>
+                          ) : (
+                            <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <span style={{ color: "#64748b" }}>LinkedIn Profile:</span>
+                        <div style={{ marginTop: "2px" }}>
+                          {linkedinUrl ? (
+                            <a href={linkedinUrl.startsWith("http") ? linkedinUrl : `https://linkedin.com/in/${linkedinUrl}`} target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb", fontWeight: "600", textDecoration: "none", wordBreak: "break-all" }}>
+                              💼 {linkedinUrl} ↗
+                            </a>
+                          ) : (
+                            <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {twitterUrl && (
+                        <div>
+                          <span style={{ color: "#64748b" }}>Twitter / X:</span>
+                          <div style={{ marginTop: "2px" }}>
+                            <a href={twitterUrl.startsWith("http") ? twitterUrl : `https://twitter.com/${twitterUrl}`} target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb", fontWeight: "600", textDecoration: "none", wordBreak: "break-all" }}>
+                              🐦 {twitterUrl} ↗
+                            </a>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  {/* 4. Administration Controls */}
-                  <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "16px", background: "#f8fafc", padding: "16px", borderRadius: "10px" }}>
+                  {/* 5. Certifications & Achievements */}
+                  <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px" }}>
+                    <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                      🏆 Certifications & Achievements
+                    </h4>
+                    {certList.length > 0 ? (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
+                        {certList.map((c, i) => (
+                          <div key={i} style={{ padding: "10px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #f1f5f9", fontSize: "13px" }}>
+                            <strong style={{ color: "#0f172a", display: "block" }}>
+                              {typeof c === "object" ? (c.name || c.title || "Certification") : String(c)}
+                            </strong>
+                            {typeof c === "object" && (
+                              <>
+                                <div style={{ color: "#475569", marginTop: "2px" }}>Issuer: {c.issuer || "Issuer not specified"}</div>
+                                <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>Date: {c.date || c.issueDate || "Not provided"}</div>
+                                {c.credentialId && (
+                                  <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>Credential ID: {c.credentialId}</div>
+                                )}
+                                {(c.fileUrl || c.file_url) && (
+                                  <div style={{ marginTop: "6px" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleViewCertificate(c.fileUrl || c.file_url)}
+                                      style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: "6px", padding: "4px 8px", fontSize: "11px", fontWeight: "700", color: "#0369a1", cursor: "pointer" }}
+                                    >
+                                      📎 View Certificate File
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: "13px", color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
+                    )}
+                  </div>
+
+                  {/* 6. Career Preferences */}
+                  <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px" }}>
+                    <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                      🎯 Career Preferences & Targets
+                    </h4>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", fontSize: "13px" }}>
+                      <div>
+                        <span style={{ color: "#64748b", fontWeight: "600", display: "block", marginBottom: "4px" }}>Career Stage:</span>
+                        <strong style={{ color: "#0f172a" }}>{careerStage || "Not provided"}</strong>
+                      </div>
+
+                      <div>
+                        <span style={{ color: "#64748b", fontWeight: "600", display: "block", marginBottom: "4px" }}>Preferred Categories:</span>
+                        {prefCategories.length > 0 ? (
+                          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                            {prefCategories.map((cat, i) => (
+                              <span key={i} style={{ background: "#ecfdf5", color: "#047857", border: "1px solid #a7f3d0", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "600" }}>
+                                {getCategoryLabel(cat)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
+                        )}
+                      </div>
+
+                      <div>
+                        <span style={{ color: "#64748b", fontWeight: "600", display: "block", marginBottom: "4px" }}>Target Roles:</span>
+                        {prefRoles.length > 0 ? (
+                          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                            {prefRoles.map((role, i) => (
+                              <span key={i} style={{ background: "#f5f3ff", color: "#6d28d9", border: "1px solid #ddd6fe", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "600" }}>
+                                {role}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
+                        )}
+                      </div>
+
+                      <div>
+                        <span style={{ color: "#64748b", fontWeight: "600", display: "block", marginBottom: "4px" }}>Preferred Subcategories:</span>
+                        {prefSubcategories.length > 0 ? (
+                          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                            {prefSubcategories.map((sub, i) => (
+                              <span key={i} style={{ background: "#f8fafc", color: "#475569", border: "1px solid #e2e8f0", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "600" }}>
+                                {getSubcategoryLabel(sub)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 7. Resume & Identity Verification Documents */}
+                  <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "16px" }}>
+                    <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                      📄 Resume & Identity Verification Documents
+                    </h4>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "14px" }}>
+                      {/* Resume Box */}
+                      <div style={{ padding: "12px", borderRadius: "10px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                        <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", textTransform: "uppercase", display: "block", marginBottom: "6px" }}>Resume File</span>
+                        {hasResume ? (
+                          <div>
+                            <div style={{ fontSize: "13px", fontWeight: "700", color: "#0f172a", marginBottom: "2px" }}>
+                              {cand.resume?.file_name || "Candidate Resume Document"}
+                            </div>
+                            <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "8px" }}>
+                              {cand.resume?.file_size ? `${formatFileSize(cand.resume.file_size)} · ` : ""}
+                              {cand.resume?.created_at ? `Uploaded ${formatDate(cand.resume.created_at)}` : ""}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveResumeViewer({
+                                id: cand.id,
+                                applicant_id: cand.id,
+                                profiles: cand,
+                                displayName: displayUserName(cand),
+                                resume: cand.resume || { file_url: cand.resume_url || cand.resume?.file_url }
+                              })}
+                              style={{ background: "#2563eb", color: "#fff", border: "none", padding: "7px 14px", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                            >
+                              📄 Open Resume Viewer
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: "13px", color: "#94a3b8", fontStyle: "italic" }}>No resume uploaded yet</span>
+                        )}
+                      </div>
+
+                      {/* Verification Box */}
+                      <div style={{ padding: "12px", borderRadius: "10px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                        <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", textTransform: "uppercase", display: "block", marginBottom: "6px" }}>Identity Verification</span>
+                        <div style={{ marginBottom: "8px" }}>
+                          {renderVerificationBadge(cand.verification_status, cand.id_image_url)}
+                        </div>
+                        {cand.id_image_url ? (
+                          <button
+                            type="button"
+                            onClick={() => setVerificationReviewCandidate(cand)}
+                            style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a", padding: "7px 14px", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                          >
+                            🛡 Review ID & Selfie Evidence
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: "13px", color: "#94a3b8", fontStyle: "italic", display: "block" }}>No ID documents submitted yet</span>
+                        )}
+                        {cand.verification_reason && (
+                          <div style={{ marginTop: "6px", fontSize: "12px", color: "#991b1b", background: "#fee2e2", padding: "6px 10px", borderRadius: "6px" }}>
+                            Feedback: {cand.verification_reason}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 8. Authorized Administration Controls */}
+                  <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "16px", background: "#f8fafc", padding: "16px", borderRadius: "12px" }}>
                     <h4 style={{ margin: "0 0 10px 0", fontSize: "13px", fontWeight: "700", color: "#475569", textTransform: "uppercase" }}>⚙️ Authorized Account Moderation</h4>
                     <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                       <button

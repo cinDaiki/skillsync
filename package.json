@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:tiers": "node tests/careerRelevanceTier.test.mjs",
-    "test": "node tests/careerRelevanceTier.test.mjs"
+    "test:admin": "node tests/adminJobseekerManagement.test.mjs",
+    "test": "node tests/careerRelevanceTier.test.mjs && node tests/adminJobseekerManagement.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",

@@ -86,6 +86,100 @@ export function normalizeAdminRole(role) {
   return r;
 }
 
+export function parseJsonField(raw, defaultVal = []) {
+  if (!raw) return defaultVal;
+  if (Array.isArray(raw) || typeof raw === "object") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return defaultVal;
+  }
+}
+
+export function formatFileSize(size) {
+  const bytes = Number(size);
+  if (!bytes || isNaN(bytes)) return "0.00 KB";
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+export function getCandidateEducationSummary(profile, candidateProfile = null) {
+  const role = String(profile?.role || "").trim().toLowerCase();
+  if (role === "employer") return "N/A - Employer Account";
+  if (role === "admin") return "N/A - Admin Account";
+
+  const eduList = parseJsonField(profile?.education, []);
+  if (Array.isArray(eduList) && eduList.length > 0) {
+    const primary = eduList[0];
+    if (typeof primary === "string" && primary.trim()) return primary.trim();
+    if (primary && typeof primary === "object") {
+      const parts = [];
+      const degree = primary.degree || primary.qualification;
+      const field = primary.field || primary.course;
+      const school = primary.school || primary.institution;
+
+      if (degree) parts.push(degree);
+      if (field) parts.push(`in ${field}`);
+      if (school) parts.push(`(${school})`);
+
+      if (parts.length > 0) return parts.join(" ");
+    }
+  }
+
+  const cp = candidateProfile || profile?.candidate_profile;
+  if (cp?.degree || cp?.course || profile?.degree || profile?.course) {
+    const degree = cp?.degree || profile?.degree;
+    const course = cp?.course || profile?.course;
+    const parts = [];
+    if (degree) parts.push(degree);
+    if (course) parts.push(`in ${course}`);
+    if (parts.length > 0) return parts.join(" ");
+  }
+
+  return "Not provided";
+}
+
+export function getCandidateExperienceSummary(profile, candidateProfile = null) {
+  const role = String(profile?.role || "").trim().toLowerCase();
+  if (role === "employer") return "N/A - Employer Account";
+  if (role === "admin") return "N/A - Admin Account";
+
+  const expList = parseJsonField(profile?.work_experience || profile?.experience, []);
+  if (Array.isArray(expList) && expList.length > 0) {
+    const primary = expList[0];
+    if (typeof primary === "string" && primary.trim()) return primary.trim();
+    if (primary && typeof primary === "object") {
+      const title = primary.title || primary.role || primary.position || "";
+      const company = primary.company || primary.employer || "";
+      const dates = primary.startDate || primary.endDate
+        ? ` (${[primary.startDate, primary.endDate || "Present"].filter(Boolean).join(" - ")})`
+        : "";
+
+      let summary = "";
+      if (title && company) summary = `${title} at ${company}${dates}`;
+      else if (title) summary = `${title}${dates}`;
+      else if (company) summary = `${company}${dates}`;
+
+      if (summary) {
+        if (expList.length > 1) {
+          summary += ` (+${expList.length - 1} more)`;
+        }
+        return summary;
+      }
+    }
+  }
+
+  const cp = candidateProfile || profile?.candidate_profile;
+  const years = cp?.years_experience ?? profile?.years_experience;
+  if (years !== undefined && years !== null && Number(years) > 0) {
+    return `${years} year${Number(years) === 1 ? "" : "s"} experience`;
+  }
+
+  return "Not provided";
+}
+
 export async function fetchAdminProfiles() {
   const { data: rpcData, error: rpcError } = await supabase.rpc(
     "admin_get_all_profiles"
@@ -129,6 +223,39 @@ export async function fetchAdminProfiles() {
     console.warn("[AdminService] Failed to merge employer_profiles:", err?.message);
   }
 
+  // Merge candidate_profiles table data for candidates so Admin User Dossier has actual education/experience/years_experience
+  try {
+    const candidateIds = profilesList.filter((p) => isJobSeeker(p.role)).map((p) => p.id);
+    if (candidateIds.length > 0) {
+      const { data: candidateProfiles } = await supabase
+        .from("candidate_profiles")
+        .select("user_id, degree, course, education_level, years_experience, skills, certifications")
+        .in("user_id", candidateIds);
+
+      if (Array.isArray(candidateProfiles) && candidateProfiles.length > 0) {
+        const candMap = new Map(candidateProfiles.map((cp) => [cp.user_id, cp]));
+        profilesList = profilesList.map((p) => {
+          if (isJobSeeker(p.role)) {
+            const cp = candMap.get(p.id);
+            if (cp) {
+              return {
+                ...p,
+                candidate_profile: cp,
+                degree: cp.degree || null,
+                course: cp.course || null,
+                education_level: cp.education_level || null,
+                years_experience: cp.years_experience ?? null,
+              };
+            }
+          }
+          return p;
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("[AdminService] Failed to merge candidate_profiles:", err?.message);
+  }
+
   return { data: profilesList, error: null };
 }
 
@@ -153,16 +280,16 @@ export async function fetchAdminJobseekers({ search = "", verificationStatus = "
 
     const candidateList = allCandidates || [];
 
-    // Global summary counts across all candidate records
+    // Global summary counts across all candidate records (independent of search / pagination)
     const summary = {
-      total: candidateList.filter(isAccountActive).length,
+      total: candidateList.length,
       active: candidateList.filter(isAccountActive).length,
       suspended: candidateList.filter(isAccountSuspended).length,
-      verified: candidateList.filter(p => isAccountActive(p) && (p.verification_status === "Verified" || p.verification_status === "Approved")).length,
-      pending: candidateList.filter(p => isAccountActive(p) && (!p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification" || p.verification_status === "Under Review")).length,
+      verified: candidateList.filter(p => p.verification_status === "Verified" || p.verification_status === "Approved").length,
+      pending: candidateList.filter(p => !p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification" || p.verification_status === "Under Review").length,
     };
 
-    // 2. Strict Active-Only Filter
+    // 2. Strict Active-Only Filter (Jobseeker Management table displays active accounts; suspended accounts are managed on dedicated Suspended Accounts page)
     let activeCandidates = candidateList.filter(isAccountActive);
 
     // 3. Search Filter
@@ -195,33 +322,59 @@ export async function fetchAdminJobseekers({ search = "", verificationStatus = "
     const from = (page - 1) * pageSize;
     let paginatedData = activeCandidates.slice(from, from + pageSize);
 
-    // 5. Merge candidate_profiles table data if available
+    // 5. Merge candidate_profiles and resumes table data in single batched parallel queries (avoids N+1)
     if (paginatedData.length > 0) {
       const ids = paginatedData.map((p) => p.id);
-      const { data: candProfiles } = await supabase
-        .from("candidate_profiles")
-        .select("*")
-        .in("user_id", ids);
+      const [{ data: candProfiles }, { data: resumesData }] = await Promise.all([
+        supabase
+          .from("candidate_profiles")
+          .select("*")
+          .in("user_id", ids),
+        supabase
+          .from("resumes")
+          .select("id, applicant_id, file_url, file_name, file_size, created_at, resume_score, completeness, parsed_details")
+          .in("applicant_id", ids),
+      ]);
 
-      if (Array.isArray(candProfiles) && candProfiles.length > 0) {
-        const candMap = new Map(candProfiles.map((cp) => [cp.user_id, cp]));
-        paginatedData = paginatedData.map((p) => {
-          const cp = candMap.get(p.id);
-          return {
-            ...p,
-            skills: cp?.skills || p.skills || [],
-            experience: cp?.experience || p.work_experience || [],
-            education: cp?.education || p.education || [],
-            certifications: cp?.certifications || p.certifications || [],
-            profile_completion: calculateProfileCompletion(p, cp),
-          };
-        });
-      } else {
-        paginatedData = paginatedData.map((p) => ({
+      const candMap = new Map((candProfiles || []).map((cp) => [cp.user_id, cp]));
+      const resumeMap = new Map((resumesData || []).map((r) => [r.applicant_id, r]));
+
+      paginatedData = paginatedData.map((p) => {
+        const cp = candMap.get(p.id);
+        const res = resumeMap.get(p.id);
+
+        const parsedEducation = parseJsonField(p.education, []);
+        const parsedWorkExp = parseJsonField(p.work_experience, []);
+        const parsedCertifications = parseJsonField(p.certifications, cp?.certifications ? parseJsonField(cp.certifications, []) : []);
+        const parsedPortfolio = parseJsonField(p.portfolio_links, {});
+        const parsedSocial = parseJsonField(p.social_links, {});
+
+        return {
           ...p,
-          profile_completion: calculateProfileCompletion(p, null),
-        }));
-      }
+          skills: p.skills || cp?.skills || [],
+          experience: parsedWorkExp.length > 0 ? parsedWorkExp : (cp?.experience ? parseJsonField(cp.experience, []) : []),
+          work_experience: parsedWorkExp,
+          education: parsedEducation,
+          certifications: parsedCertifications,
+          portfolio_links: parsedPortfolio,
+          social_links: parsedSocial,
+          resume: res || null,
+          resume_url: res?.file_url || null,
+          candidate_profile: cp || null,
+          career_stage: cp?.career_stage || null,
+          preferred_categories: cp?.preferred_categories || [],
+          preferred_subcategories: cp?.preferred_subcategories || [],
+          preferred_roles: cp?.preferred_roles || [],
+          years_experience: cp?.years_experience ?? null,
+          career_preferences: {
+            preferredCategories: cp?.preferred_categories || [],
+            preferredSubcategories: cp?.preferred_subcategories || [],
+            preferredRoles: cp?.preferred_roles || [],
+            careerStage: cp?.career_stage || "",
+          },
+          profile_completion: calculateProfileCompletion(p, cp, res),
+        };
+      });
     }
 
     return { data: paginatedData, totalCount, page, totalPages, summary, error: null };
@@ -231,21 +384,28 @@ export async function fetchAdminJobseekers({ search = "", verificationStatus = "
   }
 }
 
-function calculateProfileCompletion(profile, candidateProfile) {
+export function calculateProfileCompletion(profile, candidateProfile = null, resume = null) {
   let score = 0;
   if (profile?.full_name) score += 20;
   if (profile?.email) score += 15;
   if (profile?.contact_number) score += 15;
-  if (profile?.address || candidateProfile?.location) score += 15;
+  if (profile?.address || candidateProfile?.location) score += 10;
 
-  const skills = candidateProfile?.skills || profile?.skills;
-  if (Array.isArray(skills) ? skills.length > 0 : skills) score += 15;
+  const skills = profile?.skills || candidateProfile?.skills;
+  const hasSkills = Array.isArray(skills) ? skills.length > 0 : Boolean(skills && String(skills).trim());
+  if (hasSkills) score += 10;
 
-  const exp = candidateProfile?.experience || profile?.work_experience;
-  if (Array.isArray(exp) ? exp.length > 0 : exp) score += 10;
+  const exp = parseJsonField(profile?.work_experience || profile?.experience, []);
+  if ((Array.isArray(exp) && exp.length > 0) || (candidateProfile?.years_experience !== null && candidateProfile?.years_experience !== undefined && Number(candidateProfile.years_experience) > 0)) {
+    score += 10;
+  }
 
-  const edu = candidateProfile?.education || profile?.education;
-  if (Array.isArray(edu) ? edu.length > 0 : edu) score += 10;
+  const edu = parseJsonField(profile?.education, []);
+  if ((Array.isArray(edu) && edu.length > 0) || candidateProfile?.degree || candidateProfile?.course) {
+    score += 10;
+  }
+
+  if (resume?.file_url || profile?.resume_url) score += 10;
 
   return Math.min(100, score);
 }

@@ -11,6 +11,8 @@ import {
   updateUserProfile,
   displayUserName,
   isAccountSuspended,
+  getCandidateEducationSummary,
+  getCandidateExperienceSummary,
 } from "../../services/adminService";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 
@@ -643,13 +645,13 @@ export default function ManageUsers() {
                   <div>
                     <span style={{ display: "block", color: "#6b7280", fontWeight: "bold" }}>Highest Qualification</span>
                     <strong style={{ color: "#111827" }}>
-                      {selectedUser.role === "employer" ? "N/A - Employer Account" : "Bachelor of Science in Information Technology"}
+                      {getCandidateEducationSummary(selectedUser)}
                     </strong>
                   </div>
                   <div>
                     <span style={{ display: "block", color: "#6b7280", fontWeight: "bold" }}>Professional Experience</span>
                     <strong style={{ color: "#111827" }}>
-                      {selectedUser.role === "employer" ? "N/A - Employer Account" : "Software Engineer (2+ Years experience)"}
+                      {getCandidateExperienceSummary(selectedUser)}
                     </strong>
                   </div>
                 </div>

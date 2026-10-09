@@ -11,6 +11,7 @@ const sidebarLinks = {
     { label: "Employers", icon: "🏢", path: "/admin/employers" },
     { label: "Jobs", icon: "💼", path: "/admin/jobs" },
     { label: "Applications", icon: "📋", path: "/admin/applications" },
+    { label: "Jobseekers", icon: "👤", path: "/admin/jobseekers" },
     { label: "Users", icon: "👥", path: "/admin/users" },
     { section: "MODERATION" },
     { label: "Suspended Accounts", icon: "🚫", path: "/admin/suspended-accounts" },
