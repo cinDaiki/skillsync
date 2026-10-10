@@ -97,6 +97,7 @@ export function normalizeSkillForCatalog(skillName) {
   if (s === 'customer support' || s === 'client services' || s === 'customer care' || s === 'client support') return 'customer service';
   if (s === 'food handling' || s === 'safe food handling' || s === 'food hygiene' || s === 'servsafe') return 'food safety';
   if (s === 'cashier' || s === 'pos' || s === 'cash register' || s === 'register balancing') return 'cash handling';
+  if (s === 'responsive web design' || s === 'responsive design') return 'responsive design';
 
   return s;
 }
@@ -411,8 +412,8 @@ export const CURATED_MICROCREDENTIALS = [
     level: "Beginner",
     duration: "7 months (6 hrs/week)",
     description: "Build interactive component-driven Web applications using React hooks, state management, and modern JS.",
-    skills: ["React", "JavaScript", "HTML", "CSS", "UI/UX Design", "Frontend Development"],
-    skillAliases: ["React.js", "ReactJS", "Frontend", "UI Design", "ES6"],
+    skills: ["React", "JavaScript", "HTML", "CSS", "UI/UX Design", "Frontend Development", "Responsive Web Design"],
+    skillAliases: ["React.js", "ReactJS", "Frontend", "UI Design", "ES6", "Responsive Design", "Responsive Web Design"],
     skill_name: "React",
     canonical_skill: "react",
     officialUrl: "https://www.coursera.org/professional-certificates/meta-front-end-developer",
@@ -676,47 +677,57 @@ export const CURATED_MICROCREDENTIALS = [
  * Cached in memory to ensure optimal performance without repeated network overhead.
  */
 let cachedCatalog = null;
+let catalogFetchPromise = null;
 
 export async function getMicrocredentialsCatalog() {
   if (cachedCatalog) return cachedCatalog;
+  if (catalogFetchPromise) return catalogFetchPromise;
+
+  catalogFetchPromise = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('microcredentials_catalog')
+        .select('*')
+        .eq('is_active', true);
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        cachedCatalog = data.map(item => ({
+          id: item.id,
+          title: item.title,
+          provider: item.provider,
+          issuer: item.issuer || item.provider,
+          sourceType: item.source_type || item.sourceType || 'learning_platform',
+          credentialType: item.credential_type || item.credentialType || 'course',
+          level: item.level || 'Beginner',
+          duration: item.duration || 'Self-paced',
+          description: item.description || '',
+          skills: Array.isArray(item.skills) ? item.skills : [item.skill_name || ''],
+          skillAliases: Array.isArray(item.skill_aliases) ? item.skill_aliases : [],
+          skill_name: item.skill_name || (Array.isArray(item.skills) ? item.skills[0] : ''),
+          canonical_skill: item.canonical_skill || (item.skill_name ? item.skill_name.toLowerCase() : ''),
+          officialUrl: item.official_url || item.credential_url || item.url,
+          credential_url: item.credential_url || item.official_url || item.url,
+          badge: item.badge || `🎓 ${item.provider || 'Verified'} Certificate`,
+          country: item.country || 'Global',
+          isVerifiedSource: item.is_verified_source ?? true,
+          lastVerifiedAt: item.last_verified_at || null,
+          is_active: item.is_active ?? true
+        }));
+        return cachedCatalog;
+      }
+    } catch (err) {
+      console.warn('[Microcredentials] Supabase query fallback to curated catalog:', err?.message || err);
+    }
+
+    cachedCatalog = CURATED_MICROCREDENTIALS;
+    return cachedCatalog;
+  })();
 
   try {
-    const { data, error } = await supabase
-      .from('microcredentials_catalog')
-      .select('*')
-      .eq('is_active', true);
-
-    if (!error && Array.isArray(data) && data.length > 0) {
-      cachedCatalog = data.map(item => ({
-        id: item.id,
-        title: item.title,
-        provider: item.provider,
-        issuer: item.issuer || item.provider,
-        sourceType: item.source_type || item.sourceType || 'learning_platform',
-        credentialType: item.credential_type || item.credentialType || 'course',
-        level: item.level || 'Beginner',
-        duration: item.duration || 'Self-paced',
-        description: item.description || '',
-        skills: Array.isArray(item.skills) ? item.skills : [item.skill_name || ''],
-        skillAliases: Array.isArray(item.skill_aliases) ? item.skill_aliases : [],
-        skill_name: item.skill_name || (Array.isArray(item.skills) ? item.skills[0] : ''),
-        canonical_skill: item.canonical_skill || (item.skill_name ? item.skill_name.toLowerCase() : ''),
-        officialUrl: item.official_url || item.credential_url || item.url,
-        credential_url: item.credential_url || item.official_url || item.url,
-        badge: item.badge || `🎓 ${item.provider || 'Verified'} Certificate`,
-        country: item.country || 'Global',
-        isVerifiedSource: item.is_verified_source ?? true,
-        lastVerifiedAt: item.last_verified_at || null,
-        is_active: item.is_active ?? true
-      }));
-      return cachedCatalog;
-    }
-  } catch (err) {
-    console.warn('[Microcredentials] Supabase query fallback to curated catalog:', err?.message || err);
+    return await catalogFetchPromise;
+  } finally {
+    catalogFetchPromise = null;
   }
-
-  cachedCatalog = CURATED_MICROCREDENTIALS;
-  return cachedCatalog;
 }
 
 /**
@@ -796,14 +807,19 @@ export function matchMicrocredentialsForMissingSkills(missingSkills = [], catalo
     for (const { raw, norm } of normalizedMissing) {
       for (const token of allCredTokens) {
         const tokenNorm = normalizeSkillForCatalog(token);
+        // Exact canonical match or recognized approved alias
         if (tokenNorm === norm) {
           coveredRawSkills.add(raw);
           exactMatchesCount++;
           break;
         } else if (
-          tokenNorm.length > 3 &&
-          norm.length > 3 &&
-          (tokenNorm.includes(norm) || norm.includes(tokenNorm))
+          // Conservative bounded alias variation only (e.g. "responsive design" vs "responsive web design")
+          // Strictly reject broad substring containment where a sentence contains a token
+          tokenNorm.length >= 4 &&
+          norm.length >= 4 &&
+          norm.length <= 28 &&
+          Math.abs(tokenNorm.length - norm.length) <= 10 &&
+          (tokenNorm.startsWith(norm) || norm.startsWith(tokenNorm))
         ) {
           coveredRawSkills.add(raw);
           break;

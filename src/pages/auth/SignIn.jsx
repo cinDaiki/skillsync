@@ -15,6 +15,7 @@ import { getDashboardPath } from "../../utils/getDashboardPath";
 import { isDevMode } from "../../services/devMode";
 import { isAccountSuspended } from "../../services/adminService";
 import { useAuthAction } from "../../context/AuthActionContext";
+import { isLocalQaOtpBypassAllowed } from "../../services/localQaOtpBypass";
 import "./SignIn.css";
 
 function resolveRole(profileRole, metadataRole) {
@@ -194,12 +195,12 @@ export default function SignIn() {
     }
 
     if (redirectTo) {
-      navigate(redirectTo);
+      navigate(redirectTo, { replace: true });
       return;
     }
 
     const path = getDashboardPath(role);
-    navigate(path === "/" ? "/candidate/dashboard" : path);
+    navigate(path === "/" ? "/candidate/dashboard" : path, { replace: true });
   }
 
   // ─── PRIMARY LOGIN FLOW: Email + Password ─────────────────────────────────
@@ -274,8 +275,11 @@ export default function SignIn() {
           return { success: false, error: trustError };
         }
 
-        if (trustData?.is_trusted === true && trustData?.requires_otp === false) {
-          // TRUSTED DEVICE: Route directly to dashboard without OTP
+        const isTrusted = trustData?.is_trusted === true && trustData?.requires_otp === false;
+        const isQaBypass = isLocalQaOtpBypassAllowed(formData.email);
+
+        if (isTrusted || isQaBypass) {
+          // TRUSTED DEVICE OR LOCAL QA BYPASS: Route directly to dashboard without OTP
           return {
             success: true,
             onSuccess: async () => {

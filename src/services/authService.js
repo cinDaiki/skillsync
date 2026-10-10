@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { getCurrentUser as getStoredUser } from './localStorageService'
+import { isLocalQaOtpBypassAllowed } from './localQaOtpBypass'
 import {
   isDevMode,
   devSignIn,
@@ -166,9 +167,26 @@ export const getLoginGateStatus = async () => {
  * checkSessionTrust
  * Checks if the current session or device is already trusted.
  */
-export const checkSessionTrust = async (rawDeviceToken) => {
+export const checkSessionTrust = async (rawDeviceToken, fallbackEmail = null) => {
   if (isDevMode()) {
     return devCheckSessionTrust()
+  }
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    const email = session?.user?.email || fallbackEmail
+    if (email && isLocalQaOtpBypassAllowed(email)) {
+      return {
+        data: {
+          is_trusted: true,
+          requires_otp: false,
+          reason: "LOCAL_QA_OTP_BYPASS",
+        },
+        error: null,
+      }
+    }
+  } catch {
+    // Continue to standard RPC
   }
 
   const token = rawDeviceToken || getOrCreateDeviceToken()

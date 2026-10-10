@@ -3,7 +3,7 @@ import { supabase } from './supabase.js'
 // ---------------------------------------------------------------------------
 // Derive the configured Supabase Storage origin so we can validate that any
 // full URL in a resume record belongs to THIS project, not an external host.
-// Example: 'https://blekdvuovbfpuaepjvfq.supabase.co'
+// Example: 'https://your-project-id.supabase.co'
 // ---------------------------------------------------------------------------
 const _metaEnv = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
 const _procEnv = (typeof process !== 'undefined' && process.env) ? process.env : {};
@@ -186,7 +186,17 @@ export const uploadVerificationDocument = async (file, userId, type) => {
     return { data: null, error };
   }
 
-  return { data: fileName, storagePath: fileName, error: null };
+  // Generate private signed preview URL
+  const { data: signedData } = await supabase.storage
+    .from('resumes')
+    .createSignedUrl(fileName, 60 * 60 * 24);
+
+  return {
+    data: signedData?.signedUrl || fileName,
+    storagePath: fileName,
+    signedUrl: signedData?.signedUrl || null,
+    error: null
+  };
 };
 
 /**

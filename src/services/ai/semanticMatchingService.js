@@ -203,7 +203,24 @@ export async function runSemanticMatchingForCandidate(userId, resumeEmbedding) {
       // ── 4. Persist server-authoritative matches via RPC ──────────────────────
       const tRpcStart = performance.now();
       let serverSavedCount = 0;
+
+      // Avoid unnecessary repeated authoritative writes if fresh job_matches exist (< 15 mins old with career relevance)
+      const { data: existingMatches } = await supabase
+        .from('job_matches')
+        .select('job_id, updated_at, career_relevance_score')
+        .eq('user_id', userId);
+
+      const freshJobIds = new Set(
+        (existingMatches || [])
+          .filter(m => m.updated_at && m.career_relevance_score !== null && (Date.now() - new Date(m.updated_at).getTime() < 15 * 60 * 1000))
+          .map(m => m.job_id)
+      );
+
       for (const job of jobs) {
+        if (freshJobIds.has(job.id)) {
+          serverSavedCount++;
+          continue;
+        }
         try {
           const { data: rpcData, error: rpcErr } = await supabase.rpc("compute_and_save_job_match", {
             p_job_id: job.id
@@ -255,6 +272,7 @@ export async function fetchSemanticMatchesForCandidate(userId) {
     .select('*, jobs!inner(*)')
     .eq('user_id', userId)
     .order('match_score', { ascending: false })
+    .order('updated_at', { ascending: false })
 
   if (error) {
     console.error('[SemanticMatching] fetchSemanticMatchesForCandidate:', error.message)
@@ -267,22 +285,31 @@ export async function fetchSemanticMatchesForCandidate(userId) {
 
   return rawMatches
     .filter(m => !suspendedSet.has(m.jobs?.employer_id))
+    .sort((a, b) => {
+      const scoreDiff = (b.match_score ?? 0) - (a.match_score ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return new Date(b.jobs?.created_at || b.updated_at || 0) - new Date(a.jobs?.created_at || a.updated_at || 0);
+    })
     .map((m, idx) => ({
       ...m.jobs,
-      rank:            idx + 1,
-      matchScore:      m.match_score      ?? 0,
-      matchStatus:     m.match_status     ?? 'Recommended',
-      semanticScore:   m.semantic_score   ?? 0,
-      skillsScore:     m.skills_score     ?? 0,
-      educationScore:  m.education_score  ?? 100,
-      experienceScore: m.experience_score ?? 100,
-      matchedSkills:   Array.isArray(m.matching_skills) ? m.matching_skills : (m.matching_skills ? JSON.parse(m.matching_skills) : []),
-      missingSkills:   Array.isArray(m.missing_skills)  ? m.missing_skills  : (m.missing_skills  ? JSON.parse(m.missing_skills)  : []),
-      strengths:       Array.isArray(m.strengths)        ? m.strengths       : (m.strengths        ? JSON.parse(m.strengths)        : []),
-      recommendations: m.recommendations ?? '',
-      matchReason:     m.match_reason     ?? '',
-      microCredentials: Array.isArray(m.micro_credentials) ? m.micro_credentials : (m.micro_credentials ? (typeof m.micro_credentials === 'string' ? JSON.parse(m.micro_credentials) : []) : []),
-      matchedCerts:     Array.isArray(m.matched_certs)     ? m.matched_certs     : (m.matched_certs     ? (typeof m.matched_certs     === 'string' ? JSON.parse(m.matched_certs)     : []) : []),
+      rank:                      idx + 1,
+      matchScore:                m.match_score      ?? 0,
+      matchStatus:               m.match_status     ?? 'Recommended',
+      semanticScore:             m.semantic_score   ?? 0,
+      skillsScore:               m.skills_score     ?? 0,
+      educationScore:            m.education_score  ?? 100,
+      experienceScore:           m.experience_score ?? 100,
+      career_relevance_score:     m.career_relevance_score ?? null,
+      career_relevance_breakdown: m.career_relevance_breakdown ?? null,
+      careerRelevanceScore:       m.career_relevance_score ?? null,
+      careerRelevanceBreakdown:   m.career_relevance_breakdown ?? null,
+      matchedSkills:             Array.isArray(m.matching_skills) ? m.matching_skills : (m.matching_skills ? JSON.parse(m.matching_skills) : []),
+      missingSkills:             Array.isArray(m.missing_skills)  ? m.missing_skills  : (m.missing_skills  ? JSON.parse(m.missing_skills)  : []),
+      strengths:                 Array.isArray(m.strengths)        ? m.strengths       : (m.strengths        ? JSON.parse(m.strengths)        : []),
+      recommendations:           m.recommendations ?? '',
+      matchReason:               m.match_reason     ?? '',
+      microCredentials:          Array.isArray(m.micro_credentials) ? m.micro_credentials : (m.micro_credentials ? (typeof m.micro_credentials === 'string' ? JSON.parse(m.micro_credentials) : []) : []),
+      matchedCerts:              Array.isArray(m.matched_certs)     ? m.matched_certs     : (m.matched_certs     ? (typeof m.matched_certs     === 'string' ? JSON.parse(m.matched_certs)     : []) : []),
     }))
 }
 

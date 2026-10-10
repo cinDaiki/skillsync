@@ -32,7 +32,7 @@ export default [
   { canonical: 'REST API',     category: 'Frontend', weight: 0.88, aliases: ['RESTful API', 'REST APIs', 'RESTful', 'REST', 'Restful API', 'REST Services'] },
   { canonical: 'WebSocket',    category: 'Frontend', weight: 0.83, aliases: ['Web Socket', 'WebSockets'] },
   { canonical: 'PWA',          category: 'Frontend', weight: 0.82, aliases: ['Progressive Web App', 'Progressive Web Application'] },
-  { canonical: 'Responsive Design', category: 'Frontend', weight: 0.85, aliases: ['Responsive Web Design', 'RWD', 'Mobile-First Design'] },
+  { canonical: 'Responsive Design', category: 'Frontend', weight: 0.85, aliases: ['Responsive Web Design', 'RWD', 'Mobile-First Design', 'Responsive User Interfaces', 'Responsive UI', 'Responsive Interfaces'] },
   { canonical: 'Web Accessibility', category: 'Frontend', weight: 0.78, aliases: ['WCAG', 'Accessibility', 'a11y', 'ARIA'] },
   { canonical: 'Storybook',    category: 'Frontend', weight: 0.80, aliases: ['StorybookJS', 'Storybook.js'] },
   { canonical: 'Three.js',     category: 'Frontend', weight: 0.80, aliases: ['ThreeJS', 'Three JS', 'WebGL'] },

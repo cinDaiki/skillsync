@@ -20,7 +20,7 @@
  *   - 0–39%   -> Skills Gap
  */
 
-import { normalizeSkillName } from '../normalization.js';
+import { normalizeSkillName, parseSkillsToArray } from '../normalization.js';
 import { matchMicrocredentialsForMissingSkills } from '../microcredentialService.js';
 
 // ── Controlled Transferable Skills Dictionary ────────────────────────────────
@@ -54,30 +54,20 @@ export const JOB_FIT_WEIGHTS = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function parseSkillList(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) {
-    return raw.map(s => {
-      if (s && typeof s === 'object') {
-        return normalizeSkillName(s.normalized || s.canonicalName || s.name || '');
-      }
-      return normalizeSkillName(s);
-    }).filter(s => s && s.length > 1);
-  }
-  if (typeof raw === 'string') {
-    try {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return parseSkillList(arr);
-    } catch {
-      return raw.split(',').map(s => normalizeSkillName(s.trim())).filter(s => s && s.length > 1);
+export function parseSkillList(raw) {
+  const items = parseSkillsToArray(raw);
+  return items.map(s => {
+    if (s && typeof s === 'object') {
+      return normalizeSkillName(s.normalized || s.canonicalName || s.name || '');
     }
-  }
-  return [];
+    return normalizeSkillName(s);
+  }).filter(s => s && s.length > 1);
 }
 
 /**
  * Safe Skill Matcher
  * Strictly compares normalized skills without false single-character / partial substring matches.
+ * Supports recognized canonical aliases (HTML5 ↔ HTML, React.js ↔ React, Basic SQL ↔ SQL, Git/GitHub, Office).
  */
 export function isSkillMatch(candSkill, reqSkill) {
   if (!candSkill || !reqSkill) return false;
@@ -93,23 +83,85 @@ export function isSkillMatch(candSkill, reqSkill) {
   const rClean = r.replace(/[\s\-_]/g, '');
   if (cClean === rClean) return true;
 
+  // 1. Skill Family: SQL
+  // If requirement is "sql", specific SQL engines provide coverage
+  if (r === 'sql' || rClean === 'sql') {
+    const sqlFamily = ['sql', 'mysql', 'postgresql', 'sqlite', 'mssql', 'sql server', 'mariadb', 'tsql', 'plsql'];
+    if (sqlFamily.some(f => c === f || cClean.includes(f))) return true;
+  }
+
+  // 2. Skill Family: Microsoft Office
+  // If requirement is "microsoft office", candidate having Word or Excel provides partial component coverage
+  if (r === 'microsoft office' || rClean === 'microsoftoffice') {
+    const officeComponents = ['microsoft office', 'microsoft word', 'microsoft excel', 'excel', 'word'];
+    if (officeComponents.some(comp => c === comp || cClean === comp.replace(/\s+/g, ''))) return true;
+  }
+
+  // 3. Git / GitHub
+  if (r === 'git' || r === 'github') {
+    if (c === 'git' || c === 'github' || c === 'gitlab') return true;
+  }
+  if (r === 'git github') {
+    if (c === 'git' || c === 'github') return true;
+  }
+
+  // 4. HTML / CSS
+  if (r === 'html css' || r === 'html and css') {
+    if (c === 'html' || c === 'css') return true;
+  }
+
+  // 5. Responsive Design
+  if (r === 'responsive design' || rClean === 'responsivedesign') {
+    if (c === 'responsive design' || cClean === 'responsivedesign' || c === 'responsive') return true;
+  }
+
   return false;
 }
 
 function parseCertList(raw) {
   if (!raw) return [];
-  if (Array.isArray(raw)) {
-    return raw.map(c => (typeof c === 'string' ? c.trim() : (c.name || '')).toLowerCase()).filter(Boolean);
-  }
-  if (typeof raw === 'string') {
+
+  // Strip document requirements (both ||DOC_REQ: and legacy [DOCUMENT_REQUIREMENTS])
+  let cleaned = typeof raw === 'string'
+    ? raw.replace(/\|\|DOC_REQ:[\s\S]*$/, "").replace(/\[DOCUMENT_REQUIREMENTS\][\s\S]*$/, "").trim()
+    : raw;
+
+  if (!cleaned) return [];
+
+  const list = [];
+  if (Array.isArray(cleaned)) {
+    cleaned.forEach(c => {
+      const s = (typeof c === 'string' ? c : (c?.name || '')).trim().toLowerCase();
+      if (s) list.push(s);
+    });
+  } else if (typeof cleaned === 'string') {
     try {
-      const arr = JSON.parse(raw);
+      const arr = JSON.parse(cleaned);
       if (Array.isArray(arr)) return parseCertList(arr);
     } catch {
-      return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      cleaned.split(/[,\n;•]/).forEach(item => {
+        const s = item.trim().toLowerCase();
+        if (s) list.push(s);
+      });
     }
   }
-  return [];
+
+  // Filter out general qualification prose accidentally entered into certifications
+  return list.filter(item => {
+    if (item.length < 3) return false;
+    if (
+      item.includes("fresh graduate") ||
+      item.includes("willing to work") ||
+      item.includes("bachelor's degree") ||
+      item.includes("bachelor degree") ||
+      item.includes("related field") ||
+      item.includes("resume / cv") ||
+      item.includes("valid government id")
+    ) {
+      return false;
+    }
+    return true;
+  });
 }
 
 /**
@@ -208,34 +260,35 @@ export function evaluateEducation(candidateEduRaw, jobEduRaw, jobTitleStr = '', 
     return 100;
   }
 
-  // 2. Candidate degree directly satisfies requirement
+  // 2. General / entry-level / service / VA / support roles where degree is not strictly specialized
+  const isGeneralOrServiceRole = 
+    jobTitle.includes('service') || jobTitle.includes('crew') || jobTitle.includes('support') || 
+    jobTitle.includes('assistant') || jobTitle.includes('virtual assistant') || jobTitle.includes('cashier') ||
+    jobTitle.includes('clerk') || jobTitle.includes('receptionist') || jobDesc.includes('entry level') ||
+    !jobEdu.includes('bachelor');
+
+  if (isGeneralOrServiceRole) {
+    return 100; // Zero penalty for degree holders or non-degree applicants applying to entry/general roles
+  }
+
+  // 3. Candidate degree directly satisfies requirement
   if (candEdu && (candEdu.includes(jobEdu) || jobEdu.includes(candEdu))) {
     return 100;
   }
 
-  // 3. Relevant degree match
-  if (candEdu.includes('it') || candEdu.includes('computer') || candEdu.includes('software')) {
-    if (jobTitle.includes('developer') || jobTitle.includes('web') || jobTitle.includes('software') || jobTitle.includes('it')) {
+  // 4. Relevant technical / computer degree match for software/IT jobs
+  if (candEdu.includes('it') || candEdu.includes('computer') || candEdu.includes('software') || candEdu.includes('technology')) {
+    if (jobTitle.includes('developer') || jobTitle.includes('web') || jobTitle.includes('software') || jobTitle.includes('it') || jobTitle.includes('engineer')) {
       return 100;
     }
   }
 
-  // 4. Non-penalizing: Candidate holds a degree applying to general / entry-level / service roles
-  const isGeneralOrServiceRole = 
-    jobTitle.includes('service') || jobTitle.includes('crew') || jobTitle.includes('support') || 
-    jobTitle.includes('assistant') || jobTitle.includes('cashier') || jobTitle.includes('clerk') ||
-    jobDesc.includes('entry level') || !jobEdu.includes('bachelor');
-
-  if (candEdu && isGeneralOrServiceRole) {
-    return 100; // Zero penalty for degree holders applying to entry/general roles
-  }
-
-  // 5. Degree present but job requires specific specialized degree
+  // 5. Degree present but job requires specific specialized non-matching degree
   if (candEdu && candEdu.length > 3) {
     return 70; // Partial match for having higher education
   }
 
-  return 50; // Minimum baseline when candidate education is unstated
+  return 50; // Minimum baseline when candidate education is unstated for specialized degree roles
 }
 
 /**
@@ -251,9 +304,11 @@ export function evaluateExperience(candidateYearsRaw, jobExpReqRaw, jobTitleStr 
   }
 
   const jobTitle = (jobTitleStr || '').toLowerCase();
-  const isEntryLevelJob = requiredYears <= 1 || jobTitle.includes('junior') || jobTitle.includes('entry') || jobTitle.includes('associate') || jobTitle.includes('crew');
+  const isEntryLevelJob = requiredYears <= 1 || jobTitle.includes('junior') || jobTitle.includes('entry') ||
+    jobTitle.includes('associate') || jobTitle.includes('crew') || jobTitle.includes('assistant') ||
+    jobTitle.includes('virtual assistant') || jobTitle.includes('intern') || jobTitle.includes('clerk');
 
-  // 1. Entry level job -> fresh grad (0 years) gets 100%
+  // 1. Entry level job -> fresh grad / 0 experience gets 100%
   if (isEntryLevelJob && candidateYears >= 0) {
     return 100;
   }
@@ -287,16 +342,19 @@ export function evaluateCredentials(candidateCertsRaw, jobReqCertsRaw, jobTitleS
 
   const matchedCerts = [];
   const missingCerts = [];
+  const hasReqCerts = reqCerts.length > 0;
 
   // Check required certs from employer
-  reqCerts.forEach(req => {
-    const isMatched = candCerts.some(c => c.includes(req) || req.includes(c));
-    if (isMatched) {
-      matchedCerts.push(req);
-    } else {
-      missingCerts.push(req);
-    }
-  });
+  if (hasReqCerts) {
+    reqCerts.forEach(req => {
+      const isMatched = candCerts.some(c => c.includes(req) || req.includes(c));
+      if (isMatched) {
+        matchedCerts.push(req);
+      } else {
+        missingCerts.push(req);
+      }
+    });
+  }
 
   // Also check if candidate certs are relevant to job title or description
   candCerts.forEach(cert => {
@@ -307,8 +365,8 @@ export function evaluateCredentials(candidateCertsRaw, jobReqCertsRaw, jobTitleS
     }
   });
 
-  let score = 50; // Baseline when no certs required
-  if (reqCerts.length > 0) {
+  let score = 100; // Neutral 100% when no certs required
+  if (hasReqCerts) {
     const matchCount = reqCerts.filter(r => candCerts.some(c => c.includes(r) || r.includes(c))).length;
     score = Math.round((matchCount / reqCerts.length) * 100);
   } else if (matchedCerts.length > 0) {
@@ -318,7 +376,8 @@ export function evaluateCredentials(candidateCertsRaw, jobReqCertsRaw, jobTitleS
   return {
     credentialsScore: score,
     matchedCerts,
-    missingCerts
+    missingCerts,
+    isRequirementSpecified: hasReqCerts
   };
 }
 
@@ -327,17 +386,20 @@ export function evaluateCredentials(candidateCertsRaw, jobReqCertsRaw, jobTitleS
  *
  * @param {object} candidate - { skills, course, degree, years_experience, certifications }
  * @param {object} job       - { title, required_skills, required_education, experience_required, required_certifications, description }
- * @param {number} semanticScoreNormalized - Cosine similarity (0.0 to 1.0) or percentage (0 to 100)
+ * @param {number|null} semanticScoreNormalized - Cosine similarity (0.0 to 1.0) or percentage (0 to 100) or null
  * @param {object} weights   - Custom weights override (optional)
  * @returns {object} Full Job Fit Breakdown & Explanation
  */
-export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalized = 0.70, weights = JOB_FIT_WEIGHTS) {
+export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalized = null, weights = JOB_FIT_WEIGHTS) {
   const w = { ...JOB_FIT_WEIGHTS, ...weights };
 
-  // Normalize semantic score to 0–100
-  const semanticPct = semanticScoreNormalized > 1 
-    ? Math.min(100, Math.max(0, semanticScoreNormalized))
-    : Math.min(100, Math.max(0, Math.round(semanticScoreNormalized * 100)));
+  // Determine whether valid semantic vector similarity exists
+  const hasEmbeddings = semanticScoreNormalized !== null && semanticScoreNormalized !== undefined && Number(semanticScoreNormalized) > 0;
+  const semanticPct = hasEmbeddings 
+    ? (semanticScoreNormalized > 1 
+        ? Math.min(100, Math.max(0, Math.round(semanticScoreNormalized)))
+        : Math.min(100, Math.max(0, Math.round(semanticScoreNormalized * 100))))
+    : 0;
 
   // 1. Evaluate Skills (Required + Transferable)
   const skillsEval = evaluateSkills(candidate.skills, job.required_skills);
@@ -352,16 +414,27 @@ export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalize
   // 4. Evaluate Credentials
   const credsEval = evaluateCredentials(candidate.certifications, job.required_certifications, job.title, job.description);
 
-  // 5. Calculate Weighted Final Job Fit Score
-  const rawScore = 
-    (skillsEval.requiredSkillsScore * w.requiredSkills) +
-    (skillsEval.transferableSkillsScore * w.transferableSkills) +
-    (eduScore * w.educationCompatibility) +
-    (expScore * w.experienceCompatibility) +
-    (semanticPct * w.semanticRelevance) +
-    (credsEval.credentialsScore * w.credentialsScore);
+  // 5. Dynamic Requirement-Aware Weights
+  const wSkills = w.requiredSkills ?? 0.35;
+  const wTrans = w.transferableSkills ?? 0.15;
+  const wEdu = w.educationCompatibility ?? 0.15;
+  const wExp = w.experienceCompatibility ?? 0.15;
+  const wCreds = credsEval.isRequirementSpecified ? (w.credentialsScore ?? 0.10) : 0.0;
+  const wSemantic = hasEmbeddings ? (w.semanticRelevance ?? 0.10) : 0.0;
 
-  const jobFitScore = Math.min(100, Math.max(0, Math.round(rawScore)));
+  const totalWeight = wSkills + wTrans + wEdu + wExp + wCreds + wSemantic;
+  const safeTotalWeight = totalWeight > 0 ? totalWeight : 1.0;
+
+  // 6. Calculate Weighted Final Job Fit Score (Normalized over applicable criteria)
+  const weightedSum = 
+    (skillsEval.requiredSkillsScore * wSkills) +
+    (skillsEval.transferableSkillsScore * wTrans) +
+    (eduScore * wEdu) +
+    (expScore * wExp) +
+    (credsEval.credentialsScore * wCreds) +
+    (semanticPct * wSemantic);
+
+  const jobFitScore = Math.min(100, Math.max(0, Math.round(weightedSum / safeTotalWeight)));
   const tier = getJobFitTier(jobFitScore);
 
   // Generate Targeted Microcredentials for Missing Skills using Controlled Catalog
@@ -412,6 +485,15 @@ export function calculateJobFit(candidate = {}, job = {}, semanticScoreNormalize
       experienceCompatibility: expScore,
       semanticRelevance: semanticPct,
       credentialsScore: credsEval.credentialsScore
+    },
+    applicableWeights: {
+      skills: wSkills,
+      transferable: wTrans,
+      education: wEdu,
+      experience: wExp,
+      credentials: wCreds,
+      semantic: wSemantic,
+      total: totalWeight
     },
     matchedSkills: skillsEval.matchedSkills,
     missingSkills: skillsEval.missingSkills,

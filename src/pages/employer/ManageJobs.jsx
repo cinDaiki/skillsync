@@ -6,6 +6,10 @@ import { useModal } from "../../contexts/ModalContext";
 import { supabase } from "../../services/supabase";
 import { runMatchingForJob } from "../../services/matchingEngine";
 import { parseJobRequirements, encodeApplicationRequirements, PRESET_REQUIREMENTS } from "../../utils/jobRequirementsHelper";
+import { fetchAuthoritativeEmployerVerification } from "../../utils/employerVerification";
+import SkillTagInput from "../../components/common/SkillTagInput";
+import { parseSkillsToArray } from "../../services/normalization";
+import { getAllCategories, getSubcategoriesForCategory, getCategoryLabel, getSubcategoryLabel } from "../../constants/jobTaxonomy";
 import "./ManageJobs.css";
 
 export default function ManageJobs() {
@@ -24,8 +28,9 @@ export default function ManageJobs() {
 
   const [editForm, setEditForm] = useState({
     title: "", employment_type: "Full-time",
-    location: "", required_skills: "", description: "",
+    location: "", required_skills: [], description: "",
     salary_range: "", deadline: "",
+    minimum_match_percentage: 70,
     appReqs: []
   });
 
@@ -61,11 +66,13 @@ export default function ManageJobs() {
     const parsed = parseJobRequirements(job);
     setEditForm({
       title: job.title || "",
+      job_category: job.job_category || "it_software",
+      job_subcategory: job.job_subcategory || "web_development",
       department: job.department || "",
       employment_type: job.employment_type || "Full-time",
       work_setup: job.work_setup || "On-site",
       location: job.location || "",
-      required_skills: job.required_skills || "",
+      required_skills: parseSkillsToArray(job.required_skills),
       required_certifications: parsed.cleanCertifications || "",
       required_education: job.required_education || "Bachelor's Degree",
       experience_required: job.experience_required || "1-3 years",
@@ -73,6 +80,7 @@ export default function ManageJobs() {
       description: job.description || "",
       salary_range: job.salary_range || "",
       deadline: job.deadline ? job.deadline.substring(0,10) : "",
+      minimum_match_percentage: Number(job.minimum_match_percentage) || 70,
       appReqs: parsed.applicationRequirements || []
     });
   }
@@ -96,20 +104,35 @@ export default function ManageJobs() {
     setSaving(true);
     const encodedCerts = encodeApplicationRequirements(editForm.required_certifications, editForm.appReqs || []);
 
+    const matchThreshold = parseInt(editForm.minimum_match_percentage, 10);
+    if (isNaN(matchThreshold) || matchThreshold < 60 || matchThreshold > 90) {
+      toast.error("Minimum match percentage must be between 60% and 90%.");
+      setSaving(false);
+      return;
+    }
+
     const targetJob = jobs.find(j => j.id === jobId);
+
+    const skillsArray = Array.isArray(editForm.required_skills)
+      ? editForm.required_skills
+      : parseSkillsToArray(editForm.required_skills);
+    const serializedSkills = skillsArray.join(", ");
 
     // Resubmission rule: saving edits on a rejected, open, or pending job submits it for admin moderation (status: pending_review)
     const payload = {
       title: editForm.title.trim(),
+      job_category: editForm.job_category || null,
+      job_subcategory: editForm.job_subcategory || null,
       department: editForm.department?.trim() || null,
       employment_type: editForm.employment_type,
       work_setup: editForm.work_setup,
       location: editForm.location.trim(),
-      required_skills: editForm.required_skills.trim(),
+      required_skills: serializedSkills,
       required_certifications: encodedCerts,
       required_education: editForm.required_education,
       experience_required: editForm.experience_required,
       number_of_openings: parseInt(editForm.number_of_openings, 10) || 1,
+      minimum_match_percentage: matchThreshold,
       description: editForm.description.trim(),
       status: "pending_review",
       rejection_reason: null,
@@ -163,16 +186,10 @@ export default function ManageJobs() {
   }
 
   async function handleToggleStatus(jobId, currentStatus) {
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("verification_status")
-      .eq("id", userId)
-      .maybeSingle();
+    const { verificationState } = await fetchAuthoritativeEmployerVerification(userId);
 
-    const isVerified = prof?.verification_status === "Approved" || prof?.verification_status === "Verified";
-
-    if (currentStatus === "closed" && !isVerified) {
-      toast.error("Verification Required: You cannot reopen jobs while your account is pending verification.");
+    if (currentStatus === "closed" && !verificationState.canPostJob) {
+      toast.error(verificationState.message || "Verification Required: You cannot reopen jobs while your account is unverified or suspended.");
       return;
     }
 
@@ -294,6 +311,38 @@ export default function ManageJobs() {
                         <input name="title" value={editForm.title} onChange={e => setEditForm(p => ({...p, title: e.target.value}))} />
                       </label>
                       <label className="job-edit-label">
+                        Job Category
+                        <select
+                          name="job_category"
+                          value={editForm.job_category || "it_software"}
+                          onChange={e => {
+                            const newCat = e.target.value;
+                            const subcats = getSubcategoriesForCategory(newCat);
+                            setEditForm(p => ({
+                              ...p,
+                              job_category: newCat,
+                              job_subcategory: subcats[0]?.key || ""
+                            }));
+                          }}
+                        >
+                          {getAllCategories().map(cat => (
+                            <option key={cat.key} value={cat.key}>{cat.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="job-edit-label">
+                        Job Subcategory
+                        <select
+                          name="job_subcategory"
+                          value={editForm.job_subcategory || ""}
+                          onChange={e => setEditForm(p => ({...p, job_subcategory: e.target.value}))}
+                        >
+                          {getSubcategoriesForCategory(editForm.job_category || "it_software").map(sub => (
+                            <option key={sub.key} value={sub.key}>{sub.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="job-edit-label">
                         Department
                         <input name="department" value={editForm.department || ""} onChange={e => setEditForm(p => ({...p, department: e.target.value}))} />
                       </label>
@@ -330,12 +379,27 @@ export default function ManageJobs() {
                         </select>
                       </label>
                       <label className="job-edit-label">
-                        Required Skills (comma-separated)
-                        <input name="required_skills" value={editForm.required_skills} onChange={e => setEditForm(p => ({...p, required_skills: e.target.value}))} />
+                        Required Skills
+                        <span style={{ fontSize: "11px", color: "#64748b", textTransform: "none", fontWeight: "normal", display: "block", marginBottom: "4px" }}>
+                          Add key skills one by one (press Enter or comma)
+                        </span>
+                        <SkillTagInput
+                          skills={Array.isArray(editForm.required_skills) ? editForm.required_skills : parseSkillsToArray(editForm.required_skills)}
+                          onChange={tags => setEditForm(p => ({ ...p, required_skills: tags }))}
+                          placeholder="e.g. React, JavaScript, SQL (press Enter or comma)"
+                        />
                       </label>
                       <label className="job-edit-label">
-                        Required Certifications (Qualifications)
-                        <input name="required_certifications" value={editForm.required_certifications || ""} onChange={e => setEditForm(p => ({...p, required_certifications: e.target.value}))} />
+                        Required Professional Certifications / Licenses (Optional)
+                        <span style={{ fontSize: "11px", color: "#64748b", textTransform: "none", fontWeight: "normal", display: "block", marginBottom: "4px" }}>
+                          Enter only professional certifications or licenses required for this role (e.g. CPA, PRC License, AWS Certified, NC II). Do not enter education, experience, or general qualifications here.
+                        </span>
+                        <input
+                          name="required_certifications"
+                          placeholder="e.g. AWS Certified, PRC License, CPA (leave blank if none)"
+                          value={editForm.required_certifications || ""}
+                          onChange={e => setEditForm(p => ({...p, required_certifications: e.target.value}))}
+                        />
                       </label>
                       <label className="job-edit-label">
                         Openings
@@ -344,6 +408,25 @@ export default function ManageJobs() {
                       <label className="job-edit-label">
                         Deadline
                         <input type="date" name="deadline" value={editForm.deadline} onChange={e => setEditForm(p => ({...p, deadline: e.target.value}))} />
+                      </label>
+                      <label className="job-edit-label">
+                        Minimum Candidate Match
+                        <select
+                          name="minimum_match_percentage"
+                          value={editForm.minimum_match_percentage ?? 70}
+                          onChange={e => setEditForm(p => ({...p, minimum_match_percentage: parseInt(e.target.value, 10)}))}
+                        >
+                          <option value={60}>60%</option>
+                          <option value={65}>65%</option>
+                          <option value={70}>70% — Recommended</option>
+                          <option value={75}>75%</option>
+                          <option value={80}>80%</option>
+                          <option value={85}>85%</option>
+                          <option value={90}>90%</option>
+                        </select>
+                        <span style={{ fontSize: "11px", color: "#64748b", textTransform: "none", fontWeight: "normal", letterSpacing: "normal", marginTop: "2px" }}>
+                          Minimum match requirement for candidate eligibility. 70% is recommended.
+                        </span>
                       </label>
                     </div>
 
@@ -397,6 +480,13 @@ export default function ManageJobs() {
                     <div className="job-manage-top">
                       <div className="job-manage-info">
                         <h3>{job.title || "Untitled Job"}</h3>
+                        {job.job_category && (
+                          <div style={{ marginTop: "4px" }}>
+                            <span style={{ fontSize: "11px", fontWeight: "700", color: "#4f46e5", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "2px 8px", borderRadius: "6px" }}>
+                              📂 {getCategoryLabel(job.job_category)}{job.job_subcategory ? ` · ${getSubcategoryLabel(job.job_category, job.job_subcategory)}` : ""}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                         <span className="job-applicant-count-badge">
@@ -442,10 +532,13 @@ export default function ManageJobs() {
                       <span className="job-meta-chip">📍 {job.location || "Not specified"}</span>
                       {job.salary_range && <span className="job-meta-chip salary">💰 {job.salary_range}</span>}
                       {job.deadline && <span className="job-meta-chip deadline">⏰ Deadline: {formatDate(job.deadline)}</span>}
+                      <span className="job-meta-chip" style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }}>
+                        🎯 Min Match: {job.minimum_match_percentage ?? 70}%
+                      </span>
                       {job.required_skills && (
-                        job.required_skills.split(",").slice(0,3).map(s => (
-                          <span key={s.trim()} className="job-meta-chip" style={{ background: "#f5ecff", color: "#58158f" }}>
-                            {s.trim()}
+                        parseSkillsToArray(job.required_skills).slice(0, 3).map((s, idx) => (
+                          <span key={`${s}-${idx}`} className="job-meta-chip" style={{ background: "#f5ecff", color: "#58158f" }}>
+                            {s}
                           </span>
                         ))
                       )}

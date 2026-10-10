@@ -1,16 +1,43 @@
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
-import { fetchAdminAuditLogs } from "../../services/adminService";
+import { fetchAdminAuditLogs, removeSearchParam } from "../../services/adminService";
 
 export default function AdminAuditLogs() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(searchParams.get("search") || "");
   const [actionType, setActionType] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+
+  useEffect(() => {
+    const q = searchParams.get("search") || "";
+    setSearch(q);
+    setPage(1);
+  }, [searchParams]);
+
+  const handleClearSearch = () => {
+    setSearch("");
+    setPage(1);
+    if (searchParams.has("search")) {
+      const nextParams = removeSearchParam(searchParams);
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setSearch(val);
+    setPage(1);
+    if (!val && searchParams.has("search")) {
+      const nextParams = removeSearchParam(searchParams);
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
 
   const loadAuditLogs = useCallback(async () => {
     setLoading(true);
@@ -110,12 +137,9 @@ export default function AdminAuditLogs() {
         <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
           <input
             type="text"
-            placeholder="🔍 Search action, target, or reason note..."
+            placeholder="🔍 Search candidate ID, action, target, or reason note..."
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={handleSearchChange}
             style={{
               flex: "1",
               minWidth: "240px",
@@ -126,6 +150,25 @@ export default function AdminAuditLogs() {
               outline: "none",
             }}
           />
+
+          {(search || searchParams.has("search")) && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              style={{
+                padding: "10px 14px",
+                borderRadius: "8px",
+                border: "1px solid #cbd5e1",
+                background: "#f8fafc",
+                color: "#475569",
+                fontSize: "13px",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              ✕ Clear Search
+            </button>
+          )}
 
           <select
             value={actionType}

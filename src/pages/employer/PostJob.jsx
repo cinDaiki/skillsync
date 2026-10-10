@@ -8,29 +8,43 @@ import { runMatchingForJob }                          from "../../services/match
 import { generateAndStoreJobEmbedding,
          buildJobTextForEmbedding }                   from "../../services/ai/embeddingService";
 import { PRESET_REQUIREMENTS, encodeApplicationRequirements } from "../../utils/jobRequirementsHelper";
+import { fetchAuthoritativeEmployerVerification, getEmployerVerificationState } from "../../utils/employerVerification";
+import SkillTagInput from "../../components/common/SkillTagInput";
+import { parseSkillsToArray } from "../../services/normalization";
+import { getAllCategories, getSubcategoriesForCategory } from "../../constants/jobTaxonomy";
+import { createEmployerJob, getEmployerWeeklyUsage } from "../../services/jobService";
 
 export default function PostJob() {
   const navigate = useNavigate();
   const toast = useToast();
   const [formData, setFormData] = useState({
     title: "",
+    job_category: "it_software",
+    job_subcategory: "web_development",
     department: "",
     employment_type: "Full-time",
     work_setup: "On-site",
     location: "",
     salary_range: "",
-    required_skills: "",
+    required_skills: [],
     required_certifications: "",
     required_education: "Bachelor's Degree",
     experience_required: "1-3 years",
     number_of_openings: 1,
     deadline: "",
     description: "",
+    minimum_match_percentage: 70,
   });
 
   // Employer verification status state
   const [employerProfile, setEmployerProfile] = useState(null);
   const [checkingVerification, setCheckingVerification] = useState(true);
+  const [verificationError, setVerificationError] = useState(null);
+  const [verificationState, setVerificationState] = useState(() => getEmployerVerificationState());
+
+  // Weekly job posting limit state (Phase 5: max 5 new job posts per week)
+  const [weeklyUsage, setWeeklyUsage] = useState(null);
+  const [loadingUsage, setLoadingUsage] = useState(true);
 
   // Application Document Requirements State
   const [appReqs, setAppReqs] = useState(
@@ -43,25 +57,59 @@ export default function PostJob() {
 
   useEffect(() => {
     checkEmployerVerification();
+    loadWeeklyUsage();
   }, []);
+
+  async function loadWeeklyUsage() {
+    setLoadingUsage(true);
+    try {
+      const { data, error } = await getEmployerWeeklyUsage();
+      if (!error && data) {
+        setWeeklyUsage(data);
+      }
+    } catch (err) {
+      console.error("[PostJob] Failed to load weekly usage:", err);
+    } finally {
+      setLoadingUsage(false);
+    }
+  }
 
   async function checkEmployerVerification() {
     setCheckingVerification(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: prof } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .maybeSingle();
-      setEmployerProfile(prof);
+    setVerificationError(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { profile, employerProfile: ep, verificationState: vState, error } =
+          await fetchAuthoritativeEmployerVerification(user.id);
+        if (error) {
+          console.error("[PostJob] Error checking employer verification:", error);
+          setVerificationError(error);
+        } else {
+          setEmployerProfile(profile || ep);
+          setVerificationState(vState);
+        }
+      }
+    } catch (err) {
+      console.error("[PostJob] Exception checking employer verification:", err);
+      setVerificationError(err);
+    } finally {
+      setCheckingVerification(false);
     }
-    setCheckingVerification(false);
   }
 
   function handleChange(e) {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === "job_category") {
+      const subcats = getSubcategoriesForCategory(value);
+      setFormData(prev => ({
+        ...prev,
+        job_category: value,
+        job_subcategory: subcats[0]?.key || ""
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   }
 
   function handleToggleReq(name) {
@@ -95,9 +143,11 @@ export default function PostJob() {
       const skills = await generateSuggestedSkills(formData.title, formData.description);
       if (skills.length > 0) {
         setFormData(prev => {
-          const currentSkills = prev.required_skills ? prev.required_skills.split(',').map(s => s.trim()).filter(Boolean) : [];
+          const currentSkills = Array.isArray(prev.required_skills)
+            ? prev.required_skills
+            : parseSkillsToArray(prev.required_skills);
           const combined = Array.from(new Set([...currentSkills, ...skills])).filter(Boolean);
-          return { ...prev, required_skills: combined.join(', ') };
+          return { ...prev, required_skills: combined };
         });
         toast.success("AI generated skill recommendations!");
       } else {
@@ -110,16 +160,35 @@ export default function PostJob() {
     }
   }
 
-  const isVerifiedEmployer =
-    employerProfile?.verification_status === "Approved" ||
-    employerProfile?.verification_status === "Verified";
+  const isVerifiedEmployer = verificationState.canPostJob;
+  const usedCount = weeklyUsage ? (Number(weeklyUsage.used_count) || 0) : 0;
+  const weeklyLimit = weeklyUsage ? (Number(weeklyUsage.weekly_limit) || 5) : 5;
+  const isLimitReached = weeklyUsage && usedCount >= weeklyLimit;
+  const isOverLimit = weeklyUsage && usedCount > weeklyLimit;
+  const remainingCount = weeklyUsage ? Math.max(0, weeklyLimit - usedCount) : 5;
 
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
 
-    if (!isVerifiedEmployer) {
-      toast.error("Verification Required: Your employer account must be verified before you can publish job postings.");
+    if (checkingVerification) {
+      toast.info("Please wait while verification status is being checked.");
+      setLoading(false);
+      return;
+    }
+
+    if (!verificationState.canPostJob) {
+      toast.error(verificationState.message || "Verification Required: Your employer account must be verified before you can publish job postings.");
+      setLoading(false);
+      return;
+    }
+
+    if (isLimitReached) {
+      toast.error(
+        isOverLimit
+          ? `You have used ${usedCount} new job posts this week (weekly limit: ${weeklyLimit}). You can create another job when your weekly posting window resets on Monday.`
+          : `You've reached your weekly limit of ${weeklyLimit} new job posts. You can create another job when your weekly posting window resets on Monday.`
+      );
       setLoading(false);
       return;
     }
@@ -140,35 +209,53 @@ export default function PostJob() {
     // Encode application document requirements into payload
     const encodedCerts = encodeApplicationRequirements(formData.required_certifications, appReqs);
 
+    const matchThreshold = parseInt(formData.minimum_match_percentage, 10);
+    if (isNaN(matchThreshold) || matchThreshold < 60 || matchThreshold > 90) {
+      toast.error("Minimum match percentage must be between 60% and 90%.");
+      setLoading(false);
+      return;
+    }
+
+    const skillsList = Array.isArray(formData.required_skills)
+      ? formData.required_skills
+      : parseSkillsToArray(formData.required_skills);
+
     const payload = {
       title: formData.title.trim(),
+      job_category: formData.job_category || null,
+      job_subcategory: formData.job_subcategory || null,
       department: formData.department.trim(),
       employment_type: formData.employment_type,
       work_setup: formData.work_setup,
       location: formData.location.trim(),
       salary_range: formData.salary_range.trim(),
-      required_skills: formData.required_skills.trim(),
+      required_skills: skillsList.join(', '),
       required_certifications: encodedCerts,
       required_education: formData.required_education,
       experience_required: formData.experience_required,
       number_of_openings: parseInt(formData.number_of_openings, 10) || 1,
+      minimum_match_percentage: matchThreshold,
       description: formData.description.trim(),
       deadline: formData.deadline || null,
-      status: "pending_review", // Newly created jobs require admin moderation
       employer_id: user.id,
     };
 
-    const { data, error } = await supabase.from("jobs").insert([payload]).select();
+    const { data: newJob, usage: updatedUsage, publication, error } = await createEmployerJob(payload);
 
     if (error) {
-       toast.error("Failed to post job: " + error.message); 
+       toast.error(error.message || "Failed to post job."); 
+       if (error.code === 'WEEKLY_JOB_POST_LIMIT_REACHED') {
+         loadWeeklyUsage();
+       }
        setLoading(false); 
        return;
     }
 
-    if (data && data[0]) {
-      const newJob = data[0];
+    if (updatedUsage) {
+      setWeeklyUsage(updatedUsage);
+    }
 
+    if (newJob) {
       // Rule-based matching (existing)
       runMatchingForJob(newJob.id).catch(console.error);
 
@@ -184,10 +271,18 @@ export default function PostJob() {
       })()
     }
 
-    toast.success("Job submitted for administrator review! Status: Pending Review.");
+    const isAutoPublished = publication?.auto_published || newJob?.status === "open";
+    if (isAutoPublished) {
+      toast.success("Job published successfully and is now live!");
+    } else {
+      toast.success("Job submitted for administrator review! Status: Pending Review.");
+    }
     setLoading(false);
     setTimeout(() => navigate("/employer/jobs"), 1200);
   }
+
+  const allCategories = getAllCategories();
+  const availableSubcats = getSubcategoriesForCategory(formData.job_category);
 
   return (
     <DashboardLayout
@@ -203,31 +298,147 @@ export default function PostJob() {
           </div>
         </div>
 
-        {/* ── EMPLOYER VERIFICATION WARNING BANNER ── */}
-        {!checkingVerification && !isVerifiedEmployer && (
-          <div style={{ margin: "16px 0", padding: "16px 20px", background: employerProfile?.verification_status === "Rejected" ? "#fef2f2" : "#fffbeb", border: employerProfile?.verification_status === "Rejected" ? "1px solid #fca5a5" : "1px solid #fde68a", borderRadius: "10px", color: "#1e293b" }}>
+        {/* ── EMPLOYER VERIFICATION STATUS / WARNING BANNERS ── */}
+        {checkingVerification && (
+          <div style={{ margin: "16px 0", padding: "16px 20px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", color: "#64748b", display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "18px" }}>🔄</span>
+            <span style={{ fontSize: "14px", fontWeight: "600" }}>Checking employer verification status...</span>
+          </div>
+        )}
+
+        {!checkingVerification && verificationError && (
+          <div style={{ margin: "16px 0", padding: "16px 20px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "10px", color: "#991b1b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <strong>Unable to verify employer status.</strong>
+              <p style={{ margin: "4px 0 0 0", fontSize: "13px" }}>{verificationError.message || "Please check your connection and try again."}</p>
+            </div>
+            <button type="button" onClick={checkEmployerVerification} className="profile-save-btn" style={{ padding: "6px 14px", fontSize: "13px" }}>
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!checkingVerification && !verificationError && !verificationState.canPostJob && (
+          <div style={{
+            margin: "16px 0",
+            padding: "16px 20px",
+            background: verificationState.isSuspended || verificationState.isRejected ? "#fef2f2" : "#fffbeb",
+            border: verificationState.isSuspended || verificationState.isRejected ? "1px solid #fca5a5" : "1px solid #fde68a",
+            borderRadius: "10px",
+            color: "#1e293b"
+          }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
               <span style={{ fontSize: "20px" }}>
-                {employerProfile?.verification_status === "Rejected" ? "❌" : "⏳"}
+                {verificationState.isSuspended ? "🔴" : verificationState.isRejected ? "❌" : "⏳"}
               </span>
-              <strong style={{ fontSize: "15px", color: "#92400e" }}>
-                {employerProfile?.verification_status === "Rejected" ? "Employer Account Verification Rejected" : "Verification Status: Pending Administrator Review"}
+              <strong style={{ fontSize: "15px", color: verificationState.isSuspended || verificationState.isRejected ? "#991b1b" : "#92400e" }}>
+                {verificationState.isSuspended
+                  ? "Account Suspended"
+                  : verificationState.isRejected
+                  ? "Employer Account Verification Rejected"
+                  : "Verification Status: Pending Administrator Review"}
               </strong>
             </div>
             <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.5" }}>
-              {employerProfile?.verification_status === "Rejected" ? (
-                <>Reason: {employerProfile?.verification_reason || "Verification documents did not meet platform guidelines."} Please update your verification documents in your Company Profile.</>
+              {verificationState.isSuspended ? (
+                <>Your account is suspended. Reason: {verificationState.reason || "Administrative policy enforcement."}. You cannot publish jobs.</>
+              ) : verificationState.isRejected ? (
+                <>Reason: {verificationState.reason || "Verification documents did not meet platform guidelines."} Please update your verification documents in your Company Profile.</>
               ) : (
-                <>Your employer account is awaiting administrator verification. You cannot publish jobs until your account is approved.</>
+                <>Your employer account is awaiting administrator review. You cannot publish jobs until approved.</>
               )}
             </p>
           </div>
         )}
 
+        {/* Weekly Job Posting Allowance & Usage Indicator (Phase 5) */}
+        <div
+          className="weekly-posting-limit-card"
+          style={{
+            margin: "16px 0 24px 0",
+            padding: "16px 20px",
+            background: isLimitReached ? "#fef2f2" : "#f8fafc",
+            border: isLimitReached ? "1px solid #fca5a5" : "1px solid #e2e8f0",
+            borderRadius: "10px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ fontSize: "20px" }}>{isLimitReached ? "🛑" : "📊"}</span>
+              <div>
+                <strong style={{ fontSize: "14px", color: isLimitReached ? "#991b1b" : "#1e293b", display: "block" }}>
+                  Weekly Job Posting Allowance
+                </strong>
+                <span style={{ fontSize: "13px", color: isLimitReached ? "#b91c1c" : "#475569", fontWeight: "600" }}>
+                  {loadingUsage
+                    ? "Checking weekly posting allowance..."
+                    : isOverLimit
+                    ? `${usedCount} new jobs used this week · Weekly limit: ${weeklyLimit}`
+                    : isLimitReached
+                    ? `Weekly posting limit reached (${usedCount} of ${weeklyLimit} used)`
+                    : `${usedCount} of ${weeklyLimit} new jobs used this week`}
+                </span>
+                {!loadingUsage && isLimitReached && (
+                  <span style={{ fontSize: "12px", color: "#b91c1c", marginLeft: "6px" }}>
+                    — Weekly posting limit reached
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {weeklyUsage && (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "4px 12px",
+                  borderRadius: "20px",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  background: isLimitReached ? "#fee2e2" : "#ede9fe",
+                  color: isLimitReached ? "#991b1b" : "#58158f",
+                  border: isLimitReached ? "1px solid #f87171" : "1px solid #ddd6fe",
+                }}
+              >
+                {isLimitReached ? "Limit Reached" : `${remainingCount} remaining`}
+              </div>
+            )}
+          </div>
+
+          <div style={{ fontSize: "12px", color: isLimitReached ? "#991b1b" : "#64748b", borderTop: isLimitReached ? "1px solid #fecaca" : "1px solid #f1f5f9", paddingTop: "6px" }}>
+            ℹ️ Your weekly posting allowance resets on Monday. {isOverLimit ? "Pre-existing jobs created earlier this week count toward your weekly allocation." : ""}
+          </div>
+
+          {isVerifiedEmployer && !isLimitReached && (
+            <div style={{ fontSize: "12px", color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "6px", padding: "6px 10px", marginTop: "4px" }}>
+              ✨ <strong>Verified Employer:</strong> Newly created jobs are automatically published and live immediately (status: Open).
+            </div>
+          )}
+        </div>
+
         <form className="profile-form" onSubmit={handleSubmit}>
           <div className="profile-form-grid">
             <label><span>Job Title *</span>
               <input type="text" name="title" placeholder="e.g. Senior React Developer" value={formData.title} onChange={handleChange} required />
+            </label>
+
+            <label><span>Job Category *</span>
+              <select name="job_category" value={formData.job_category} onChange={handleChange} required>
+                {allCategories.map(cat => (
+                  <option key={cat.key} value={cat.key}>{cat.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label><span>Job Subcategory *</span>
+              <select name="job_subcategory" value={formData.job_subcategory} onChange={handleChange}>
+                {availableSubcats.map(sub => (
+                  <option key={sub.key} value={sub.key}>{sub.label}</option>
+                ))}
+              </select>
             </label>
 
             <label><span>Department</span>
@@ -287,18 +498,48 @@ export default function PostJob() {
           </div>
 
           <label style={{ marginTop: "15px" }}>
-            <span>Required Certifications (Qualifications)</span>
-            <input type="text" name="required_certifications" placeholder="e.g. AWS Certified Developer, CPA (comma-separated)" value={formData.required_certifications} onChange={handleChange} />
+            <span style={{ fontWeight: '700', color: '#1e293b' }}>Required Professional Certifications / Licenses (Optional)</span>
+            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "normal", display: "block", marginBottom: "6px", lineHeight: "1.4" }}>
+              Enter only professional certifications or licenses required for this role, for example CPA, PRC License, AWS Certified, NC II. Do not enter education, experience, communication skills, or general qualifications here.
+            </span>
+            <input type="text" name="required_certifications" placeholder="e.g. CPA, AWS Certified Solutions Architect, PRC Board License" value={formData.required_certifications} onChange={handleChange} />
           </label>
 
           <label style={{ marginTop: "15px" }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Required Skills</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <span style={{ fontWeight: '700', color: '#1e293b' }}>Required Skills</span>
               <button type="button" onClick={handleSuggestSkills} disabled={suggesting} style={{ background: 'none', border: 'none', color: '#58158f', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
                 {suggesting ? "✨ Analyzing..." : "✨ AI Suggest Skills"}
               </button>
             </div>
-            <input type="text" name="required_skills" placeholder="e.g. React, Node.js (comma-separated)" value={formData.required_skills} onChange={handleChange} />
+            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "normal", display: "block", marginBottom: "6px", lineHeight: "1.4" }}>
+              Type a skill and press Enter or comma. You can also paste a comma- or line-separated list of skills.
+            </span>
+            <SkillTagInput
+              skills={formData.required_skills}
+              onChange={(newSkills) => setFormData(prev => ({ ...prev, required_skills: newSkills }))}
+              placeholder="e.g. React, Node.js, SQL, Problem Solving"
+            />
+          </label>
+
+          <label style={{ marginTop: "15px" }}>
+            <span>Minimum Candidate Match</span>
+            <select
+              name="minimum_match_percentage"
+              value={formData.minimum_match_percentage}
+              onChange={handleChange}
+            >
+              <option value={60}>60%</option>
+              <option value={65}>65%</option>
+              <option value={70}>70% — Recommended</option>
+              <option value={75}>75%</option>
+              <option value={80}>80%</option>
+              <option value={85}>85%</option>
+              <option value={90}>90%</option>
+            </select>
+            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "normal", marginTop: "2px", lineHeight: "1.4" }}>
+              Sets the minimum SkillSync match score a candidate must meet for application eligibility. 70% is the recommended default.
+            </span>
           </label>
 
           {/* ── APPLICATION DOCUMENT REQUIREMENTS ── */}
@@ -361,8 +602,19 @@ export default function PostJob() {
           </label>
 
           <div className="profile-actions" style={{ marginTop: "24px" }}>
-            <button type="submit" className="profile-save-btn" disabled={loading}>
-              {loading ? "Posting..." : "Publish Job Post"}
+            <button
+              type="submit"
+              className="profile-save-btn"
+              disabled={loading || checkingVerification || !verificationState.canPostJob || isLimitReached}
+              style={isLimitReached ? { opacity: 0.6, cursor: "not-allowed", background: "#94a3b8" } : {}}
+            >
+              {loading
+                ? "Posting..."
+                : checkingVerification
+                ? "Checking Verification..."
+                : isLimitReached
+                ? "Weekly posting limit reached"
+                : "Publish Job Post"}
             </button>
             <button type="button" className="profile-cancel-btn" onClick={() => navigate("/employer/jobs")}>
               Cancel

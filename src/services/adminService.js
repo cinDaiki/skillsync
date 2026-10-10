@@ -86,6 +86,331 @@ export function normalizeAdminRole(role) {
   return r;
 }
 
+export function parseJsonField(raw, defaultVal = []) {
+  if (!raw) return defaultVal;
+  if (Array.isArray(raw) || typeof raw === "object") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return defaultVal;
+  }
+}
+
+export function formatFileSize(size) {
+  const bytes = Number(size);
+  if (!bytes || isNaN(bytes)) return "0.00 KB";
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+/**
+ * Safely parses skills from diverse formats (array, JSON string, comma string)
+ * into a clean array of strings or skill objects.
+ */
+export function parseSkillsList(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) {
+    return val.filter((item) => item !== null && item !== undefined && (typeof item !== "string" || item.trim().length > 0));
+  }
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (!trimmed || trimmed === "[]" || trimmed === "null" || trimmed === "undefined") {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item) => item !== null && item !== undefined && (typeof item !== "string" || item.trim().length > 0));
+      }
+    } catch {
+      // Comma-separated string
+      return trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  return [];
+}
+
+/**
+ * Resolves candidate skills preferring a populated primary source,
+ * falling back to candidate_profiles source if primary is empty.
+ */
+export function resolveCandidateSkills(primarySkills, fallbackSkills) {
+  const pList = parseSkillsList(primarySkills);
+  if (pList.length > 0) return pList;
+  const fList = parseSkillsList(fallbackSkills);
+  if (fList.length > 0) return fList;
+  return [];
+}
+
+/**
+ * Resolves candidate work experience preferring a populated primary source,
+ * falling back to legacy experience or candidate_profiles if empty.
+ */
+export function resolveCandidateWorkExperience(primaryWorkExp, fallbackCp = null, legacyExp = null) {
+  const pList = parseJsonField(primaryWorkExp, []);
+  if (Array.isArray(pList) && pList.length > 0) {
+    return pList;
+  }
+  const legList = parseJsonField(legacyExp, []);
+  if (Array.isArray(legList) && legList.length > 0) {
+    return legList;
+  }
+  const cpExp = parseJsonField(fallbackCp?.experience, []);
+  if (Array.isArray(cpExp) && cpExp.length > 0) {
+    return cpExp;
+  }
+  const cpWorkExp = parseJsonField(fallbackCp?.work_experience, []);
+  if (Array.isArray(cpWorkExp) && cpWorkExp.length > 0) {
+    return cpWorkExp;
+  }
+  return [];
+}
+
+/**
+ * Resolves candidate certifications preferring a populated primary source,
+ * falling back to candidate_profiles certifications if empty.
+ */
+export function resolveCandidateCertifications(primaryCerts, fallbackCerts) {
+  const pList = parseJsonField(primaryCerts, []);
+  if (Array.isArray(pList) && pList.length > 0) {
+    return pList;
+  }
+  const fList = parseJsonField(fallbackCerts, []);
+  if (Array.isArray(fList) && fList.length > 0) {
+    return fList;
+  }
+  return [];
+}
+
+/**
+ * Resolves candidate education records.
+ * If profiles.education array has records, returns them.
+ * If empty, extracts degree, course, education_level from candidate_profiles
+ * to synthesize a normalized education record.
+ */
+export function resolveCandidateEducation(primaryEdu, candidateProfile = null, profileFallback = null) {
+  const pList = parseJsonField(primaryEdu, []);
+  if (Array.isArray(pList) && pList.length > 0) {
+    return pList;
+  }
+  const cp = candidateProfile || profileFallback?.candidate_profile;
+  const cpEdu = parseJsonField(cp?.education, []);
+  if (Array.isArray(cpEdu) && cpEdu.length > 0) {
+    return cpEdu;
+  }
+
+  const degree = cp?.degree || profileFallback?.degree || null;
+  const course = cp?.course || profileFallback?.course || null;
+  const educationLevel = cp?.education_level || profileFallback?.education_level || null;
+
+  if (degree || course || educationLevel) {
+    return [
+      {
+        degree: degree || educationLevel || "Degree",
+        qualification: degree || educationLevel || "Degree",
+        field: course || "",
+        course: course || "",
+        education_level: educationLevel || "",
+        school: "",
+        institution: "",
+        dates: "",
+        is_normalized: true,
+      },
+    ];
+  }
+
+  return [];
+}
+
+/**
+ * Deterministically resolves resume record and URL.
+ * Prefers the given resume record (or newest if array is supplied),
+ * preserves legacy profile.resume_url when no resume row exists.
+ */
+export function resolveCandidateResume(resumesOrRecord, profile) {
+  let targetResume = null;
+  if (Array.isArray(resumesOrRecord)) {
+    if (resumesOrRecord.length > 0) {
+      // Deterministically sort by created_at desc to pick the newest
+      const sorted = [...resumesOrRecord].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      targetResume = sorted[0];
+    }
+  } else if (resumesOrRecord && typeof resumesOrRecord === "object") {
+    targetResume = resumesOrRecord;
+  }
+
+  if (targetResume && targetResume.file_url) {
+    return {
+      resume: targetResume,
+      resume_url: targetResume.file_url,
+    };
+  }
+
+  if (profile?.resume_url) {
+    const legacyResume = {
+      id: profile.id,
+      applicant_id: profile.id,
+      file_url: profile.resume_url,
+      file_name: "Candidate Resume Document",
+      created_at: profile.updated_at || profile.created_at || null,
+      file_size: null,
+      is_legacy: true,
+    };
+    return {
+      resume: legacyResume,
+      resume_url: profile.resume_url,
+    };
+  }
+
+  return {
+    resume: null,
+    resume_url: null,
+  };
+}
+
+/**
+ * Calculates global summary metrics across candidate accounts.
+ */
+export function calculateAdminJobseekerSummary(candidateList = []) {
+  const list = Array.isArray(candidateList) ? candidateList : [];
+  return {
+    total: list.length,
+    active: list.filter(isAccountActive).length,
+    suspended: list.filter(isAccountSuspended).length,
+    verified: list.filter((p) => p && (p.verification_status === "Verified" || p.verification_status === "Approved")).length,
+    pending: list.filter((p) => p && (!p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification" || p.verification_status === "Under Review")).length,
+  };
+}
+
+/**
+ * Constructs a fully merged candidate object with normalized education,
+ * fallbacks for empty arrays, preserved legacy resumes, and career preferences.
+ */
+export function mergeCandidateProfileData(profile, candidateProfile = null, resumeRecordOrList = null) {
+  const cp = candidateProfile || profile?.candidate_profile || null;
+  const { resume, resume_url } = resolveCandidateResume(resumeRecordOrList, profile);
+
+  const education = resolveCandidateEducation(profile?.education, cp, profile);
+  const work_experience = resolveCandidateWorkExperience(profile?.work_experience, cp, profile?.experience);
+  const certifications = resolveCandidateCertifications(profile?.certifications, cp?.certifications);
+  const skills = resolveCandidateSkills(profile?.skills, cp?.skills);
+
+  const parsedPortfolio = parseJsonField(profile?.portfolio_links, {});
+  const parsedSocial = parseJsonField(profile?.social_links, {});
+
+  const prefCategories = cp?.preferred_categories || profile?.preferred_categories || [];
+  const prefSubcategories = cp?.preferred_subcategories || profile?.preferred_subcategories || [];
+  const prefRoles = cp?.preferred_roles || profile?.preferred_roles || [];
+  const careerStage = cp?.career_stage || profile?.career_stage || "";
+
+  const effectiveDegree = cp?.degree || profile?.degree || education[0]?.degree || null;
+  const effectiveCourse = cp?.course || profile?.course || education[0]?.course || null;
+  const effectiveLevel = cp?.education_level || profile?.education_level || education[0]?.education_level || null;
+  const effectiveYears = cp?.years_experience ?? profile?.years_experience ?? null;
+
+  return {
+    ...profile,
+    skills,
+    experience: work_experience,
+    work_experience,
+    education,
+    certifications,
+    portfolio_links: parsedPortfolio,
+    social_links: parsedSocial,
+    resume,
+    resume_url,
+    candidate_profile: cp,
+    degree: effectiveDegree,
+    course: effectiveCourse,
+    education_level: effectiveLevel,
+    years_experience: effectiveYears,
+    career_stage: careerStage || null,
+    preferred_categories: prefCategories,
+    preferred_subcategories: prefSubcategories,
+    preferred_roles: prefRoles,
+    career_preferences: {
+      preferredCategories: prefCategories,
+      preferredSubcategories: prefSubcategories,
+      preferredRoles: prefRoles,
+      careerStage,
+    },
+    profile_completion: calculateProfileCompletion(profile, cp, resume),
+  };
+}
+
+export function getCandidateEducationSummary(profile, candidateProfile = null) {
+  const role = String(profile?.role || "").trim().toLowerCase();
+  if (role === "employer") return "N/A - Employer Account";
+  if (role === "admin") return "N/A - Admin Account";
+
+  const cp = candidateProfile || profile?.candidate_profile;
+  const eduList = resolveCandidateEducation(profile?.education, cp, profile);
+
+  if (Array.isArray(eduList) && eduList.length > 0) {
+    const primary = eduList[0];
+    if (typeof primary === "string" && primary.trim()) return primary.trim();
+    if (primary && typeof primary === "object") {
+      const parts = [];
+      const degree = primary.degree || primary.qualification || primary.education_level;
+      const field = primary.field || primary.course;
+      const school = primary.school || primary.institution;
+
+      if (degree) parts.push(degree);
+      if (field) parts.push(`in ${field}`);
+      if (school) parts.push(`(${school})`);
+
+      if (parts.length > 0) return parts.join(" ");
+    }
+  }
+
+  return "Not provided";
+}
+
+export function getCandidateExperienceSummary(profile, candidateProfile = null) {
+  const role = String(profile?.role || "").trim().toLowerCase();
+  if (role === "employer") return "N/A - Employer Account";
+  if (role === "admin") return "N/A - Admin Account";
+
+  const cp = candidateProfile || profile?.candidate_profile;
+  const expList = resolveCandidateWorkExperience(profile?.work_experience, cp, profile?.experience);
+
+  if (Array.isArray(expList) && expList.length > 0) {
+    const primary = expList[0];
+    if (typeof primary === "string" && primary.trim()) return primary.trim();
+    if (primary && typeof primary === "object") {
+      const title = primary.title || primary.role || primary.position || primary.job_title || "";
+      const company = primary.company || primary.employer || primary.company_name || "";
+      const start = primary.startDate || primary.start_date || "";
+      const end = primary.endDate || primary.end_date || "";
+      const dates = start || end
+        ? ` (${[start, end || "Present"].filter(Boolean).join(" - ")})`
+        : "";
+
+      let summary = "";
+      if (title && company) summary = `${title} at ${company}${dates}`;
+      else if (title) summary = `${title}${dates}`;
+      else if (company) summary = `${company}${dates}`;
+      else if (primary.description || primary.summary) summary = String(primary.description || primary.summary).trim();
+
+      if (summary) {
+        if (expList.length > 1) {
+          summary += ` (+${expList.length - 1} more)`;
+        }
+        return summary;
+      }
+    }
+  }
+
+  const years = cp?.years_experience ?? profile?.years_experience;
+  if (years !== undefined && years !== null && Number(years) > 0) {
+    return `${years} year${Number(years) === 1 ? "" : "s"} experience`;
+  }
+
+  return "Not provided";
+}
+
 export async function fetchAdminProfiles() {
   const { data: rpcData, error: rpcError } = await supabase.rpc(
     "admin_get_all_profiles"
@@ -129,6 +454,32 @@ export async function fetchAdminProfiles() {
     console.warn("[AdminService] Failed to merge employer_profiles:", err?.message);
   }
 
+  // Merge candidate_profiles table data for candidates so Admin User Dossier has actual education/experience/years_experience
+  try {
+    const candidateIds = profilesList.filter((p) => isJobSeeker(p.role)).map((p) => p.id);
+    if (candidateIds.length > 0) {
+      const { data: candidateProfiles } = await supabase
+        .from("candidate_profiles")
+        .select("*")
+        .in("user_id", candidateIds);
+
+      if (Array.isArray(candidateProfiles) && candidateProfiles.length > 0) {
+        const candMap = new Map(candidateProfiles.map((cp) => [cp.user_id, cp]));
+        profilesList = profilesList.map((p) => {
+          if (isJobSeeker(p.role)) {
+            const cp = candMap.get(p.id);
+            if (cp) {
+              return mergeCandidateProfileData(p, cp, null);
+            }
+          }
+          return p;
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("[AdminService] Failed to merge candidate_profiles:", err?.message);
+  }
+
   return { data: profilesList, error: null };
 }
 
@@ -153,16 +504,10 @@ export async function fetchAdminJobseekers({ search = "", verificationStatus = "
 
     const candidateList = allCandidates || [];
 
-    // Global summary counts across all candidate records
-    const summary = {
-      total: candidateList.filter(isAccountActive).length,
-      active: candidateList.filter(isAccountActive).length,
-      suspended: candidateList.filter(isAccountSuspended).length,
-      verified: candidateList.filter(p => isAccountActive(p) && (p.verification_status === "Verified" || p.verification_status === "Approved")).length,
-      pending: candidateList.filter(p => isAccountActive(p) && (!p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification" || p.verification_status === "Under Review")).length,
-    };
+    // Global summary counts across all candidate records (independent of search / pagination)
+    const summary = calculateAdminJobseekerSummary(candidateList);
 
-    // 2. Strict Active-Only Filter
+    // 2. Strict Active-Only Filter (Jobseeker Management table displays active accounts; suspended accounts are managed on dedicated Suspended Accounts page)
     let activeCandidates = candidateList.filter(isAccountActive);
 
     // 3. Search Filter
@@ -195,33 +540,34 @@ export async function fetchAdminJobseekers({ search = "", verificationStatus = "
     const from = (page - 1) * pageSize;
     let paginatedData = activeCandidates.slice(from, from + pageSize);
 
-    // 5. Merge candidate_profiles table data if available
+    // 5. Merge candidate_profiles and resumes table data in single batched parallel queries (avoids N+1)
     if (paginatedData.length > 0) {
       const ids = paginatedData.map((p) => p.id);
-      const { data: candProfiles } = await supabase
-        .from("candidate_profiles")
-        .select("*")
-        .in("user_id", ids);
+      const [{ data: candProfiles }, { data: resumesData }] = await Promise.all([
+        supabase
+          .from("candidate_profiles")
+          .select("*")
+          .in("user_id", ids),
+        supabase
+          .from("resumes")
+          .select("id, applicant_id, file_url, file_name, file_size, created_at, resume_score, completeness, parsed_details")
+          .in("applicant_id", ids)
+          .order("created_at", { ascending: false }),
+      ]);
 
-      if (Array.isArray(candProfiles) && candProfiles.length > 0) {
-        const candMap = new Map(candProfiles.map((cp) => [cp.user_id, cp]));
-        paginatedData = paginatedData.map((p) => {
-          const cp = candMap.get(p.id);
-          return {
-            ...p,
-            skills: cp?.skills || p.skills || [],
-            experience: cp?.experience || p.work_experience || [],
-            education: cp?.education || p.education || [],
-            certifications: cp?.certifications || p.certifications || [],
-            profile_completion: calculateProfileCompletion(p, cp),
-          };
-        });
-      } else {
-        paginatedData = paginatedData.map((p) => ({
-          ...p,
-          profile_completion: calculateProfileCompletion(p, null),
-        }));
+      const candMap = new Map((candProfiles || []).map((cp) => [cp.user_id, cp]));
+      const resumeMap = new Map();
+      for (const r of (resumesData || [])) {
+        if (!resumeMap.has(r.applicant_id)) {
+          resumeMap.set(r.applicant_id, r);
+        }
       }
+
+      paginatedData = paginatedData.map((p) => {
+        const cp = candMap.get(p.id);
+        const res = resumeMap.get(p.id);
+        return mergeCandidateProfileData(p, cp, res);
+      });
     }
 
     return { data: paginatedData, totalCount, page, totalPages, summary, error: null };
@@ -231,21 +577,28 @@ export async function fetchAdminJobseekers({ search = "", verificationStatus = "
   }
 }
 
-function calculateProfileCompletion(profile, candidateProfile) {
+export function calculateProfileCompletion(profile, candidateProfile = null, resume = null) {
   let score = 0;
   if (profile?.full_name) score += 20;
   if (profile?.email) score += 15;
   if (profile?.contact_number) score += 15;
-  if (profile?.address || candidateProfile?.location) score += 15;
+  if (profile?.address || candidateProfile?.location) score += 10;
 
-  const skills = candidateProfile?.skills || profile?.skills;
-  if (Array.isArray(skills) ? skills.length > 0 : skills) score += 15;
+  const skills = resolveCandidateSkills(profile?.skills, candidateProfile?.skills);
+  if (skills.length > 0) score += 10;
 
-  const exp = candidateProfile?.experience || profile?.work_experience;
-  if (Array.isArray(exp) ? exp.length > 0 : exp) score += 10;
+  const exp = resolveCandidateWorkExperience(profile?.work_experience, candidateProfile, profile?.experience);
+  const years = candidateProfile?.years_experience ?? profile?.years_experience;
+  if (exp.length > 0 || (years !== null && years !== undefined && Number(years) > 0)) {
+    score += 10;
+  }
 
-  const edu = candidateProfile?.education || profile?.education;
-  if (Array.isArray(edu) ? edu.length > 0 : edu) score += 10;
+  const edu = resolveCandidateEducation(profile?.education, candidateProfile, profile);
+  if (edu.length > 0) {
+    score += 10;
+  }
+
+  if (resume?.file_url || profile?.resume_url) score += 10;
 
   return Math.min(100, score);
 }
@@ -268,7 +621,14 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
       return { data: [], totalCount: 0, page, totalPages: 0, error: profileErr };
     }
 
-    let employersList = (allEmployers || []).filter(isAccountActive);
+    let employersList = allEmployers || [];
+    const normStatus = String(status || "").trim().toLowerCase();
+
+    if (normStatus === "suspended") {
+      employersList = employersList.filter(isAccountSuspended);
+    } else if (normStatus !== "all" && normStatus !== "") {
+      employersList = employersList.filter(isAccountActive);
+    }
 
     // Merge employer_profiles details
     const empIds = employersList.map((p) => p.id);
@@ -318,7 +678,17 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
           sec_registration_url: ep?.sec_registration_url || null,
           company_logo_url: ep?.company_logo_url || null,
           cover_photo_url: ep?.cover_photo_url || null,
-          verification_status: ep?.verification_status || p.verification_status || "Pending",
+          submitted_at: ep?.submitted_at || null,
+          reviewed_at: ep?.reviewed_at || null,
+          reviewed_by: ep?.reviewed_by || null,
+          verification_status: (() => {
+            const raw = ep?.verification_status || p.verification_status || "Pending";
+            const s = String(raw).trim().toLowerCase();
+            if (s === "approved") return "Approved";
+            if (s === "verified") return "Verified";
+            if (s === "rejected") return "Rejected";
+            return "Pending";
+          })(),
           verification_reason: p.verification_reason || "",
           job_stats: stats,
         };
@@ -336,13 +706,15 @@ export async function fetchAdminEmployers({ search = "", status = "All", page = 
     }
 
     // Apply Status Filter
-    if (status !== "All" && status !== "all") {
-      if (status === "Approved") {
+    if (normStatus !== "all" && normStatus !== "") {
+      if (normStatus === "approved" || normStatus === "verified") {
         employersList = employersList.filter((p) => p.verification_status === "Approved" || p.verification_status === "Verified");
-      } else if (status === "Pending") {
+      } else if (normStatus === "pending" || normStatus === "pending verification") {
         employersList = employersList.filter((p) => !p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification");
-      } else if (status === "Rejected") {
+      } else if (normStatus === "rejected") {
         employersList = employersList.filter((p) => p.verification_status === "Rejected");
+      } else if (normStatus === "suspended") {
+        employersList = employersList.filter(isAccountSuspended);
       } else {
         employersList = employersList.filter((p) => p.verification_status === status);
       }
@@ -675,11 +1047,16 @@ export async function fetchAdminDashboardStats() {
     "admin_get_dashboard_stats"
   );
 
+  const { data: profiles } = await fetchAdminProfiles();
+  const profileList = profiles || [];
+  const jsCount = filterJobSeekers(profileList).length;
+  const empCount = filterEmployers(profileList).length;
+
   if (!rpcError && rpcData) {
     return {
       data: {
-        jobSeekers: rpcData.job_seekers ?? 0,
-        employers: rpcData.employers ?? 0,
+        jobSeekers: jsCount || (rpcData.job_seekers ?? 0),
+        employers: empCount || (rpcData.employers ?? 0),
         totalJobs: rpcData.total_jobs ?? 0,
         openJobs: rpcData.open_jobs ?? 0,
         closedJobs: rpcData.closed_jobs ?? 0,
@@ -689,17 +1066,15 @@ export async function fetchAdminDashboardStats() {
     };
   }
 
-  const { data: profiles } = await fetchAdminProfiles();
-  const { data: jobs } = await supabase.from("jobs").select("*");
-  const { data: applications } = await supabase.from("applications").select("*");
+  const { data: jobs } = await supabase.from("jobs").select("status");
+  const { data: applications } = await supabase.from("applications").select("id");
 
-  const profileList = profiles || [];
   const jobList = jobs || [];
 
   return {
     data: {
-      jobSeekers: profileList.filter((p) => isJobSeeker(p.role)).length,
-      employers: profileList.filter((p) => p.role === "employer").length,
+      jobSeekers: jsCount,
+      employers: empCount,
       totalJobs: jobList.length,
       openJobs: jobList.filter((j) => j.status === "open").length,
       closedJobs: jobList.filter((j) => j.status === "closed").length,
@@ -707,6 +1082,198 @@ export async function fetchAdminDashboardStats() {
     },
     error: rpcError,
   };
+}
+
+/**
+ * Triggers client-side download of generated CSV content
+ */
+export function triggerCSVDownload(filename, csvContent) {
+  if (typeof window === "undefined") return;
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Exports canonical Platform Summary metrics to CSV
+ */
+export function exportPlatformSummaryCSV(stats) {
+  const timestamp = new Date().toISOString();
+  const dateStr = timestamp.slice(0, 10);
+
+  const headers = ["Metric", "Value", "Generated At"];
+  const rows = [
+    ["Job Seekers", stats?.jobSeekers ?? 0, timestamp],
+    ["Employers", stats?.employers ?? 0, timestamp],
+    ["Total Job Posts", stats?.totalJobs ?? 0, timestamp],
+    ["Open Jobs", stats?.openJobs ?? 0, timestamp],
+    ["Closed Jobs", stats?.closedJobs ?? 0, timestamp],
+    ["Total Applications", stats?.totalApplications ?? 0, timestamp],
+  ];
+
+  const csvRows = [
+    headers.join(","),
+    ...rows.map((r) => r.map((val) => `"${String(val).replace(/"/g, '""')}"`).join(",")),
+  ];
+
+  const filename = `skillsync-platform-summary-${dateStr}.csv`;
+  triggerCSVDownload(filename, csvRows.join("\n"));
+  return { success: true, filename };
+}
+
+/**
+ * Exports comprehensive jobs inventory to CSV
+ */
+export async function exportJobsReportCSV() {
+  try {
+    const { data: jobs, error } = await supabase
+      .from("jobs")
+      .select("id, title, department, location, work_setup, employment_type, status, rejection_reason, created_at, employer_id")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("[AdminService] exportJobsReportCSV error:", error);
+      return { error };
+    }
+
+    const timestamp = new Date().toISOString();
+    const dateStr = timestamp.slice(0, 10);
+
+    const headers = [
+      "Job ID",
+      "Job Title",
+      "Department",
+      "Location",
+      "Work Setup",
+      "Employment Type",
+      "Status",
+      "Moderation Note",
+      "Posted Date",
+    ];
+
+    const rows = (jobs || []).map((j) => [
+      j.id,
+      j.title || "Untitled",
+      j.department || "General",
+      j.location || "Remote",
+      j.work_setup || "",
+      j.employment_type || "",
+      j.status || "open",
+      j.rejection_reason || "",
+      j.created_at || "",
+    ]);
+
+    const csvRows = [
+      headers.join(","),
+      ...rows.map((r) => r.map((val) => `"${String(val || "").replace(/"/g, '""')}"`).join(",")),
+    ];
+
+    const filename = `skillsync-jobs-report-${dateStr}.csv`;
+    triggerCSVDownload(filename, csvRows.join("\n"));
+    return { success: true, filename };
+  } catch (err) {
+    console.error("[AdminService] exportJobsReportCSV exception:", err);
+    return { error: err };
+  }
+}
+
+/**
+ * Exports user profiles breakdown to CSV
+ */
+export async function exportUsersReportCSV() {
+  try {
+    const { data: profiles, error } = await fetchAdminProfiles();
+
+    if (error) {
+      console.error("[AdminService] exportUsersReportCSV error:", error);
+      return { error };
+    }
+
+    const timestamp = new Date().toISOString();
+    const dateStr = timestamp.slice(0, 10);
+
+    const headers = [
+      "User ID",
+      "Full Name",
+      "Email",
+      "Role",
+      "Verification Status",
+      "Suspended",
+      "Created Date",
+    ];
+
+    const rows = (profiles || []).map((p) => [
+      p.id,
+      p.full_name || "Unnamed",
+      p.email || "",
+      p.role || "candidate",
+      p.verification_status || "Pending",
+      isAccountSuspended(p) ? "Yes" : "No",
+      p.created_at || "",
+    ]);
+
+    const csvRows = [
+      headers.join(","),
+      ...rows.map((r) => r.map((val) => `"${String(val || "").replace(/"/g, '""')}"`).join(",")),
+    ];
+
+    const filename = `skillsync-users-report-${dateStr}.csv`;
+    triggerCSVDownload(filename, csvRows.join("\n"));
+    return { success: true, filename };
+  } catch (err) {
+    console.error("[AdminService] exportUsersReportCSV exception:", err);
+    return { error: err };
+  }
+}
+
+/**
+ * Actionable attention metrics for Admin Dashboard
+ */
+export async function fetchAttentionRequiredStats() {
+  try {
+    const [profilesRes, jobReportsRes, appealsRes] = await Promise.all([
+      fetchAdminProfiles(),
+      supabase.from("job_reports").select("job_id").eq("status", "pending"),
+      supabase.from("suspension_appeals").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    ]);
+
+    const profileList = profilesRes.data || [];
+    const employers = profileList.filter((p) => p.role === "employer" && isAccountActive(p));
+    const pendingEmployersCount = employers.filter((e) => (e.verification_status || "Pending") === "Pending").length;
+    const suspendedAccountsCount = profileList.filter((p) => isAccountSuspended(p)).length;
+
+    const repJobRows = jobReportsRes.data || [];
+    const reportedJobsCount = new Set(repJobRows.map((r) => r.job_id).filter(Boolean)).size;
+
+    const pendingAppealsCount = appealsRes.count || 0;
+
+    return {
+      data: {
+        pendingEmployers: pendingEmployersCount,
+        reportedJobs: reportedJobsCount,
+        suspendedAccounts: suspendedAccountsCount,
+        pendingAppeals: pendingAppealsCount,
+      },
+      error: null,
+    };
+  } catch (err) {
+    console.error("[AdminService] fetchAttentionRequiredStats exception:", err);
+    return {
+      data: {
+        pendingEmployers: 0,
+        reportedJobs: 0,
+        suspendedAccounts: 0,
+        pendingAppeals: 0,
+      },
+      error: err,
+    };
+  }
 }
 
 /**
@@ -728,14 +1295,30 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
     }
 
     if (status !== "all" && status !== "All") {
-      if (status === "open" || status === "Open") {
+      const s = String(status || "").trim().toLowerCase();
+      if (s === "reported") {
+        const { data: reportedRows, error: repErr } = await supabase
+          .from("job_reports")
+          .select("job_id")
+          .eq("status", "pending");
+        if (repErr) {
+          console.error("[AdminService] error querying job_reports:", repErr.message);
+        }
+        const reportedJobIds = Array.from(new Set((reportedRows || []).map((r) => r.job_id).filter(Boolean)));
+        if (reportedJobIds.length === 0) {
+          return { data: [], totalCount: 0, page, totalPages: 0, error: null };
+        }
+        query = query.in("id", reportedJobIds);
+      } else if (s === "open") {
         query = query.eq("status", "open");
-      } else if (status === "pending_review" || status === "Pending Review") {
+      } else if (s === "pending_review" || s === "pending") {
         query = query.eq("status", "pending_review");
-      } else if (status === "rejected" || status === "Rejected") {
+      } else if (s === "rejected") {
         query = query.eq("status", "rejected");
-      } else if (status === "closed" || status === "Closed") {
+      } else if (s === "closed") {
         query = query.eq("status", "closed");
+      } else if (s === "suspended" || s === "disabled") {
+        query = query.eq("status", "suspended");
       } else {
         query = query.eq("status", status);
       }
@@ -753,6 +1336,25 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
     }
 
     let jobsList = jobs || [];
+    const jobIds = jobsList.map((j) => j.id).filter(Boolean);
+
+    // Fetch pending and total report counts for these jobs
+    let jobReportsMap = new Map();
+    if (jobIds.length > 0) {
+      const { data: repList } = await supabase
+        .from("job_reports")
+        .select("id, job_id, status")
+        .in("job_id", jobIds);
+      (repList || []).forEach((r) => {
+        if (!jobReportsMap.has(r.job_id)) {
+          jobReportsMap.set(r.job_id, { pending: 0, total: 0 });
+        }
+        const counts = jobReportsMap.get(r.job_id);
+        counts.total += 1;
+        if (r.status === "pending") counts.pending += 1;
+      });
+    }
+
     const empIds = Array.from(new Set(jobsList.map((j) => j.employer_id).filter(Boolean)));
 
     if (empIds.length > 0) {
@@ -793,9 +1395,12 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
         const p = profMap.get(j.employer_id);
         const ep = empProfMap.get(j.employer_id);
         const stats = empStatsMap.get(j.employer_id) || { total: 0, open: 0, pending: 0, rejected: 0, closed: 0 };
+        const repInfo = jobReportsMap.get(j.id) || { pending: 0, total: 0 };
 
         return {
           ...j,
+          pending_report_count: repInfo.pending,
+          total_report_count: repInfo.total,
           profiles: p || null,
           employer_info: {
             id: j.employer_id,
@@ -810,6 +1415,24 @@ export async function fetchAdminJobs({ search = "", status = "all", workSetup = 
             business_permit_url: ep?.business_permit_url || null,
             sec_registration_url: ep?.sec_registration_url || null,
             job_stats: stats,
+          },
+        };
+      });
+    } else {
+      jobsList = jobsList.map((j) => {
+        const repInfo = jobReportsMap.get(j.id) || { pending: 0, total: 0 };
+        return {
+          ...j,
+          pending_report_count: repInfo.pending,
+          total_report_count: repInfo.total,
+          employer_info: {
+            id: j.employer_id,
+            company_name: j.company_name || "Company",
+            contact_name: j.employer_name || "Employer",
+            contact_email: j.employer_email || "Not specified",
+            location: j.location || "Not specified",
+            industry: "Not specified",
+            verification_status: "Pending",
           },
         };
       });
@@ -1417,28 +2040,58 @@ export const ALLOWED_EMPLOYER_VERIFICATION_STATUSES = new Set(["Pending", "Appro
 export async function updateEmployerVerification(userId, status, reasonNote = "") {
   if (!userId) return { error: new Error("Employer user ID is required") };
 
-  if (!ALLOWED_EMPLOYER_VERIFICATION_STATUSES.has(status)) {
+  let normalizedStatus = status;
+  if (typeof status === "string") {
+    const s = status.trim().toLowerCase();
+    if (s === "approved") normalizedStatus = "Approved";
+    else if (s === "verified") normalizedStatus = "Verified";
+    else if (s === "rejected") normalizedStatus = "Rejected";
+    else if (s === "pending" || s === "pending verification" || s === "under review") normalizedStatus = "Pending";
+  }
+
+  if (!ALLOWED_EMPLOYER_VERIFICATION_STATUSES.has(normalizedStatus)) {
     return {
       error: new Error(`Invalid employer verification status: "${status}". Allowed statuses: Pending, Approved, Verified, Rejected.`)
     };
   }
 
-  console.log(`[AdminService] Diagnostic: Attempting updateEmployerVerification for Target User ID: ${userId}, Status: ${status}, Reason: "${reasonNote}"`);
+  console.log(`[AdminService] Diagnostic: Attempting updateEmployerVerification for Target User ID: ${userId}, Status: ${normalizedStatus}, Reason: "${reasonNote}"`);
 
   try {
-    const { error: rpcError } = await supabase.rpc("admin_update_employer_verification", {
+    // Server-authoritative review RPC (Phase 7: review_employer_verification)
+    let { error: rpcError } = await supabase.rpc("review_employer_verification", {
       target_user_id: userId,
-      new_status: status,
+      new_status: normalizedStatus,
       reason_note: reasonNote || null,
     });
 
+    if (rpcError && (rpcError.code === "PGRST202" || rpcError.message?.includes("function public.review_employer_verification") || rpcError.message?.includes("could not find"))) {
+      // Fallback to legacy compatibility wrapper
+      const fallback = await supabase.rpc("admin_update_employer_verification", {
+        target_user_id: userId,
+        new_status: normalizedStatus,
+        reason_note: reasonNote || null,
+      });
+      rpcError = fallback.error;
+    }
+
     if (!rpcError) {
-      console.log(`[AdminService] Diagnostic: RPC admin_update_employer_verification succeeded for ${userId}`);
-      // Note: The RPC already writes to admin_audit_logs internally.
+      console.log(`[AdminService] Diagnostic: RPC review_employer_verification succeeded for ${userId}`);
       return { error: null };
     }
 
-    console.warn("[AdminService] RPC admin_update_employer_verification returned error or 404:", {
+    // Handle structured server exceptions
+    if (rpcError.message?.includes("VERIFICATION_REJECTION_REASON_REQUIRED")) {
+      return { error: new Error("A detailed rejection reason is required when rejecting verification.") };
+    }
+    if (rpcError.message?.includes("VERIFICATION_REVIEW_CONFLICT")) {
+      return { error: new Error("Conflict: This verification request has already been reviewed.") };
+    }
+    if (rpcError.message?.includes("FORBIDDEN")) {
+      return { error: new Error("Forbidden: Platform administrator authorization required.") };
+    }
+
+    console.warn("[AdminService] RPC review_employer_verification returned error or fallback needed:", {
       message: rpcError.message,
       code: rpcError.code,
       details: rpcError.details,
@@ -1448,7 +2101,7 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
 
     // Direct table fallback for authenticated admin user (modifies ONLY verification fields)
     const profileUpdates = {
-      verification_status: status,
+      verification_status: normalizedStatus,
       updated_at: new Date().toISOString()
     };
     if (reasonNote) profileUpdates.verification_reason = reasonNote;
@@ -1493,7 +2146,7 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
     // Also update employer_profiles table
     const { error: empError } = await supabase
       .from("employer_profiles")
-      .update({ verification_status: status, updated_at: new Date().toISOString() })
+      .update({ verification_status: normalizedStatus, updated_at: new Date().toISOString() })
       .eq("id", userId);
 
     if (empError && !empError.message?.includes("fetch failed")) {
@@ -1503,7 +2156,7 @@ export async function updateEmployerVerification(userId, status, reasonNote = ""
     // Primary direct table fallback succeeded -> write audit event
     try {
       await logAdminAction({
-        action: status === "Approved" || status === "Verified" ? "EMPLOYER_APPROVED" : status === "Rejected" ? "EMPLOYER_REJECTED" : "EMPLOYER_STATUS_UPDATED",
+        action: normalizedStatus === "Approved" || normalizedStatus === "Verified" ? "EMPLOYER_APPROVED" : normalizedStatus === "Rejected" ? "EMPLOYER_REJECTED" : "EMPLOYER_STATUS_UPDATED",
         targetType: "employer",
         targetId: userId,
         reason: reasonNote
@@ -1545,58 +2198,81 @@ export async function moderateJobStatus(jobId, status, reasonNote = "") {
 
 /**
  * Candidate Jobseeker reports suspicious / scam / fraudulent job
+ * Server-authoritative RPC derives reporter_id = auth.uid()
  */
-export async function submitJobReport({ jobId, reporterId, reason, details }) {
-  const payload = {
-    job_id: jobId,
-    reporter_id: reporterId,
-    reason: reason || "Suspicious Job Posting",
-    details: details || "",
-    status: "pending",
-    created_at: new Date().toISOString()
-  };
+export async function submitJobReport({ jobId, reason, details }) {
+  try {
+    const { data, error: rpcError } = await supabase.rpc("submit_job_report", {
+      p_job_id: jobId,
+      p_reason_code: reason || "other",
+      p_details: details || null,
+    });
 
-  const { data, error } = await supabase.from("job_reports").insert([payload]).select();
-  if (error) {
-    console.warn("[JobReports] Supabase report insert error (falling back to local cache):", error.message);
-    const existing = JSON.parse(localStorage.getItem("skillsync_job_reports") || "[]");
-    existing.push({ ...payload, id: `local_report_${Date.now()}` });
-    localStorage.setItem("skillsync_job_reports", JSON.stringify(existing));
-    return { data: payload, error: null };
+    if (rpcError) {
+      console.error("[AdminService] submit_job_report RPC error:", rpcError.message);
+      return { data: null, error: rpcError };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    console.error("[AdminService] submitJobReport exception:", err);
+    return { data: null, error: err };
   }
-  return { data: data ? data[0] : payload, error: null };
 }
 
 /**
  * Fetches all job reports for admin review
  */
-export async function fetchJobReports() {
-  const { data, error } = await supabase
-    .from("job_reports")
-    .select("*, jobs(title, employer_id, location, company_name), profiles:reporter_id(full_name, email)")
-    .order("created_at", { ascending: false });
+export async function fetchJobReports(jobId = null) {
+  try {
+    let query = supabase
+      .from("job_reports")
+      .select("*, jobs(id, title, employer_id, location, company_name), reporter:reporter_id(id, full_name, email)")
+      .order("created_at", { ascending: false });
 
-  if (error) {
-    const local = JSON.parse(localStorage.getItem("skillsync_job_reports") || "[]");
-    return { data: local, error: null };
+    if (jobId) {
+      query = query.eq("job_id", jobId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("[AdminService] fetchJobReports error:", error.message);
+      const { data: rawData, error: rawError } = await supabase
+        .from("job_reports")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (rawError) return { data: [], error: rawError };
+      return { data: rawData || [], error: null };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    console.error("[AdminService] fetchJobReports exception:", err);
+    return { data: [], error: err };
   }
-  return { data: data || [], error: null };
 }
 
 /**
- * Resolves job report
+ * Resolves job report via server-authoritative admin_resolve_job_report RPC
  */
-export async function resolveJobReport(reportId, status, resolutionNote = "") {
-  const { error } = await supabase
-    .from("job_reports")
-    .update({
-      status,
-      resolution_note: resolutionNote,
-      resolved_at: new Date().toISOString()
-    })
-    .eq("id", reportId);
+export async function resolveJobReport(reportId, decision = "dismissed", resolutionNote = "") {
+  try {
+    const { data, error: rpcError } = await supabase.rpc("admin_resolve_job_report", {
+      p_report_id: reportId,
+      p_decision: decision,
+      p_resolution_note: resolutionNote || null,
+    });
 
-  return { error };
+    if (rpcError) {
+      console.error("[AdminService] admin_resolve_job_report RPC error:", rpcError.message);
+      return { data: null, error: rpcError };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    console.error("[AdminService] resolveJobReport exception:", err);
+    return { data: null, error: err };
+  }
 }
 
 /**
@@ -1625,7 +2301,59 @@ export async function logAdminAction({ action, targetType, targetId, reason, met
 }
 
 /**
- * Server-side paginated query for Admin Audit Logs with search & filters
+ * Strips the 'search' query parameter from a URLSearchParams object or query string,
+ * preserving all other unrelated query parameters.
+ */
+export function removeSearchParam(searchParamsOrString) {
+  const params = typeof searchParamsOrString === "string"
+    ? new URLSearchParams(searchParamsOrString)
+    : new URLSearchParams(searchParamsOrString || "");
+  params.delete("search");
+  return params;
+}
+
+/**
+ * Validates whether a given string is a valid canonical RFC 4122 UUID.
+ */
+export function isValidUuid(str) {
+  if (typeof str !== "string") return false;
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str.trim());
+}
+
+/**
+ * In-memory filtering helper for admin audit logs.
+ * Preserves candidate UUID-specific matching and keyword search across action, target, and reason.
+ */
+export function filterAuditLogsLocally(logsList = [], search = "", actionType = "all") {
+  let filtered = Array.isArray(logsList) ? [...logsList] : [];
+
+  if (actionType && actionType !== "all" && actionType !== "All") {
+    filtered = filtered.filter((l) => (l.action || "").toUpperCase() === actionType.toUpperCase());
+  }
+
+  if (search && search.trim()) {
+    const cleanTerm = search.trim();
+    const isUuid = isValidUuid(cleanTerm);
+    const lowerTerm = cleanTerm.toLowerCase();
+
+    filtered = filtered.filter((l) => {
+      if (isUuid && l.target_id && String(l.target_id).toLowerCase() === lowerTerm) {
+        return true;
+      }
+      return (
+        (l.action && l.action.toLowerCase().includes(lowerTerm)) ||
+        (l.target_type && l.target_type.toLowerCase().includes(lowerTerm)) ||
+        (l.reason && l.reason.toLowerCase().includes(lowerTerm))
+      );
+    });
+  }
+
+  return filtered;
+}
+
+/**
+ * Server-side paginated query for Admin Audit Logs with search & filters.
+ * Safely queries target_id using eq for valid UUIDs to avoid PostgREST operator errors.
  */
 export async function fetchAdminAuditLogs({ search = "", actionType = "all", page = 1, pageSize = 10 } = {}) {
   try {
@@ -1637,9 +2365,14 @@ export async function fetchAdminAuditLogs({ search = "", actionType = "all", pag
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false });
 
-    if (search.trim()) {
-      const term = `%${search.trim()}%`;
-      query = query.or(`action.ilike.${term},target_type.ilike.${term},reason.ilike.${term}`);
+    if (search && search.trim()) {
+      const cleanTerm = search.trim();
+      const term = `%${cleanTerm}%`;
+      if (isValidUuid(cleanTerm)) {
+        query = query.or(`target_id.eq.${cleanTerm},action.ilike.${term},target_type.ilike.${term},reason.ilike.${term}`);
+      } else {
+        query = query.or(`action.ilike.${term},target_type.ilike.${term},reason.ilike.${term}`);
+      }
     }
 
     if (actionType !== "all" && actionType !== "All") {

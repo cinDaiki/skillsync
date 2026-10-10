@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { useToast } from "../../contexts/ToastContext";
 import { supabase } from "../../services/supabase";
@@ -13,18 +14,54 @@ import {
   SUSPENSION_REASON_OPTIONS,
   SUSPENSION_DURATION_PRESETS,
 } from "../../services/adminService";
+import { normalizeVerificationStatus, isEmployerVerified } from "../../utils/employerVerification";
 
 export default function ManageEmployers() {
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const getStatusFromParam = (param) => {
+    const p = String(param || "").trim().toLowerCase();
+    if (p === "pending" || p === "pending verification" || p === "pending_verification") return "Pending Verification";
+    if (p === "verified" || p === "approved") return "Verified";
+    if (p === "rejected") return "Rejected";
+    if (p === "suspended") return "Suspended";
+    return "All";
+  };
+
   const [employers, setEmployers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState(() => getStatusFromParam(searchParams.get("status")));
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+
+  // Sync state if URL searchParams changes externally (e.g. back/forward navigation)
+  useEffect(() => {
+    const urlStatus = getStatusFromParam(searchParams.get("status"));
+    setStatusFilter(urlStatus);
+  }, [searchParams]);
+
+  const handleStatusFilterChange = (newStatus) => {
+    setStatusFilter(newStatus);
+    setPage(1);
+    const paramVal =
+      newStatus === "Pending Verification" ? "pending" :
+      newStatus === "Verified" ? "verified" :
+      newStatus === "Rejected" ? "rejected" :
+      newStatus === "Suspended" ? "suspended" : "";
+
+    const newParams = new URLSearchParams(searchParams);
+    if (paramVal) {
+      newParams.set("status", paramVal);
+    } else {
+      newParams.delete("status");
+    }
+    setSearchParams(newParams, { replace: true });
+  };
 
   // Modals state
   const [actionModal, setActionModal] = useState(null); // { employer, targetStatus }
@@ -73,9 +110,14 @@ export default function ManageEmployers() {
   const loadEmployers = useCallback(async () => {
     setLoading(true);
     setLoadError("");
+    const apiStatus =
+      statusFilter === "Pending Verification" ? "Pending" :
+      statusFilter === "Verified" ? "Approved" :
+      statusFilter;
+
     const res = await fetchAdminEmployers({
       search,
-      status: statusFilter,
+      status: apiStatus,
       page,
       pageSize,
     });
@@ -242,15 +284,14 @@ export default function ManageEmployers() {
             }}
           />
 
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            {["All", "Pending", "Approved", "Rejected"].map((st) => (
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }} role="tablist" aria-label="Employer status filters">
+            {["All", "Pending Verification", "Verified", "Rejected", "Suspended"].map((st) => (
               <button
                 key={st}
                 type="button"
-                onClick={() => {
-                  setStatusFilter(st);
-                  setPage(1);
-                }}
+                role="tab"
+                aria-selected={statusFilter === st}
+                onClick={() => handleStatusFilterChange(st)}
                 style={{
                   padding: "8px 14px",
                   borderRadius: "8px",
@@ -260,6 +301,7 @@ export default function ManageEmployers() {
                   background: statusFilter === st ? "#2563eb" : "#fff",
                   color: statusFilter === st ? "#fff" : "#475569",
                   cursor: "pointer",
+                  transition: "all 0.15s ease",
                 }}
               >
                 {st}
@@ -295,14 +337,24 @@ export default function ManageEmployers() {
           </div>
         ) : employers.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px", color: "#64748b", background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
-            No employer accounts found matching search or filter criteria.
+            {search.trim()
+              ? `No employers found matching "${search.trim()}".`
+              : statusFilter === "Pending Verification"
+              ? "No pending employer verifications."
+              : statusFilter === "Verified"
+              ? "No verified employer accounts found."
+              : statusFilter === "Rejected"
+              ? "No rejected employer accounts found."
+              : statusFilter === "Suspended"
+              ? "No suspended employer accounts found."
+              : "No employer accounts found."}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {employers.map((employer) => {
               const isSuspended = isAccountSuspended(employer);
-              const status = employer.verification_status || "Pending";
-              const isApproved = status === "Approved" || status === "Verified";
+              const status = normalizeVerificationStatus(employer.verification_status);
+              const isApproved = isEmployerVerified(status);
               const docCount = [employer.id_image_url, employer.selfie_image_url, employer.business_permit_url, employer.sec_registration_url].filter(Boolean).length;
               const stats = employer.job_stats || { total: 0, open: 0, pending: 0, rejected: 0, closed: 0 };
 
@@ -359,7 +411,19 @@ export default function ManageEmployers() {
                     <div>Location: <strong>{employer.location}</strong></div>
                     <div>Phone: <strong>{employer.contact_number || "Not provided"}</strong></div>
                     <div>Registered: <strong>{formatDate(employer.created_at)}</strong></div>
+                    {employer.submitted_at && (
+                      <div>Submitted: <strong>{formatDate(employer.submitted_at)}</strong></div>
+                    )}
+                    {employer.reviewed_at && (
+                      <div>Reviewed: <strong>{formatDate(employer.reviewed_at)}</strong></div>
+                    )}
                   </div>
+
+                  {employer.verification_reason && (
+                    <div style={{ marginTop: "10px", padding: "8px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", fontSize: "12px", color: "#991b1b" }}>
+                      <strong>Rejection Reason:</strong> {employer.verification_reason}
+                    </div>
+                  )}
 
                   {/* Verification Documents Review Section */}
                   {docCount > 0 && (

@@ -3,13 +3,66 @@ import { createClient } from '@supabase/supabase-js'
 const metaEnv = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
 const procEnv = (typeof process !== 'undefined' && process.env) ? process.env : {};
 
-const supabaseUrl = metaEnv.VITE_SUPABASE_URL || procEnv.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseKey = metaEnv.VITE_SUPABASE_ANON_KEY || procEnv.VITE_SUPABASE_ANON_KEY || 'placeholderKey';
+const rawUrl = (metaEnv.VITE_SUPABASE_URL || procEnv.VITE_SUPABASE_URL || '').trim();
+const rawKey = (metaEnv.VITE_SUPABASE_ANON_KEY || procEnv.VITE_SUPABASE_ANON_KEY || '').trim();
 
-if ((!metaEnv.VITE_SUPABASE_URL && !procEnv.VITE_SUPABASE_URL) || (!metaEnv.VITE_SUPABASE_ANON_KEY && !procEnv.VITE_SUPABASE_ANON_KEY)) {
-  console.warn(
-    '[SkillSync] Warning: Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Using fallback client for offline/local mode.'
-  )
+// Security check: Ensure no accidental fallback or service_role key
+if (rawKey.includes('service_role')) {
+  console.error('[SkillSync] CRITICAL SECURITY WARNING: service_role key must NEVER be exposed in client code!');
+}
+
+let supabaseUrl = rawUrl;
+let supabaseKey = rawKey;
+
+// Preview Backend Isolation Guard:
+// If running on a Vercel preview domain (*.vercel.app), guarantee that runtime
+// requests NEVER contact Production Supabase.
+// IMPORTANT: Production alias "skillsync-opal-alpha.vercel.app" must remain Production.
+const STAGING_URL = 'https://zjzymrpifutqubffvhyt.supabase.co';
+const STAGING_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpqenltcnBpZnV0cXViZmZ2aHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MTgzODgsImV4cCI6MjEwNTk5NDM4OH0.D6LLkFwhWYUDih8qpkClfG-V2lwbTl68OvCfob2r_gc';
+
+// In Node environment (scripts/tests), fallback to Staging if env vars are unset
+if ((!supabaseUrl || !supabaseKey) && typeof window === 'undefined') {
+  supabaseUrl = STAGING_URL;
+  supabaseKey = STAGING_ANON_KEY;
+}
+
+if (typeof window !== 'undefined') {
+  const host = window.location.hostname.toLowerCase();
+  const isProductionHost =
+    host === 'skillsync-opal-alpha.vercel.app' ||
+    host.startsWith('skillsync-prod') ||
+    host === 'skillsync.com' ||
+    host === 'www.skillsync.com';
+
+  const isProductionEnv =
+    metaEnv.VITE_VERCEL_ENV === 'production' ||
+    procEnv.VERCEL_ENV === 'production';
+
+  if (!isProductionHost && !isProductionEnv) {
+    const isVercelPreview =
+      host.includes('vercel.app') ||
+      metaEnv.VITE_VERCEL_ENV === 'preview' ||
+      procEnv.VERCEL_ENV === 'preview';
+
+    if (isVercelPreview && supabaseUrl !== STAGING_URL) {
+      console.warn('[SkillSync] Preview domain detected without Staging backend. Enforcing Staging backend isolation.');
+      supabaseUrl = STAGING_URL;
+      supabaseKey = STAGING_ANON_KEY;
+    }
+  }
+}
+
+if (!supabaseUrl || !supabaseKey) {
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'production') {
+    console.error(
+      '[SkillSync] CRITICAL: Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in production build. Application cannot connect to Supabase.'
+    );
+  } else {
+    console.warn(
+      '[SkillSync] Warning: Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Configure .env with valid credentials.'
+    );
+  }
 }
 
 const hasCreds = supabaseUrl && supabaseUrl.trim() && supabaseKey && supabaseKey.trim();

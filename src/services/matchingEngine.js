@@ -101,6 +101,15 @@ export async function runMatchingForCandidate(userId) {
         } else if (error) {
           console.warn(`[MatchingEngine] compute_and_save_job_match failed for job ${job.id}:`, error.message);
         }
+
+        // Also compute server-authoritative Career Relevance (Phase 4C)
+        try {
+          await supabase.rpc("compute_and_save_career_relevance", {
+            p_job_id: job.id
+          });
+        } catch (crErr) {
+          console.warn(`[MatchingEngine] compute_and_save_career_relevance failed for job ${job.id}:`, crErr.message);
+        }
       } catch (jobErr) {
         console.warn(`[MatchingEngine] compute_and_save_job_match exception for job ${job.id}:`, jobErr.message);
       }

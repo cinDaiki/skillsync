@@ -15,19 +15,67 @@ import { triggerSimulationNotification }     from '../../services/notificationSe
 import { fetchSemanticMatchesForCandidate }  from '../../services/ai/semanticMatchingService'
 import { getMatchTier }                      from '../../services/ai/recommendationService'
 import { useToast }                          from '../../contexts/ToastContext'
+import CareerRelevanceBadge                  from '../../components/candidate/CareerRelevanceBadge'
 import './AIJobMatches.css'
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-function MatchScoreBadge({ score }) {
-  const tier = getMatchTier(score)
+function MatchScoreBadge({ score, matchStatus }) {
+  const isUncomputed = score === null || score === undefined || 
+    (Number(score) === 0 && (matchStatus === 'Recommended' || matchStatus === 'Uncategorized' || matchStatus === 'Pending' || matchStatus === 'Uncomputed' || !matchStatus));
+
+  if (isUncomputed) {
+    return (
+      <div
+        className="rec-job-score-badge"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '6px 12px',
+          borderRadius: '12px',
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          color: '#64748b',
+          minWidth: '105px',
+          textAlign: 'center',
+          lineHeight: 1.15,
+          boxSizing: 'border-box'
+        }}
+      >
+        <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.85, marginBottom: '2px' }}>JOB FIT</span>
+        <span style={{ fontSize: '14px', fontWeight: '950', lineHeight: '1.1', margin: '2px 0' }}>N/A</span>
+        <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', marginTop: '2px' }}>Not Available</span>
+      </div>
+    );
+  }
+
+  const numScore = Math.round(Number(score));
+  const tier = getMatchTier(numScore);
   return (
-    <span
-      className="ai-jobs-score-badge"
-      style={{ color: tier.color, background: tier.bg }}
+    <div
+      className="rec-job-score-badge"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '6px 12px',
+        borderRadius: '12px',
+        background: tier.bg,
+        border: `1px solid ${tier.color}40`,
+        color: tier.color,
+        minWidth: '105px',
+        textAlign: 'center',
+        lineHeight: 1.15,
+        boxSizing: 'border-box'
+      }}
     >
-      {score}%
-    </span>
+      <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.85, marginBottom: '2px' }}>JOB FIT</span>
+      <span style={{ fontSize: '18px', fontWeight: '950', lineHeight: '1.1' }}>{numScore}%</span>
+      <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', marginTop: '2px' }}>{matchStatus || tier.label}</span>
+    </div>
   )
 }
 
@@ -113,6 +161,13 @@ export default function AIJobMatches() {
       }
       return
     }
+
+    const threshold = job.minimum_match_percentage ?? 70;
+    if ((job.matchScore || 0) < threshold) {
+      toast.error(`Your match score (${job.matchScore || 0}%) is below this employer's requirement (${threshold}%).`);
+      return;
+    }
+
     setApplying(job.id)
     try {
       const { error } = await applyForJobWithSnapshot(job.id, userId)
@@ -264,7 +319,9 @@ export default function AIJobMatches() {
                           .filter(Boolean).join(' · ')}
                       </p>
                     </div>
-                    <MatchScoreBadge score={job.matchScore} />
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexShrink: 0 }}>
+                      <MatchScoreBadge score={job.matchScore} matchStatus={job.matchStatus} />
+                    </div>
                   </div>
 
                   {/* Skill previews */}
@@ -279,27 +336,40 @@ export default function AIJobMatches() {
                     </div>
                   )}
 
-                  <div className="ai-job-card-footer">
-                    <div className="ai-job-mini-scores">
-                      <span>Semantic: <strong>{job.semanticScore}%</strong></span>
-                      <span>Skills: <strong>{job.skillsScore}%</strong></span>
-                    </div>
-                    <div className="ai-job-card-actions">
-                      <button
-                        className="ai-job-btn-report"
-                        onClick={() => setReportJob(job)}
-                      >
-                        View AI Report
-                      </button>
-                      <button
-                        className="ai-job-btn-apply"
-                        disabled={applied || applying === job.id}
-                        onClick={() => handleApply(job)}
-                      >
-                        {applied ? '✓ Applied' : applying === job.id ? 'Applying…' : 'Apply'}
-                      </button>
-                    </div>
-                  </div>
+                  {(() => {
+                    const threshold = job.minimum_match_percentage ?? 70;
+                    const isEligible = (job.matchScore || 0) >= threshold;
+
+                    return (
+                      <div className="ai-job-card-footer">
+                        <div className="ai-job-mini-scores">
+                          <span>Semantic: <strong>{job.semanticScore}%</strong></span>
+                          <span>Skills: <strong>{job.skillsScore}%</strong></span>
+                          <span>Career Relevance: <strong>{(job.career_relevance_score !== null && job.career_relevance_score !== undefined) ? `${job.career_relevance_score}%` : "N/A"}</strong></span>
+                          <span style={{ color: isEligible ? "#15803d" : "#be123c", fontWeight: "600" }}>
+                            Req: <strong>{threshold}%</strong>
+                          </span>
+                        </div>
+                        <div className="ai-job-card-actions">
+                          <button
+                            className="ai-job-btn-report"
+                            onClick={() => setReportJob(job)}
+                          >
+                            View AI Report
+                          </button>
+                          <button
+                            className="ai-job-btn-apply"
+                            disabled={applied || applying === job.id || !isEligible}
+                            onClick={() => handleApply(job)}
+                            style={!isEligible && !applied ? { opacity: 0.65, cursor: "not-allowed", background: "#f43f5e" } : {}}
+                            title={!isEligible ? `Match score (${job.matchScore || 0}%) is below the required ${threshold}%` : ''}
+                          >
+                            {applied ? '✓ Applied' : applying === job.id ? 'Applying…' : !isEligible ? 'Match Too Low to Apply' : 'Apply Now'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )
@@ -314,6 +384,8 @@ export default function AIJobMatches() {
           job={reportJob}
           matchScore={reportJob.matchScore}
           semanticScore={reportJob.semanticScore}
+          careerRelevanceScore={reportJob.career_relevance_score ?? reportJob.careerRelevanceScore}
+          careerRelevanceBreakdown={reportJob.career_relevance_breakdown ?? reportJob.careerRelevanceBreakdown}
           matchedSkills={reportJob.matchedSkills}
           missingSkills={reportJob.missingSkills}
           recommendation={reportJob.recommendations || reportJob.matchReason}
@@ -323,6 +395,10 @@ export default function AIJobMatches() {
           onApply={() => handleApply(reportJob)}
           applied={applications.includes(reportJob.id)}
           mode="candidate"
+          onMatchUpdated={(jobId, newScore) => {
+            setMatches(prev => prev.map(j => j.id === jobId ? { ...j, matchScore: newScore } : j));
+            setReportJob(prev => prev && prev.id === jobId ? { ...prev, matchScore: newScore } : prev);
+          }}
         />
       )}
     </DashboardLayout>

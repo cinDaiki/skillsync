@@ -2,14 +2,18 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
-import { applyForJobWithSnapshot } from "../../services/applicationService";
+import { applyForJobWithSnapshot, getJobApplicationEligibility, recalculateAuthoritativeMatch } from "../../services/applicationService";
 import { triggerSimulationNotification } from "../../services/notificationService";
 import { useToast } from "../../contexts/ToastContext";
 import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
 import { parseJobRequirements } from "../../utils/jobRequirementsHelper";
 import SkillGapAnalysis from "../../components/candidate/SkillGapAnalysis";
+import ImproveMatchModal from "../../components/candidate/ImproveMatchModal";
+import CandidateMatchStatusBanner from "../../components/candidate/CandidateMatchStatusBanner";
 import { getCandidateSkillEvidence } from "../../services/ai/jobFitEngine";
 import { isEmployerSuspended, fetchSuspendedEmployerIds, filterAvailableJobs } from "../../services/jobAvailability";
+import { getCareerRelevanceTier, getCareerRelevanceEvidenceBullets, getCategoryLabel, getSubcategoryLabel, getAllCategories } from "../../services/careerRelevanceService";
+import CareerRelevanceBadge from "../../components/candidate/CareerRelevanceBadge";
 import "./JobMatches.css";
 
 function formatPostedDate(dateStr) {
@@ -44,6 +48,8 @@ export default function JobMatches() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("All");
   const [selectedSetup, setSelectedSetup] = useState("All");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedRelevance, setSelectedRelevance] = useState("All");
   const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
 
   const [userId, setUserId] = useState(null);
@@ -54,12 +60,66 @@ export default function JobMatches() {
   const [confirmApplyJob, setConfirmApplyJob] = useState(null);
   const [reportingJob, setReportingJob] = useState(null);
 
+  // Authoritative Application Eligibility State (Phase 4B)
+  const [eligibility, setEligibility] = useState(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
+  const [showImproveMatchModal, setShowImproveMatchModal] = useState(false);
+  const [recalculatingMatch, setRecalculatingMatch] = useState(false);
+  const [matchesMap, setMatchesMap] = useState(new Map());
+  const [matchesLoading, setMatchesLoading] = useState(true);
+
+  async function handleRecalculateMatch() {
+    if (!selectedJob?.id || recalculatingMatch) return;
+    setRecalculatingMatch(true);
+    try {
+      const res = await recalculateAuthoritativeMatch(selectedJob.id);
+      if (res.success) {
+        setEligibility(res.eligibility);
+        setMatchesMap(prev => {
+          const next = new Map(prev);
+          next.set(selectedJob.id, {
+            job_id: selectedJob.id,
+            match_score: res.matchScore,
+            matching_skills: res.eligibility?.matchingSkills || [],
+            missing_skills: res.eligibility?.missingSkills || []
+          });
+          return next;
+        });
+        toast.success(`Match recalculated! Current score: ${res.matchScore}%`);
+      } else {
+        toast.error("Recalculation failed: " + (res.error?.message || "Unknown error"));
+      }
+    } catch (err) {
+      toast.error("Error recalculating match: " + err.message);
+    } finally {
+      setRecalculatingMatch(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedJob?.id || !userId) {
+      setEligibility(null);
+      setEligibilityLoading(false);
+      return;
+    }
+    let isCancelled = false;
+    setEligibilityLoading(true);
+    getJobApplicationEligibility(selectedJob.id).then((res) => {
+      if (!isCancelled) {
+        setEligibility(res);
+        setEligibilityLoading(false);
+      }
+    });
+    return () => { isCancelled = true; };
+  }, [selectedJob?.id, userId]);
+
   useEffect(() => {
     loadData();
   }, []);
 
   async function loadData() {
     setLoading(true);
+    setMatchesLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     
     if (user) {
@@ -108,9 +168,20 @@ export default function JobMatches() {
         .eq("applicant_id", user.id);
       setApplications(appsData || []);
 
-      // 4. Bookmarks
+      // 4. Fetch authoritative job_matches for candidate (including Phase 4C Career Relevance)
+      const { data: matchesData } = await supabase
+        .from("job_matches")
+        .select("job_id, match_score, skills_score, education_score, experience_score, match_status, matching_skills, missing_skills, career_relevance_score, career_relevance_breakdown")
+        .eq("user_id", user.id);
+      const mMap = new Map((matchesData || []).map((m) => [m.job_id, m]));
+      setMatchesMap(mMap);
+      setMatchesLoading(false);
+
+      // 5. Bookmarks
       const savedBookmarks = localStorage.getItem(`skillsync_bookmarks_${user.id}`);
       if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
+    } else {
+      setMatchesLoading(false);
     }
 
     // 5. Fetch ALL active open jobs from Approved/Verified employers, ordered by created_at DESC (newest first)
@@ -226,6 +297,15 @@ export default function JobMatches() {
       return;
     }
 
+    // Authoritative Match Threshold Gate (Phase 4B & P1 Consistency)
+    const matchRecord = matchesMap.get(job.id);
+    const score = matchRecord?.match_score ?? (selectedJob?.id === job.id && eligibility ? eligibility.matchScore : 0);
+    const reqScore = typeof job.minimum_match_percentage === 'number' ? job.minimum_match_percentage : 70;
+    if (score < reqScore) {
+      toast.error(`Your match score (${score}%) is below this employer's requirement (${reqScore}%). You can use "Improve My Match" to view skill gaps.`);
+      return;
+    }
+
     setConfirmApplyJob(job);
   }
 
@@ -236,7 +316,11 @@ export default function JobMatches() {
     const { data, error } = await applyForJobWithSnapshot(job.id, userId);
 
     if (error) {
-      toast.error("Failed to apply: " + error.message);
+      if (error.code === "APPLICATION_THRESHOLD_NOT_MET") {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to apply: " + error.message);
+      }
       setConfirmApplyJob(null);
       return;
     }
@@ -278,7 +362,24 @@ export default function JobMatches() {
     // Bookmark filter
     const matchesBookmark = !showBookmarkedOnly || bookmarks.includes(job.id);
 
-    return matchesSearch && matchesType && matchesSetup && matchesBookmark;
+    // Category filter (Phase 4C)
+    const matchesCategory = selectedCategory === "All" || job.job_category === selectedCategory;
+
+    // Career Relevance filter (Phase 4C)
+    let matchesRelevance = true;
+    if (selectedRelevance !== "All") {
+      const matchRec = matchesMap.get(job.id);
+      const relScore = matchRec?.career_relevance_score ?? 0;
+      if (selectedRelevance === "Highly Related") {
+        matchesRelevance = relScore >= 80;
+      } else if (selectedRelevance === "Related & Above") {
+        matchesRelevance = relScore >= 60;
+      } else if (selectedRelevance === "Adjacent & Above") {
+        matchesRelevance = relScore >= 40;
+      }
+    }
+
+    return matchesSearch && matchesType && matchesSetup && matchesBookmark && matchesCategory && matchesRelevance;
   });
 
   const totalPages = Math.ceil(filteredJobs.length / PAGE_SIZE) || 1;
@@ -372,6 +473,28 @@ export default function JobMatches() {
             <option value="Remote">Remote</option>
           </select>
 
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="filter-select"
+          >
+            <option value="All">All Job Categories</option>
+            {getAllCategories().map((cat) => (
+              <option key={cat.key} value={cat.key}>{cat.label}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedRelevance}
+            onChange={(e) => setSelectedRelevance(e.target.value)}
+            className="filter-select"
+          >
+            <option value="All">All Career Fields</option>
+            <option value="Highly Related">🎯 Highly Related (80%+)</option>
+            <option value="Related & Above">💼 Related (60%+)</option>
+            <option value="Adjacent & Above">🔄 Adjacent (40%+)</option>
+          </select>
+
           <button
             type="button"
             className={`bookmarks-tab-btn ${showBookmarkedOnly ? "active" : ""}`}
@@ -392,9 +515,12 @@ export default function JobMatches() {
             <div className="job-match-list">
             {paginatedJobs.map((job) => {
               const applied = hasApplied(job.id);
-              const applyDisabled = applied || isApplyBlocked;
-              const applyLabel = applied ? "Applied ✓" : isApplyBlocked ? "🔒 Apply Now" : "Apply Now";
-              const applyTitle = applied ? "You have already applied" : !hasResume ? "Upload a resume to apply" : verificationStatus !== "Verified" && verificationStatus !== "Approved" ? "Complete identity verification to apply" : "";
+              const matchRecord = matchesMap.get(job.id);
+              const hasMatch = matchRecord && typeof matchRecord.match_score === "number";
+              const matchScore = hasMatch ? matchRecord.match_score : null;
+              const reqScore = typeof job.minimum_match_percentage === "number" ? job.minimum_match_percentage : 70;
+              const isEligible = hasMatch && matchScore >= reqScore;
+              const isChecking = loading || matchesLoading;
               const { applicationRequirements } = parseJobRequirements(job);
 
               return (
@@ -405,18 +531,55 @@ export default function JobMatches() {
                       <p style={{ margin: "2px 0 0 0", fontSize: "13px", color: "#64748b", fontWeight: "600" }}>
                         {[job.company_name || "Employer", formatPostedDate(job.created_at)].filter(Boolean).join(" · ")}
                       </p>
-                      {(job.employer_verification_status === "Approved" || job.employer_verification_status === "Verified" || job.verified_employer) && (
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "700", marginTop: "4px" }}>
-                          ✓ Verified Employer
-                        </span>
-                      )}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginTop: "4px" }}>
+                        {(job.employer_verification_status === "Approved" || job.employer_verification_status === "Verified" || job.verified_employer) && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "700" }}>
+                            ✓ Verified Employer
+                          </span>
+                        )}
+                        {job.job_category && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "#eef2ff", color: "#4338ca", border: "1px solid #c7d2fe", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "700" }}>
+                            📂 {getCategoryLabel(job.job_category)}{job.job_subcategory ? ` · ${getSubcategoryLabel(job.job_category, job.job_subcategory)}` : ""}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {job.salary_range && (
-                      <div style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "4px 12px", borderRadius: "8px", fontSize: "12px", fontWeight: "800" }}>
-                        💰 {job.salary_range}
-                      </div>
-                    )}
+                    <div style={{ display: "flex", gap: "8px", alignItems: "flex-start", flexWrap: "wrap", flexShrink: 0 }}>
+                      {/* Job Fit Badge */}
+                      {(() => {
+                        const isUncomputed = !hasMatch || (Number(matchScore) === 0 && (matchRecord?.match_status === 'Recommended' || matchRecord?.match_status === 'Uncategorized' || matchRecord?.match_status === 'Pending' || matchRecord?.match_status === 'Uncomputed'));
+                        if (isUncomputed) {
+                          return (
+                            <div className="rec-job-score-badge uncomputed" style={{ minWidth: "105px", boxSizing: "border-box", background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b" }}>
+                              <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
+                              <span className="rec-job-score-num" style={{ fontSize: "14px", margin: "2px 0" }}>N/A</span>
+                              <span className="rec-job-score-label">Not Available</span>
+                            </div>
+                          );
+                        }
+                        const numScore = Math.round(Number(matchScore));
+                        return (
+                          <div
+                            className={`rec-job-score-badge ${numScore >= 80 ? 'excellent' : numScore >= 60 ? 'good' : numScore >= 40 ? 'partial' : 'skills-gap'}`}
+                            style={{ minWidth: "105px", boxSizing: "border-box" }}
+                          >
+                            <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
+                            <span className="rec-job-score-num">{numScore}%</span>
+                            <span className="rec-job-score-label">
+                              {numScore >= 80 ? "Strong Match" : numScore >= 60 ? "Good Match" : numScore >= 40 ? "Potential Match" : "Skills Gap"}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+
+                      {job.salary_range && (
+                        <div style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "6px 12px", borderRadius: "8px", fontSize: "12px", fontWeight: "800", display: "flex", alignItems: "center" }}>
+                          💰 {job.salary_range}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <p className="job-description-excerpt">{job.description || "No job description provided."}</p>
@@ -450,6 +613,43 @@ export default function JobMatches() {
                     </div>
                   )}
 
+                  {/* Authoritative Application Eligibility Row */}
+                  <div style={{
+                    margin: "10px 0 4px 0",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    background: isChecking ? "#f8fafc" : hasMatch ? (isEligible ? "#f0fdf4" : "#fef2f2") : "#f8fafc",
+                    border: `1px solid ${isChecking ? "#e2e8f0" : hasMatch ? (isEligible ? "#bbf7d0" : "#fecaca") : "#e2e8f0"}`,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "6px"
+                  }}>
+                    <div style={{ fontSize: "12px", color: isChecking ? "#64748b" : hasMatch ? (isEligible ? "#166534" : "#991b1b") : "#64748b", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <span>Your Match: <strong style={{ fontSize: "13px" }}>{isChecking ? "..." : hasMatch ? `${matchScore}%` : "—"}</strong></span>
+                      <span style={{ margin: "0 4px", opacity: 0.4 }}>|</span>
+                      <span>Required Match: <strong style={{ fontSize: "13px" }}>{reqScore}%</strong></span>
+                      <span style={{ margin: "0 4px", opacity: 0.4 }}>|</span>
+                      <CareerRelevanceBadge
+                        score={matchRecord?.career_relevance_score}
+                        breakdown={matchRecord?.career_relevance_breakdown}
+                        jobCategory={job.job_category}
+                        layout="pill"
+                      />
+                    </div>
+                    <span style={{
+                      fontSize: "11px",
+                      fontWeight: "800",
+                      padding: "3px 8px",
+                      borderRadius: "10px",
+                      background: isChecking ? "#e2e8f0" : hasMatch ? (isEligible ? "#dcfce7" : "#fee2e2") : "#f1f5f9",
+                      color: isChecking ? "#475569" : hasMatch ? (isEligible ? "#15803d" : "#b91c1c") : "#475569"
+                    }}>
+                      {isChecking ? "Checking eligibility..." : hasMatch ? (isEligible ? "✓ Eligible" : "⚠ Below Requirement") : "Review Profile"}
+                    </span>
+                  </div>
+
                   <div className="job-card-footer">
                     <div className="job-card-meta">
                       <span>📍 {job.location || "Location not specified"}</span>
@@ -469,14 +669,54 @@ export default function JobMatches() {
                         className="view-details-btn"
                         onClick={() => handleViewDetails(job)}
                       >View Details</button>
-                      <button
-                        type="button"
-                        className="job-apply-primary"
-                        onClick={() => handlePromptApply(job)}
-                        disabled={applyDisabled}
-                        title={applyTitle}
-                        style={isApplyBlocked && !applied ? { opacity: 0.6, cursor: "not-allowed" } : {}}
-                      >{applyLabel}</button>
+                      {!isEligible && !applied && hasMatch && (
+                        <button
+                          type="button"
+                          className="view-details-btn"
+                          style={{ background: "#f5f3ff", color: "#6d28d9", borderColor: "#c4b5fd", fontWeight: "700" }}
+                          onClick={() => {
+                            setSelectedJob(job);
+                            setShowImproveMatchModal(true);
+                          }}
+                        >
+                          Improve My Match
+                        </button>
+                      )}
+                      {isChecking ? (
+                        <button type="button" className="job-apply-primary" disabled style={{ opacity: 0.7, cursor: "not-allowed" }}>
+                          Checking eligibility...
+                        </button>
+                      ) : applied ? (
+                        <button type="button" className="job-apply-primary" disabled style={{ opacity: 0.7, cursor: "not-allowed" }}>
+                          Applied ✓
+                        </button>
+                      ) : !hasResume ? (
+                        <button type="button" className="job-apply-primary" disabled style={{ opacity: 0.6, cursor: "not-allowed" }} title="Upload a resume to apply">
+                          🔒 Resume Required
+                        </button>
+                      ) : verificationStatus !== "Verified" && verificationStatus !== "Approved" ? (
+                        <button type="button" className="job-apply-primary" disabled style={{ opacity: 0.6, cursor: "not-allowed" }} title="Complete identity verification to apply">
+                          🔒 Verification Required
+                        </button>
+                      ) : !isEligible ? (
+                        <button
+                          type="button"
+                          className="job-apply-primary"
+                          disabled
+                          style={{ opacity: 0.65, cursor: "not-allowed", background: "#f43f5e" }}
+                          title={`Match score (${matchScore ?? 0}%) is below required ${reqScore}%`}
+                        >
+                          Match Too Low to Apply
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="job-apply-primary"
+                          onClick={() => handlePromptApply(job)}
+                        >
+                          Apply Now
+                        </button>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -543,6 +783,16 @@ export default function JobMatches() {
                   {selectedJob.salary_range && <div>💰 <strong>Salary:</strong> {selectedJob.salary_range}</div>}
                 </div>
 
+                {/* ── AUTHORITATIVE APPLICATION ELIGIBILITY BANNER (Phase 4B & Improve Match Guidance) ── */}
+                <CandidateMatchStatusBanner
+                  job={selectedJob}
+                  eligibility={eligibility}
+                  eligibilityLoading={eligibilityLoading}
+                  onOpenImproveMatch={() => setShowImproveMatchModal(true)}
+                  onRecalculate={handleRecalculateMatch}
+                  recalculating={recalculatingMatch}
+                />
+
                 <div className="job-detail-main">
                   <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Job Description</h4>
                   <p style={{ margin: 0, fontSize: "13px", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
@@ -586,15 +836,101 @@ export default function JobMatches() {
                   </div>
                 </div>
 
+                {/* ── CAREER RELEVANCE & OCCUPATIONAL DOMAIN ── */}
+                {(() => {
+                  const matchRec = matchesMap.get(selectedJob.id);
+                  const relScore = matchRec?.career_relevance_score ?? null;
+                  const hasRelScore = relScore !== null && relScore !== undefined && !Number.isNaN(Number(relScore));
+                  const tier = hasRelScore ? getCareerRelevanceTier(relScore) : null;
+                  const breakdown = matchRec?.career_relevance_breakdown || {};
+                  const bullets = getCareerRelevanceEvidenceBullets(breakdown, selectedJob.job_category);
+                  const domainSkills = breakdown.domainSkills || [];
+
+                  return (
+                    <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
+                        <h4 style={{ color: "#1e1b4b", margin: 0, fontSize: "14px", fontWeight: "800" }}>
+                          🧭 Career Field & Occupational Alignment
+                        </h4>
+                        {hasRelScore ? (
+                          <span style={{
+                            fontSize: "12px",
+                            fontWeight: "800",
+                            padding: "3px 10px",
+                            borderRadius: "12px",
+                            background: relScore >= 80 ? "#ecfdf5" : relScore >= 60 ? "#eff6ff" : relScore >= 40 ? "#fffbeb" : "#f1f5f9",
+                            color: relScore >= 80 ? "#065f46" : relScore >= 60 ? "#1e40af" : relScore >= 40 ? "#92400e" : "#475569",
+                            border: `1px solid ${relScore >= 80 ? "#a7f3d0" : relScore >= 60 ? "#bfdbfe" : relScore >= 40 ? "#fde68a" : "#cbd5e1"}`
+                          }}>
+                            {tier.icon} {tier.label} ({relScore}%)
+                          </span>
+                        ) : (
+                          <span style={{
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            padding: "3px 10px",
+                            borderRadius: "12px",
+                            background: "#f1f5f9",
+                            color: "#64748b",
+                            border: "1px solid #e2e8f0"
+                          }}>
+                            {selectedJob.job_category ? "Relevance: Not yet available" : "Uncategorized job"}
+                          </span>
+                        )}
+                      </div>
+
+                      {selectedJob.job_category ? (
+                        <p style={{ fontSize: "12px", color: "#475569", margin: "0 0 8px 0" }}>
+                          <strong>Role Domain:</strong> {getCategoryLabel(selectedJob.job_category)}
+                          {selectedJob.job_subcategory ? ` · ${getSubcategoryLabel(selectedJob.job_category, selectedJob.job_subcategory)}` : ""}
+                        </p>
+                      ) : (
+                        <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 8px 0", fontStyle: "italic" }}>
+                          This is a legacy or uncategorized job. Career relevance domain scoring is not applied.
+                        </p>
+                      )}
+
+                      {bullets.length > 0 && (
+                        <div style={{ margin: "8px 0 4px 0" }}>
+                          <span style={{ fontSize: "12px", fontWeight: "700", color: "#334155", display: "block", marginBottom: "4px" }}>
+                            Why:
+                          </span>
+                          {bullets.map((b, bIdx) => (
+                            <div key={bIdx} style={{ fontSize: "12px", color: "#334155", display: "flex", alignItems: "flex-start", gap: "6px", marginBottom: "3px" }}>
+                              <span style={{ color: "#4f46e5" }}>•</span>
+                              <span>{b}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {domainSkills.length > 0 && (
+                        <div style={{ marginTop: "8px" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>Matched Domain Skills:</span>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+                            {domainSkills.map((sk, sIdx) => (
+                              <span key={sIdx} style={{ background: "#e0e7ff", color: "#3730a3", fontSize: "11px", fontWeight: "600", padding: "2px 8px", borderRadius: "8px" }}>
+                                {sk}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* ── AI SKILL GAP ANALYSIS & MICROCREDENTIAL RECOMMENDATIONS ── */}
                 {(() => {
-                  console.log('[SkillGapInput]', {
-                    surface: 'marketplace',
-                    candidateId: userId,
-                    candidateSkills: candidateProfile?.skills || [],
-                    jobId: selectedJob?.id,
-                    jobRequiredSkills: selectedJob?.required_skills || ''
-                  });
+                  if (import.meta.env.VITE_DEBUG_SKILL_GAP === 'true') {
+                    console.log('[SkillGapInput]', {
+                      surface: 'marketplace',
+                      candidateId: userId,
+                      candidateSkills: candidateProfile?.skills || [],
+                      jobId: selectedJob?.id,
+                      jobRequiredSkills: selectedJob?.required_skills || ''
+                    });
+                  }
                   return <SkillGapAnalysis job={selectedJob} candidate={candidateProfile} />;
                 })()}
 
@@ -618,14 +954,36 @@ export default function JobMatches() {
                     type="button"
                     className="job-apply-primary"
                     onClick={() => handlePromptApply(selectedJob)}
-                    disabled={hasApplied(selectedJob.id) || isApplyBlocked}
-                  >{hasApplied(selectedJob.id) ? "Applied ✓" : "Apply Now"}</button>
+                    disabled={
+                      hasApplied(selectedJob.id) ||
+                      isApplyBlocked ||
+                      eligibilityLoading ||
+                      (eligibility && !eligibility.eligible)
+                    }
+                  >
+                    {hasApplied(selectedJob.id)
+                      ? "Applied ✓"
+                      : eligibilityLoading
+                      ? "Checking Eligibility..."
+                      : eligibility && !eligibility.eligible
+                      ? "Match Too Low to Apply"
+                      : "Apply Now"}
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {/* ── Candidate Improve Match Guidance Modal ── */}
+      <ImproveMatchModal
+        isOpen={showImproveMatchModal}
+        onClose={() => setShowImproveMatchModal(false)}
+        job={selectedJob}
+        eligibility={eligibility}
+        onEligibilityUpdate={(updated) => setEligibility(updated)}
+      />
 
       {/* ── PRE-APPLICATION REQUIREMENTS CONFIRMATION MODAL ── */}
       {confirmApplyJob && (() => {
