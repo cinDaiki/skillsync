@@ -17,6 +17,7 @@ import {
   calculateProfileCompletion,
   isValidUuid,
   filterAuditLogsLocally,
+  removeSearchParam,
 } from "../src/services/adminService.js";
 
 console.log("=== RUNNING ADMIN JOBSEEKER DATA FALLBACK & RECONCILIATION TESTS ===");
@@ -543,5 +544,35 @@ assert.strictEqual(mergedPopulated.work_experience[0].title, "Principal Engineer
 assert.strictEqual(getCandidateExperienceSummary(mergedPopulated), "Principal Engineer at Meta (2023 - Present)");
 
 console.log("✓ User Dossier work-history fallback and summary precedence passed all regression tests");
+
+// ── Test 13: URL Search Parameter Stripping (Preserve Unrelated Params) ──
+console.log("\n[Test 13] URL Search Parameter Stripping (Preserve Unrelated Params)");
+
+// 13A: Candidate UUID search query parameter is removed
+const candidateUrl = "?search=c39864d4-c9b0-466d-8bc3-3ff1ebfdf4c8";
+const strippedA = removeSearchParam(candidateUrl);
+assert.strictEqual(strippedA.has("search"), false, "search param must be deleted");
+assert.strictEqual(strippedA.toString(), "", "Resulting query string must be empty");
+
+// 13B: Unrelated query parameters are strictly preserved
+const complexUrl = "?tab=security&search=c39864d4-c9b0-466d-8bc3-3ff1ebfdf4c8&page=2&action=USER_SUSPENDED";
+const strippedB = removeSearchParam(complexUrl);
+assert.strictEqual(strippedB.has("search"), false, "search param must be deleted");
+assert.strictEqual(strippedB.get("tab"), "security", "tab param must be preserved");
+assert.strictEqual(strippedB.get("page"), "2", "page param must be preserved");
+assert.strictEqual(strippedB.get("action"), "USER_SUSPENDED", "action param must be preserved");
+
+// 13C: URLSearchParams instance input support
+const searchParamsObj = new URLSearchParams("search=11111111-1111-4111-a111-111111111111&status=active");
+const strippedC = removeSearchParam(searchParamsObj);
+assert.strictEqual(strippedC.has("search"), false);
+assert.strictEqual(strippedC.get("status"), "active");
+
+// 13D: Empty, null, and undefined edge cases
+assert.strictEqual(removeSearchParam("").toString(), "");
+assert.strictEqual(removeSearchParam(null).toString(), "");
+assert.strictEqual(removeSearchParam(undefined).toString(), "");
+
+console.log("✓ removeSearchParam safely deletes search parameter while preserving unrelated query params");
 
 console.log("\n🎉 ALL ADMIN JOBSEEKER DATA FALLBACK & RECONCILIATION UNIT TESTS PASSED!");

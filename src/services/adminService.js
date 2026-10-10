@@ -2301,6 +2301,18 @@ export async function logAdminAction({ action, targetType, targetId, reason, met
 }
 
 /**
+ * Strips the 'search' query parameter from a URLSearchParams object or query string,
+ * preserving all other unrelated query parameters.
+ */
+export function removeSearchParam(searchParamsOrString) {
+  const params = typeof searchParamsOrString === "string"
+    ? new URLSearchParams(searchParamsOrString)
+    : new URLSearchParams(searchParamsOrString || "");
+  params.delete("search");
+  return params;
+}
+
+/**
  * Validates whether a given string is a valid canonical RFC 4122 UUID.
  */
 export function isValidUuid(str) {

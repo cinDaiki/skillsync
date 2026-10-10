@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
-import { fetchAdminAuditLogs } from "../../services/adminService";
+import { fetchAdminAuditLogs, removeSearchParam } from "../../services/adminService";
 
 export default function AdminAuditLogs() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(searchParams.get("search") || "");
@@ -19,6 +19,25 @@ export default function AdminAuditLogs() {
     setSearch(q);
     setPage(1);
   }, [searchParams]);
+
+  const handleClearSearch = () => {
+    setSearch("");
+    setPage(1);
+    if (searchParams.has("search")) {
+      const nextParams = removeSearchParam(searchParams);
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setSearch(val);
+    setPage(1);
+    if (!val && searchParams.has("search")) {
+      const nextParams = removeSearchParam(searchParams);
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
 
   const loadAuditLogs = useCallback(async () => {
     setLoading(true);
@@ -120,10 +139,7 @@ export default function AdminAuditLogs() {
             type="text"
             placeholder="🔍 Search candidate ID, action, target, or reason note..."
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={handleSearchChange}
             style={{
               flex: "1",
               minWidth: "240px",
@@ -135,13 +151,10 @@ export default function AdminAuditLogs() {
             }}
           />
 
-          {search && (
+          {(search || searchParams.has("search")) && (
             <button
               type="button"
-              onClick={() => {
-                setSearch("");
-                setPage(1);
-              }}
+              onClick={handleClearSearch}
               style={{
                 padding: "10px 14px",
                 borderRadius: "8px",
