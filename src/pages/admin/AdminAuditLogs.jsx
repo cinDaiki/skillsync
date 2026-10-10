@@ -15,11 +15,9 @@ export default function AdminAuditLogs() {
   const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
-    const q = searchParams.get("search");
-    if (q !== null && q !== undefined) {
-      setSearch(q);
-      setPage(1);
-    }
+    const q = searchParams.get("search") || "";
+    setSearch(q);
+    setPage(1);
   }, [searchParams]);
 
   const loadAuditLogs = useCallback(async () => {
@@ -120,7 +118,7 @@ export default function AdminAuditLogs() {
         <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
           <input
             type="text"
-            placeholder="🔍 Search action, target, or reason note..."
+            placeholder="🔍 Search candidate ID, action, target, or reason note..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -136,6 +134,28 @@ export default function AdminAuditLogs() {
               outline: "none",
             }}
           />
+
+          {search && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                setPage(1);
+              }}
+              style={{
+                padding: "10px 14px",
+                borderRadius: "8px",
+                border: "1px solid #cbd5e1",
+                background: "#f8fafc",
+                color: "#475569",
+                fontSize: "13px",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              ✕ Clear Search
+            </button>
+          )}
 
           <select
             value={actionType}

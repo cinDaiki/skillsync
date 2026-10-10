@@ -15,6 +15,8 @@ import {
   getCandidateEducationSummary,
   getCandidateExperienceSummary,
   calculateProfileCompletion,
+  isValidUuid,
+  filterAuditLogsLocally,
 } from "../src/services/adminService.js";
 
 console.log("=== RUNNING ADMIN JOBSEEKER DATA FALLBACK & RECONCILIATION TESTS ===");
@@ -337,5 +339,209 @@ const minimalCandidate = {
 const minimalScore = calculateProfileCompletion(minimalCandidate);
 assert.strictEqual(minimalScore, 35, `Minimal profile should score 35 (20+15), got ${minimalScore}`);
 console.log("✓ calculateProfileCompletion calculates score accurately");
+
+// ── Test 11: Candidate-specific Audit Trail (UUID Target Filtering & Search Preservation) ──
+console.log("\n[Test 11] Candidate-specific Audit Trail (UUID Target Filtering & Search Preservation)");
+
+// 11A: isValidUuid unit checks
+assert.strictEqual(isValidUuid("c39864d4-c9b0-466d-8bc3-3ff1ebfdf4c8"), true, "Valid lowercase UUID must return true");
+assert.strictEqual(isValidUuid("C39864D4-C9B0-466D-8BC3-3FF1EBFDF4C8"), true, "Valid uppercase UUID must return true");
+assert.strictEqual(isValidUuid("  c39864d4-c9b0-466d-8bc3-3ff1ebfdf4c8  "), true, "Valid trimmed UUID must return true");
+assert.strictEqual(isValidUuid("c39864d4-c9b0"), false, "Truncated UUID must return false");
+assert.strictEqual(isValidUuid("candidate@skillsync.com"), false, "Email string must return false");
+assert.strictEqual(isValidUuid("USER_SUSPENDED"), false, "Action keyword must return false");
+assert.strictEqual(isValidUuid(""), false, "Empty string must return false");
+assert.strictEqual(isValidUuid(null), false, "Null value must return false");
+assert.strictEqual(isValidUuid(undefined), false, "Undefined value must return false");
+
+// 11B: Candidate-specific target_id filtering isolates matching candidate records
+const candidateAId = "11111111-1111-4111-a111-111111111111";
+const candidateBId = "22222222-2222-4222-b222-222222222222";
+const jobId = "33333333-3333-4333-c333-333333333333";
+
+const sampleLogs = [
+  {
+    id: "log-1",
+    target_id: candidateAId,
+    target_type: "candidate",
+    action: "USER_SUSPENDED",
+    reason: "Suspected multiple account abuse",
+    created_at: "2026-10-01T10:00:00Z"
+  },
+  {
+    id: "log-2",
+    target_id: candidateBId,
+    target_type: "candidate",
+    action: "USER_SUSPENDED",
+    reason: "Terms of service violation",
+    created_at: "2026-10-02T10:00:00Z"
+  },
+  {
+    id: "log-3",
+    target_id: candidateAId,
+    target_type: "candidate",
+    action: "USER_UNSUSPENDED",
+    reason: "Verification cleared upon review",
+    created_at: "2026-10-03T10:00:00Z"
+  },
+  {
+    id: "log-4",
+    target_id: jobId,
+    target_type: "job",
+    action: "JOB_APPROVED",
+    reason: "Compliant listing",
+    created_at: "2026-10-04T10:00:00Z"
+  }
+];
+
+// Searching candidateAId should find exactly log-1 and log-3, never log-2 (candidate B) or log-4
+const candALogs = filterAuditLogsLocally(sampleLogs, candidateAId, "all");
+assert.strictEqual(candALogs.length, 2, "Candidate A search must find exactly 2 records");
+assert.deepStrictEqual(candALogs.map((l) => l.id), ["log-1", "log-3"], "Candidate A must not return candidate B or unrelated job records");
+
+// 11C: Unknown candidate UUID must return empty array without pulling unrelated records
+const unknownUuid = "99999999-9999-4999-a999-999999999999";
+const unknownLogs = filterAuditLogsLocally(sampleLogs, unknownUuid, "all");
+assert.strictEqual(unknownLogs.length, 0, "Unknown candidate UUID must not return unrelated records");
+
+// 11D: General keyword search preserves action, target-type, and reason search
+const suspendLogs = filterAuditLogsLocally(sampleLogs, "SUSPEND", "all");
+assert.strictEqual(suspendLogs.length, 3, "Keyword 'SUSPEND' must match both USER_SUSPENDED and USER_UNSUSPENDED");
+
+const reasonLogs = filterAuditLogsLocally(sampleLogs, "abuse", "all");
+assert.strictEqual(reasonLogs.length, 1, "Reason keyword search must find log-1");
+assert.strictEqual(reasonLogs[0].id, "log-1");
+
+// 11E: Combined UUID search and actionType filter
+const candASuspendedOnly = filterAuditLogsLocally(sampleLogs, candidateAId, "USER_SUSPENDED");
+assert.strictEqual(candASuspendedOnly.length, 1);
+assert.strictEqual(candASuspendedOnly[0].id, "log-1");
+
+console.log("✓ Candidate-specific audit trail filtering safely isolates target records and preserves keyword searches");
+
+// ── Test 12: User Dossier Work-History Data Regression Test ──
+console.log("\n[Test 12] User Dossier Work-History Data Regression Test");
+
+// 12A: Candidate whose work-history records exist only in candidate_profiles and years_experience is null
+const candidateOnlyInCp = {
+  id: "cand-cp-only",
+  full_name: "Marcus Aurelius",
+  role: "candidate",
+  work_experience: [], // empty primary array
+  experience: [], // empty legacy array
+  years_experience: null, // null years in profile
+};
+
+const cpWithHistory = {
+  user_id: "cand-cp-only",
+  experience: [
+    {
+      title: "Senior Database Administrator",
+      company: "Oracle Systems",
+      startDate: "2020",
+      endDate: "2024",
+    },
+    {
+      title: "Database Analyst",
+      company: "Data Corp",
+      startDate: "2018",
+      endDate: "2020",
+    }
+  ],
+  years_experience: null, // null in candidate_profiles as well
+};
+
+const mergedDossier12A = mergeCandidateProfileData(candidateOnlyInCp, cpWithHistory, null);
+assert.strictEqual(mergedDossier12A.work_experience.length, 2, "Work experience must be populated from candidate_profiles");
+assert.strictEqual(mergedDossier12A.years_experience, null, "years_experience remains null");
+
+const summary12A = getCandidateExperienceSummary(mergedDossier12A);
+assert.strictEqual(
+  summary12A,
+  "Senior Database Administrator at Oracle Systems (2020 - 2024) (+1 more)",
+  "Summary must accurately describe work history even when years_experience is null"
+);
+
+// 12B: Candidate whose work history is in candidate_profiles.work_experience with snake_case fields
+const candidateWithSnakeCaseWork = {
+  id: "cand-snake-work",
+  full_name: "Elena Rostova",
+  role: "candidate",
+  work_experience: [],
+  experience: [],
+  years_experience: null,
+};
+
+const cpWithSnakeCaseWork = {
+  user_id: "cand-snake-work",
+  work_experience: [
+    {
+      job_title: "Cloud Infrastructure Architect",
+      company_name: "AWS Enterprise",
+      start_date: "2021",
+      end_date: "Present",
+    }
+  ],
+  years_experience: null,
+};
+
+const mergedDossier12B = mergeCandidateProfileData(candidateWithSnakeCaseWork, cpWithSnakeCaseWork, null);
+assert.strictEqual(mergedDossier12B.work_experience.length, 1);
+const summary12B = getCandidateExperienceSummary(mergedDossier12B);
+assert.strictEqual(summary12B, "Cloud Infrastructure Architect at AWS Enterprise (2021 - Present)");
+
+// 12C: Candidate where all supported sources are genuinely empty falls back to 'Not provided'
+const genuinelyEmptyCandidate = {
+  id: "cand-empty",
+  full_name: "Empty Candidate",
+  role: "candidate",
+  work_experience: [],
+  experience: [],
+  years_experience: null,
+};
+
+const genuinelyEmptyCp = {
+  user_id: "cand-empty",
+  experience: [],
+  work_experience: [],
+  years_experience: null,
+};
+
+const mergedEmpty = mergeCandidateProfileData(genuinelyEmptyCandidate, genuinelyEmptyCp, null);
+assert.strictEqual(mergedEmpty.work_experience.length, 0);
+assert.strictEqual(
+  getCandidateExperienceSummary(mergedEmpty),
+  "Not provided",
+  "Must preserve 'Not provided' fallback when all sources are genuinely empty"
+);
+assert.strictEqual(
+  getCandidateExperienceSummary(genuinelyEmptyCandidate, genuinelyEmptyCp),
+  "Not provided"
+);
+
+// 12D: Populated primary work_experience takes precedence over fallback candidate_profiles
+const populatedPrimaryCand = {
+  id: "cand-pop",
+  full_name: "Primary Lead",
+  role: "candidate",
+  work_experience: [
+    { title: "Principal Engineer", company: "Meta", startDate: "2023", endDate: "Present" }
+  ],
+  years_experience: 8,
+};
+
+const secondaryCp = {
+  user_id: "cand-pop",
+  experience: [
+    { title: "Junior Dev", company: "Old Corp", startDate: "2015", endDate: "2017" }
+  ],
+  years_experience: 2,
+};
+
+const mergedPopulated = mergeCandidateProfileData(populatedPrimaryCand, secondaryCp, null);
+assert.strictEqual(mergedPopulated.work_experience[0].title, "Principal Engineer", "Primary work experience must take precedence");
+assert.strictEqual(getCandidateExperienceSummary(mergedPopulated), "Principal Engineer at Meta (2023 - Present)");
+
+console.log("✓ User Dossier work-history fallback and summary precedence passed all regression tests");
 
 console.log("\n🎉 ALL ADMIN JOBSEEKER DATA FALLBACK & RECONCILIATION UNIT TESTS PASSED!");

@@ -380,16 +380,19 @@ export function getCandidateExperienceSummary(profile, candidateProfile = null) 
     const primary = expList[0];
     if (typeof primary === "string" && primary.trim()) return primary.trim();
     if (primary && typeof primary === "object") {
-      const title = primary.title || primary.role || primary.position || "";
-      const company = primary.company || primary.employer || "";
-      const dates = primary.startDate || primary.endDate
-        ? ` (${[primary.startDate, primary.endDate || "Present"].filter(Boolean).join(" - ")})`
+      const title = primary.title || primary.role || primary.position || primary.job_title || "";
+      const company = primary.company || primary.employer || primary.company_name || "";
+      const start = primary.startDate || primary.start_date || "";
+      const end = primary.endDate || primary.end_date || "";
+      const dates = start || end
+        ? ` (${[start, end || "Present"].filter(Boolean).join(" - ")})`
         : "";
 
       let summary = "";
       if (title && company) summary = `${title} at ${company}${dates}`;
       else if (title) summary = `${title}${dates}`;
       else if (company) summary = `${company}${dates}`;
+      else if (primary.description || primary.summary) summary = String(primary.description || primary.summary).trim();
 
       if (summary) {
         if (expList.length > 1) {
@@ -457,7 +460,7 @@ export async function fetchAdminProfiles() {
     if (candidateIds.length > 0) {
       const { data: candidateProfiles } = await supabase
         .from("candidate_profiles")
-        .select("user_id, degree, course, education_level, years_experience, skills, certifications")
+        .select("*")
         .in("user_id", candidateIds);
 
       if (Array.isArray(candidateProfiles) && candidateProfiles.length > 0) {
@@ -2298,7 +2301,47 @@ export async function logAdminAction({ action, targetType, targetId, reason, met
 }
 
 /**
- * Server-side paginated query for Admin Audit Logs with search & filters
+ * Validates whether a given string is a valid canonical RFC 4122 UUID.
+ */
+export function isValidUuid(str) {
+  if (typeof str !== "string") return false;
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str.trim());
+}
+
+/**
+ * In-memory filtering helper for admin audit logs.
+ * Preserves candidate UUID-specific matching and keyword search across action, target, and reason.
+ */
+export function filterAuditLogsLocally(logsList = [], search = "", actionType = "all") {
+  let filtered = Array.isArray(logsList) ? [...logsList] : [];
+
+  if (actionType && actionType !== "all" && actionType !== "All") {
+    filtered = filtered.filter((l) => (l.action || "").toUpperCase() === actionType.toUpperCase());
+  }
+
+  if (search && search.trim()) {
+    const cleanTerm = search.trim();
+    const isUuid = isValidUuid(cleanTerm);
+    const lowerTerm = cleanTerm.toLowerCase();
+
+    filtered = filtered.filter((l) => {
+      if (isUuid && l.target_id && String(l.target_id).toLowerCase() === lowerTerm) {
+        return true;
+      }
+      return (
+        (l.action && l.action.toLowerCase().includes(lowerTerm)) ||
+        (l.target_type && l.target_type.toLowerCase().includes(lowerTerm)) ||
+        (l.reason && l.reason.toLowerCase().includes(lowerTerm))
+      );
+    });
+  }
+
+  return filtered;
+}
+
+/**
+ * Server-side paginated query for Admin Audit Logs with search & filters.
+ * Safely queries target_id using eq for valid UUIDs to avoid PostgREST operator errors.
  */
 export async function fetchAdminAuditLogs({ search = "", actionType = "all", page = 1, pageSize = 10 } = {}) {
   try {
@@ -2310,9 +2353,14 @@ export async function fetchAdminAuditLogs({ search = "", actionType = "all", pag
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false });
 
-    if (search.trim()) {
-      const term = `%${search.trim()}%`;
-      query = query.or(`action.ilike.${term},target_type.ilike.${term},reason.ilike.${term}`);
+    if (search && search.trim()) {
+      const cleanTerm = search.trim();
+      const term = `%${cleanTerm}%`;
+      if (isValidUuid(cleanTerm)) {
+        query = query.or(`target_id.eq.${cleanTerm},action.ilike.${term},target_type.ilike.${term},reason.ilike.${term}`);
+      } else {
+        query = query.or(`action.ilike.${term},target_type.ilike.${term},reason.ilike.${term}`);
+      }
     }
 
     if (actionType !== "all" && actionType !== "All") {

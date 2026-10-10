@@ -1236,7 +1236,7 @@ export default function ManageJobseekers() {
                         type="button"
                         onClick={() => {
                           setSelectedCandidate(null);
-                          navigate(`/admin/audit-logs?search=${encodeURIComponent(cand.email || cand.id)}`);
+                          navigate(`/admin/audit-logs?search=${encodeURIComponent(cand.id || "")}`);
                         }}
                         style={{ background: "#fff", color: "#2563eb", border: "1px solid #bfdbfe", padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
                       >
