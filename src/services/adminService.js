@@ -105,18 +105,255 @@ export function formatFileSize(size) {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
+/**
+ * Safely parses skills from diverse formats (array, JSON string, comma string)
+ * into a clean array of strings or skill objects.
+ */
+export function parseSkillsList(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) {
+    return val.filter((item) => item !== null && item !== undefined && (typeof item !== "string" || item.trim().length > 0));
+  }
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (!trimmed || trimmed === "[]" || trimmed === "null" || trimmed === "undefined") {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item) => item !== null && item !== undefined && (typeof item !== "string" || item.trim().length > 0));
+      }
+    } catch {
+      // Comma-separated string
+      return trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  return [];
+}
+
+/**
+ * Resolves candidate skills preferring a populated primary source,
+ * falling back to candidate_profiles source if primary is empty.
+ */
+export function resolveCandidateSkills(primarySkills, fallbackSkills) {
+  const pList = parseSkillsList(primarySkills);
+  if (pList.length > 0) return pList;
+  const fList = parseSkillsList(fallbackSkills);
+  if (fList.length > 0) return fList;
+  return [];
+}
+
+/**
+ * Resolves candidate work experience preferring a populated primary source,
+ * falling back to legacy experience or candidate_profiles if empty.
+ */
+export function resolveCandidateWorkExperience(primaryWorkExp, fallbackCp = null, legacyExp = null) {
+  const pList = parseJsonField(primaryWorkExp, []);
+  if (Array.isArray(pList) && pList.length > 0) {
+    return pList;
+  }
+  const legList = parseJsonField(legacyExp, []);
+  if (Array.isArray(legList) && legList.length > 0) {
+    return legList;
+  }
+  const cpExp = parseJsonField(fallbackCp?.experience, []);
+  if (Array.isArray(cpExp) && cpExp.length > 0) {
+    return cpExp;
+  }
+  const cpWorkExp = parseJsonField(fallbackCp?.work_experience, []);
+  if (Array.isArray(cpWorkExp) && cpWorkExp.length > 0) {
+    return cpWorkExp;
+  }
+  return [];
+}
+
+/**
+ * Resolves candidate certifications preferring a populated primary source,
+ * falling back to candidate_profiles certifications if empty.
+ */
+export function resolveCandidateCertifications(primaryCerts, fallbackCerts) {
+  const pList = parseJsonField(primaryCerts, []);
+  if (Array.isArray(pList) && pList.length > 0) {
+    return pList;
+  }
+  const fList = parseJsonField(fallbackCerts, []);
+  if (Array.isArray(fList) && fList.length > 0) {
+    return fList;
+  }
+  return [];
+}
+
+/**
+ * Resolves candidate education records.
+ * If profiles.education array has records, returns them.
+ * If empty, extracts degree, course, education_level from candidate_profiles
+ * to synthesize a normalized education record.
+ */
+export function resolveCandidateEducation(primaryEdu, candidateProfile = null, profileFallback = null) {
+  const pList = parseJsonField(primaryEdu, []);
+  if (Array.isArray(pList) && pList.length > 0) {
+    return pList;
+  }
+  const cp = candidateProfile || profileFallback?.candidate_profile;
+  const cpEdu = parseJsonField(cp?.education, []);
+  if (Array.isArray(cpEdu) && cpEdu.length > 0) {
+    return cpEdu;
+  }
+
+  const degree = cp?.degree || profileFallback?.degree || null;
+  const course = cp?.course || profileFallback?.course || null;
+  const educationLevel = cp?.education_level || profileFallback?.education_level || null;
+
+  if (degree || course || educationLevel) {
+    return [
+      {
+        degree: degree || educationLevel || "Degree",
+        qualification: degree || educationLevel || "Degree",
+        field: course || "",
+        course: course || "",
+        education_level: educationLevel || "",
+        school: "",
+        institution: "",
+        dates: "",
+        is_normalized: true,
+      },
+    ];
+  }
+
+  return [];
+}
+
+/**
+ * Deterministically resolves resume record and URL.
+ * Prefers the given resume record (or newest if array is supplied),
+ * preserves legacy profile.resume_url when no resume row exists.
+ */
+export function resolveCandidateResume(resumesOrRecord, profile) {
+  let targetResume = null;
+  if (Array.isArray(resumesOrRecord)) {
+    if (resumesOrRecord.length > 0) {
+      // Deterministically sort by created_at desc to pick the newest
+      const sorted = [...resumesOrRecord].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      targetResume = sorted[0];
+    }
+  } else if (resumesOrRecord && typeof resumesOrRecord === "object") {
+    targetResume = resumesOrRecord;
+  }
+
+  if (targetResume && targetResume.file_url) {
+    return {
+      resume: targetResume,
+      resume_url: targetResume.file_url,
+    };
+  }
+
+  if (profile?.resume_url) {
+    const legacyResume = {
+      id: profile.id,
+      applicant_id: profile.id,
+      file_url: profile.resume_url,
+      file_name: "Candidate Resume Document",
+      created_at: profile.updated_at || profile.created_at || null,
+      file_size: null,
+      is_legacy: true,
+    };
+    return {
+      resume: legacyResume,
+      resume_url: profile.resume_url,
+    };
+  }
+
+  return {
+    resume: null,
+    resume_url: null,
+  };
+}
+
+/**
+ * Calculates global summary metrics across candidate accounts.
+ */
+export function calculateAdminJobseekerSummary(candidateList = []) {
+  const list = Array.isArray(candidateList) ? candidateList : [];
+  return {
+    total: list.length,
+    active: list.filter(isAccountActive).length,
+    suspended: list.filter(isAccountSuspended).length,
+    verified: list.filter((p) => p && (p.verification_status === "Verified" || p.verification_status === "Approved")).length,
+    pending: list.filter((p) => p && (!p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification" || p.verification_status === "Under Review")).length,
+  };
+}
+
+/**
+ * Constructs a fully merged candidate object with normalized education,
+ * fallbacks for empty arrays, preserved legacy resumes, and career preferences.
+ */
+export function mergeCandidateProfileData(profile, candidateProfile = null, resumeRecordOrList = null) {
+  const cp = candidateProfile || profile?.candidate_profile || null;
+  const { resume, resume_url } = resolveCandidateResume(resumeRecordOrList, profile);
+
+  const education = resolveCandidateEducation(profile?.education, cp, profile);
+  const work_experience = resolveCandidateWorkExperience(profile?.work_experience, cp, profile?.experience);
+  const certifications = resolveCandidateCertifications(profile?.certifications, cp?.certifications);
+  const skills = resolveCandidateSkills(profile?.skills, cp?.skills);
+
+  const parsedPortfolio = parseJsonField(profile?.portfolio_links, {});
+  const parsedSocial = parseJsonField(profile?.social_links, {});
+
+  const prefCategories = cp?.preferred_categories || profile?.preferred_categories || [];
+  const prefSubcategories = cp?.preferred_subcategories || profile?.preferred_subcategories || [];
+  const prefRoles = cp?.preferred_roles || profile?.preferred_roles || [];
+  const careerStage = cp?.career_stage || profile?.career_stage || "";
+
+  const effectiveDegree = cp?.degree || profile?.degree || education[0]?.degree || null;
+  const effectiveCourse = cp?.course || profile?.course || education[0]?.course || null;
+  const effectiveLevel = cp?.education_level || profile?.education_level || education[0]?.education_level || null;
+  const effectiveYears = cp?.years_experience ?? profile?.years_experience ?? null;
+
+  return {
+    ...profile,
+    skills,
+    experience: work_experience,
+    work_experience,
+    education,
+    certifications,
+    portfolio_links: parsedPortfolio,
+    social_links: parsedSocial,
+    resume,
+    resume_url,
+    candidate_profile: cp,
+    degree: effectiveDegree,
+    course: effectiveCourse,
+    education_level: effectiveLevel,
+    years_experience: effectiveYears,
+    career_stage: careerStage || null,
+    preferred_categories: prefCategories,
+    preferred_subcategories: prefSubcategories,
+    preferred_roles: prefRoles,
+    career_preferences: {
+      preferredCategories: prefCategories,
+      preferredSubcategories: prefSubcategories,
+      preferredRoles: prefRoles,
+      careerStage,
+    },
+    profile_completion: calculateProfileCompletion(profile, cp, resume),
+  };
+}
+
 export function getCandidateEducationSummary(profile, candidateProfile = null) {
   const role = String(profile?.role || "").trim().toLowerCase();
   if (role === "employer") return "N/A - Employer Account";
   if (role === "admin") return "N/A - Admin Account";
 
-  const eduList = parseJsonField(profile?.education, []);
+  const cp = candidateProfile || profile?.candidate_profile;
+  const eduList = resolveCandidateEducation(profile?.education, cp, profile);
+
   if (Array.isArray(eduList) && eduList.length > 0) {
     const primary = eduList[0];
     if (typeof primary === "string" && primary.trim()) return primary.trim();
     if (primary && typeof primary === "object") {
       const parts = [];
-      const degree = primary.degree || primary.qualification;
+      const degree = primary.degree || primary.qualification || primary.education_level;
       const field = primary.field || primary.course;
       const school = primary.school || primary.institution;
 
@@ -128,16 +365,6 @@ export function getCandidateEducationSummary(profile, candidateProfile = null) {
     }
   }
 
-  const cp = candidateProfile || profile?.candidate_profile;
-  if (cp?.degree || cp?.course || profile?.degree || profile?.course) {
-    const degree = cp?.degree || profile?.degree;
-    const course = cp?.course || profile?.course;
-    const parts = [];
-    if (degree) parts.push(degree);
-    if (course) parts.push(`in ${course}`);
-    if (parts.length > 0) return parts.join(" ");
-  }
-
   return "Not provided";
 }
 
@@ -146,7 +373,9 @@ export function getCandidateExperienceSummary(profile, candidateProfile = null) 
   if (role === "employer") return "N/A - Employer Account";
   if (role === "admin") return "N/A - Admin Account";
 
-  const expList = parseJsonField(profile?.work_experience || profile?.experience, []);
+  const cp = candidateProfile || profile?.candidate_profile;
+  const expList = resolveCandidateWorkExperience(profile?.work_experience, cp, profile?.experience);
+
   if (Array.isArray(expList) && expList.length > 0) {
     const primary = expList[0];
     if (typeof primary === "string" && primary.trim()) return primary.trim();
@@ -171,7 +400,6 @@ export function getCandidateExperienceSummary(profile, candidateProfile = null) 
     }
   }
 
-  const cp = candidateProfile || profile?.candidate_profile;
   const years = cp?.years_experience ?? profile?.years_experience;
   if (years !== undefined && years !== null && Number(years) > 0) {
     return `${years} year${Number(years) === 1 ? "" : "s"} experience`;
@@ -238,14 +466,7 @@ export async function fetchAdminProfiles() {
           if (isJobSeeker(p.role)) {
             const cp = candMap.get(p.id);
             if (cp) {
-              return {
-                ...p,
-                candidate_profile: cp,
-                degree: cp.degree || null,
-                course: cp.course || null,
-                education_level: cp.education_level || null,
-                years_experience: cp.years_experience ?? null,
-              };
+              return mergeCandidateProfileData(p, cp, null);
             }
           }
           return p;
@@ -281,13 +502,7 @@ export async function fetchAdminJobseekers({ search = "", verificationStatus = "
     const candidateList = allCandidates || [];
 
     // Global summary counts across all candidate records (independent of search / pagination)
-    const summary = {
-      total: candidateList.length,
-      active: candidateList.filter(isAccountActive).length,
-      suspended: candidateList.filter(isAccountSuspended).length,
-      verified: candidateList.filter(p => p.verification_status === "Verified" || p.verification_status === "Approved").length,
-      pending: candidateList.filter(p => !p.verification_status || p.verification_status === "Pending" || p.verification_status === "Pending Verification" || p.verification_status === "Under Review").length,
-    };
+    const summary = calculateAdminJobseekerSummary(candidateList);
 
     // 2. Strict Active-Only Filter (Jobseeker Management table displays active accounts; suspended accounts are managed on dedicated Suspended Accounts page)
     let activeCandidates = candidateList.filter(isAccountActive);
@@ -333,47 +548,22 @@ export async function fetchAdminJobseekers({ search = "", verificationStatus = "
         supabase
           .from("resumes")
           .select("id, applicant_id, file_url, file_name, file_size, created_at, resume_score, completeness, parsed_details")
-          .in("applicant_id", ids),
+          .in("applicant_id", ids)
+          .order("created_at", { ascending: false }),
       ]);
 
       const candMap = new Map((candProfiles || []).map((cp) => [cp.user_id, cp]));
-      const resumeMap = new Map((resumesData || []).map((r) => [r.applicant_id, r]));
+      const resumeMap = new Map();
+      for (const r of (resumesData || [])) {
+        if (!resumeMap.has(r.applicant_id)) {
+          resumeMap.set(r.applicant_id, r);
+        }
+      }
 
       paginatedData = paginatedData.map((p) => {
         const cp = candMap.get(p.id);
         const res = resumeMap.get(p.id);
-
-        const parsedEducation = parseJsonField(p.education, []);
-        const parsedWorkExp = parseJsonField(p.work_experience, []);
-        const parsedCertifications = parseJsonField(p.certifications, cp?.certifications ? parseJsonField(cp.certifications, []) : []);
-        const parsedPortfolio = parseJsonField(p.portfolio_links, {});
-        const parsedSocial = parseJsonField(p.social_links, {});
-
-        return {
-          ...p,
-          skills: p.skills || cp?.skills || [],
-          experience: parsedWorkExp.length > 0 ? parsedWorkExp : (cp?.experience ? parseJsonField(cp.experience, []) : []),
-          work_experience: parsedWorkExp,
-          education: parsedEducation,
-          certifications: parsedCertifications,
-          portfolio_links: parsedPortfolio,
-          social_links: parsedSocial,
-          resume: res || null,
-          resume_url: res?.file_url || null,
-          candidate_profile: cp || null,
-          career_stage: cp?.career_stage || null,
-          preferred_categories: cp?.preferred_categories || [],
-          preferred_subcategories: cp?.preferred_subcategories || [],
-          preferred_roles: cp?.preferred_roles || [],
-          years_experience: cp?.years_experience ?? null,
-          career_preferences: {
-            preferredCategories: cp?.preferred_categories || [],
-            preferredSubcategories: cp?.preferred_subcategories || [],
-            preferredRoles: cp?.preferred_roles || [],
-            careerStage: cp?.career_stage || "",
-          },
-          profile_completion: calculateProfileCompletion(p, cp, res),
-        };
+        return mergeCandidateProfileData(p, cp, res);
       });
     }
 
@@ -391,17 +581,17 @@ export function calculateProfileCompletion(profile, candidateProfile = null, res
   if (profile?.contact_number) score += 15;
   if (profile?.address || candidateProfile?.location) score += 10;
 
-  const skills = profile?.skills || candidateProfile?.skills;
-  const hasSkills = Array.isArray(skills) ? skills.length > 0 : Boolean(skills && String(skills).trim());
-  if (hasSkills) score += 10;
+  const skills = resolveCandidateSkills(profile?.skills, candidateProfile?.skills);
+  if (skills.length > 0) score += 10;
 
-  const exp = parseJsonField(profile?.work_experience || profile?.experience, []);
-  if ((Array.isArray(exp) && exp.length > 0) || (candidateProfile?.years_experience !== null && candidateProfile?.years_experience !== undefined && Number(candidateProfile.years_experience) > 0)) {
+  const exp = resolveCandidateWorkExperience(profile?.work_experience, candidateProfile, profile?.experience);
+  const years = candidateProfile?.years_experience ?? profile?.years_experience;
+  if (exp.length > 0 || (years !== null && years !== undefined && Number(years) > 0)) {
     score += 10;
   }
 
-  const edu = parseJsonField(profile?.education, []);
-  if ((Array.isArray(edu) && edu.length > 0) || candidateProfile?.degree || candidateProfile?.course) {
+  const edu = resolveCandidateEducation(profile?.education, candidateProfile, profile);
+  if (edu.length > 0) {
     score += 10;
   }
 

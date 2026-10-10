@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+import { supabase } from "../../services/supabase";
 import {
   fetchAdminJobseekers,
   updateCandidateVerification,
   suspendCandidateAccount,
-  restoreCandidateAccount,
   updateCandidateAdministrativeDetails,
   displayUserName,
   isAccountSuspended,
@@ -73,7 +74,30 @@ export default function ManageJobseekers() {
     setCustomDateError("");
   };
 
-  const [restoreModalCandidate, setRestoreModalCandidate] = useState(null);
+  const navigate = useNavigate();
+  const [resetEmailSending, setResetEmailSending] = useState(false);
+
+  const handleSendPasswordReset = async (email) => {
+    if (!email) {
+      showToast("No email address found for candidate.", "error");
+      return;
+    }
+    setResetEmailSending(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) {
+        showToast(`Failed to send password reset email: ${error.message}`, "error");
+      } else {
+        showToast(`✓ Password reset email sent to ${email}.`, "success");
+      }
+    } catch (err) {
+      showToast(`Error sending password reset: ${err?.message || "Unknown error"}`, "error");
+    } finally {
+      setResetEmailSending(false);
+    }
+  };
 
   const [editAdminCandidate, setEditAdminCandidate] = useState(null);
   const [editFormData, setEditFormData] = useState({ fullName: "", contactNumber: "", address: "" });
@@ -244,25 +268,6 @@ export default function ManageJobseekers() {
     setCustomDateError("");
     if (selectedCandidate?.id === suspendModalCandidate.id) {
       setSelectedCandidate(prev => ({ ...prev, is_suspended: true }));
-    }
-    loadJobseekers();
-  };
-
-  const handleConfirmRestore = async () => {
-    if (!restoreModalCandidate) return;
-    setActionLoading(true);
-    const { error } = await restoreCandidateAccount(restoreModalCandidate.id, "Account reactivated by administrator");
-    setActionLoading(false);
-
-    if (error) {
-      showToast(`Failed to restore candidate: ${error.message}`, "error");
-      return;
-    }
-
-    showToast("✓ Candidate account reactivated successfully.");
-    setRestoreModalCandidate(null);
-    if (selectedCandidate?.id === restoreModalCandidate.id) {
-      setSelectedCandidate(prev => ({ ...prev, is_suspended: false }));
     }
     loadJobseekers();
   };
@@ -916,26 +921,30 @@ export default function ManageJobseekers() {
                           {educationList.map((e, i) => (
                             <div key={i} style={{ padding: "10px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #f1f5f9", fontSize: "13px" }}>
                               <strong style={{ color: "#0f172a", display: "block" }}>
-                                {typeof e === "object" ? (e.degree || e.qualification || "Degree not specified") : String(e)}
+                                {typeof e === "object" ? (e.degree || e.qualification || e.education_level || "Degree not specified") : String(e)}
                               </strong>
                               {typeof e === "object" && (
                                 <>
                                   <div style={{ color: "#475569", marginTop: "2px" }}>
                                     {e.field || e.course ? <span>Field: {e.field || e.course} · </span> : null}
-                                    <span>{e.school || e.institution || "Institution not specified"}</span>
+                                    {e.education_level && e.degree && e.degree !== e.education_level ? <span>Level: {e.education_level} · </span> : null}
+                                    <span>{e.school || e.institution || (e.is_normalized ? "" : "Institution not specified")}</span>
                                   </div>
-                                  <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>
-                                    Year / Dates: {e.gradYear || e.year || e.dates || (e.startDate && e.endDate ? `${e.startDate} - ${e.endDate}` : e.startDate || e.endDate) || "Not provided"}
-                                  </div>
+                                  {(e.gradYear || e.year || e.dates || (e.startDate && e.endDate ? `${e.startDate} - ${e.endDate}` : e.startDate || e.endDate)) ? (
+                                    <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>
+                                      Year / Dates: {e.gradYear || e.year || e.dates || (e.startDate && e.endDate ? `${e.startDate} - ${e.endDate}` : e.startDate || e.endDate)}
+                                    </div>
+                                  ) : null}
                                 </>
                               )}
                             </div>
                           ))}
                         </div>
-                      ) : (cand.degree || cand.course) ? (
+                      ) : (cand.degree || cand.course || cand.education_level) ? (
                         <div style={{ padding: "10px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #f1f5f9", fontSize: "13px" }}>
-                          <strong style={{ color: "#0f172a", display: "block" }}>{cand.degree || "Degree not specified"}</strong>
-                          {cand.course && <div style={{ color: "#475569", marginTop: "2px" }}>Course: {cand.course}</div>}
+                          <strong style={{ color: "#0f172a", display: "block" }}>{cand.degree || cand.education_level || "Degree not specified"}</strong>
+                          {cand.course && <div style={{ color: "#475569", marginTop: "2px" }}>Field: {cand.course}</div>}
+                          {cand.education_level && cand.degree && <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>Level: {cand.education_level}</div>}
                         </div>
                       ) : (
                         <span style={{ fontSize: "13px", color: "#94a3b8", fontStyle: "italic" }}>Not provided</span>
@@ -1204,13 +1213,34 @@ export default function ManageJobseekers() {
                   {/* 8. Authorized Administration Controls */}
                   <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "16px", background: "#f8fafc", padding: "16px", borderRadius: "12px" }}>
                     <h4 style={{ margin: "0 0 10px 0", fontSize: "13px", fontWeight: "700", color: "#475569", textTransform: "uppercase" }}>⚙️ Authorized Account Moderation</h4>
-                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <button
                         type="button"
                         onClick={() => handleOpenEdit(cand)}
                         style={{ background: "#fff", color: "#1e293b", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
                       >
                         ✏️ Edit Contact Info
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSendPasswordReset(cand.email)}
+                        disabled={resetEmailSending || !cand.email}
+                        style={{ background: "#fff", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: resetEmailSending || !cand.email ? "not-allowed" : "pointer" }}
+                        title="Send password reset link via Supabase Auth to candidate's email"
+                      >
+                        {resetEmailSending ? "Sending Reset Email..." : "🔑 Send Password Reset Email"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCandidate(null);
+                          navigate(`/admin/audit-logs?search=${encodeURIComponent(cand.email || cand.id)}`);
+                        }}
+                        style={{ background: "#fff", color: "#2563eb", border: "1px solid #bfdbfe", padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
+                      >
+                        📜 View Audit Trail
                       </button>
 
                       {!isSuspended ? (
@@ -1224,10 +1254,13 @@ export default function ManageJobseekers() {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => setRestoreModalCandidate(cand)}
-                          style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0", padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
+                          onClick={() => {
+                            setSelectedCandidate(null);
+                            navigate("/admin/suspended-accounts");
+                          }}
+                          style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
                         >
-                          ✓ Restore / Reactivate Account
+                          ⚠️ View in Suspended Accounts →
                         </button>
                       )}
                     </div>
@@ -1528,27 +1561,6 @@ export default function ManageJobseekers() {
                   }}
                 >
                   {actionLoading ? "Suspending..." : "Confirm Suspension"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 4. RESTORE CONFIRMATION MODAL */}
-        {restoreModalCandidate && (
-          <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1200, padding: "20px" }}>
-            <div style={{ background: "#ffffff", borderRadius: "16px", maxWidth: "480px", width: "100%", padding: "24px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
-              <h3 style={{ margin: "0 0 8px 0", color: "#166534", fontSize: "18px" }}>✓ Restore Candidate Account</h3>
-              <p style={{ margin: "0 0 20px 0", fontSize: "13px", color: "#475569" }}>
-                Are you sure you want to reactivate the account for <strong>{displayUserName(restoreModalCandidate)}</strong>? They will be able to log in and apply for jobs.
-              </p>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-                <button type="button" onClick={() => setRestoreModalCandidate(null)} style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>
-                  Cancel
-                </button>
-                <button type="button" onClick={handleConfirmRestore} disabled={actionLoading} style={{ background: "#16a34a", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "700", cursor: "pointer" }}>
-                  {actionLoading ? "Restoring..." : "Confirm Reactivation"}
                 </button>
               </div>
             </div>

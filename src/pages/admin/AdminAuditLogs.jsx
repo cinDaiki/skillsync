@@ -1,16 +1,26 @@
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { fetchAdminAuditLogs } from "../../services/adminService";
 
 export default function AdminAuditLogs() {
+  const [searchParams] = useSearchParams();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(searchParams.get("search") || "");
   const [actionType, setActionType] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+
+  useEffect(() => {
+    const q = searchParams.get("search");
+    if (q !== null && q !== undefined) {
+      setSearch(q);
+      setPage(1);
+    }
+  }, [searchParams]);
 
   const loadAuditLogs = useCallback(async () => {
     setLoading(true);
