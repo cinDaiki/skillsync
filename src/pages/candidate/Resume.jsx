@@ -17,6 +17,8 @@ import ErrorBoundary                               from "../../components/guards
 import { getCandidateSkillEvidence }               from "../../services/ai/jobFitEngine";
 import "./Resume.css";
 import ResumeTemplateSection                       from "../../components/resume/ResumeTemplateSection.jsx";
+import ResumeQualityCard                           from "../../components/resume/ResumeQualityCard.jsx";
+import { assessResumeQuality }                     from "../../services/parser/qualityAssessor.js";
 
 // Lazy-loaded sub-components for Phase 6 modular UI
 const ResumeTabs = lazy(() => import("../../components/resume/ResumeTabs.jsx"));
@@ -146,7 +148,18 @@ export default function Resume() {
     ]);
 
     if (data || candProfRow) {
-      if (data) setResumeFile(data);
+      if (data) {
+        if (data.parsed_details && !data.parsed_details.qualityAssessment) {
+          data.parsed_details.qualityAssessment = assessResumeQuality({
+            rawText: data.parsed_details._rawText || '',
+            details: data.parsed_details,
+            skills: data.extracted_skills ? data.extracted_skills.split(',') : [],
+            parsedPipeline: data.parsed_details,
+            fileName: data.file_name || ''
+          });
+        }
+        setResumeFile(data);
+      }
       const candidateSkills = getCandidateSkillEvidence(candProfRow, data);
       setExtractedSkills(candidateSkills);
     }
@@ -220,24 +233,10 @@ export default function Resume() {
     // Client-side Skill & Score analysis
     const analysis = await parseResumeFile(file);
 
-    // Smart Validation — works for all resume types and formats
-    // PDF/DOCX files get benefit of the doubt since binary content limits text extraction.
-    const isComplexFile = file.name.match(/\.(pdf|docx?)$/i);
-    const missingSections = [];
-
-    if (!analysis.details.hasEducationSection && !isComplexFile) {
-      missingSections.push("Education");
-    }
-    if (!analysis.details.hasExperienceSection && !isComplexFile) {
-      missingSections.push("Work Experience");
-    }
-    // Contact: only block if NEITHER email NOR phone NOR social links detected and it's not a complex file
-    if (!analysis.details.hasContact && !isComplexFile) {
-      missingSections.push("Contact Information");
-    }
-
-    if (missingSections.length > 0) {
-      setMessage(`Validation Failed: Your resume is missing key sections (${missingSections.join(", ")}). Please revise your file and try again.`);
+    // Phase 2 Validation: Check for genuinely unreadable, empty, or corrupt documents.
+    // Do NOT block uploads solely for missing sections; provide actionable feedback instead.
+    if (analysis.qualityAssessment?.extractionQuality?.isUnreadable || !analysis.extractedText?.trim()) {
+      setMessage("Upload Failed: No readable text could be extracted from this document. If this is an image-only scan or unsupported binary, please use our editable ATS Word template or export as standard text.");
       setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
@@ -257,6 +256,12 @@ export default function Resume() {
     // Delete existing resume record before inserting new one
     await supabase.from("resumes").delete().eq("applicant_id", user.id);
 
+    const parsedDetailsObj = {
+      ...(analysis.parsed || {}),
+      ...analysis.details,
+      qualityAssessment: analysis.qualityAssessment
+    };
+
     const newRecord = {
       applicant_id: user.id,
       file_url: fileUrl,
@@ -265,7 +270,7 @@ export default function Resume() {
       extracted_skills: analysis.skills.join(","),
       resume_score: analysis.parsed?.ats?.score || analysis.score,
       completeness: analysis.completeness,
-      parsed_details: analysis.parsed || analysis.details
+      parsed_details: parsedDetailsObj
     };
 
     const { error: dbError } = await supabase
@@ -367,7 +372,13 @@ export default function Resume() {
     })()
     // ── End AI Pipeline ──────────────────────────────────────────────────
 
-    setMessage("Resume uploaded and parsed successfully.");
+    if (analysis.qualityAssessment?.extractionQuality?.isTextPoor) {
+      setMessage("Resume uploaded. Note: Document contains very little extractable text. Review the extraction assessment below or consider using the ATS template.");
+    } else if (analysis.qualityAssessment?.feedback?.warnings?.length > 0) {
+      setMessage(`Resume uploaded and parsed successfully. Quality tip: ${analysis.qualityAssessment.feedback.warnings[0].message}`);
+    } else {
+      setMessage("Resume uploaded and parsed successfully.");
+    }
     setLoading(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -573,6 +584,12 @@ export default function Resume() {
                 </button>
               </div>
             </div>
+
+            {/* Phase 2: Resume Quality & Extraction Validation Assessment */}
+            <ResumeQualityCard
+              assessment={resumeFile.parsed_details?.qualityAssessment || null}
+              onReupload={handleAddResume}
+            />
 
             {/* Standard Resume Templates & ATS Guide for active resume holders */}
             <ResumeTemplateSection variant="compact" />

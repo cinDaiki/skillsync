@@ -1,5 +1,6 @@
 import { normalizeSkillName } from "./normalization.js";
 import { runPipeline } from "./parser/index.js";
+import { assessResumeQuality } from "./parser/qualityAssessor.js";
 
 /**
  * LARGE curated skill dictionary spanning ALL industries.
@@ -392,7 +393,18 @@ export async function parseResumeFile(file) {
   const hasEducationSection  = /education|university|college|school|degree|bachelor|master|doctorate|diploma|graduate|bsit|bscs|course|edukasyon|pinag-aralan/i.test(text);
   const hasCertificationsSection = /certif|license|credential|training|seminar|award|nc\s*ii|tesda|prc|sertipiko/i.test(text);
   const hasContact = !!(emailMatch || phoneMatch || /linkedin|github|portfolio/i.test(text));
-  const isComplexFormat = isDocx || isDoc || isPdf;
+  const authenticHasExperience = Boolean(
+    hasExperienceSection ||
+    (pipelineResult?.experience && pipelineResult.experience.length > 0) ||
+    pipelineResult?.meta?.sectionOrder?.includes('EXPERIENCE')
+  );
+
+  const authenticHasEducation = Boolean(
+    hasEducationSection ||
+    (pipelineResult?.education && pipelineResult.education.length > 0) ||
+    pipelineResult?.meta?.sectionOrder?.includes('EDUCATION') ||
+    extractedDegree
+  );
 
   // ── Step 4: Prefer pipeline contact over legacy regex ────────────────────
   const pContact = pipelineResult?.contact;
@@ -401,8 +413,8 @@ export async function parseResumeFile(file) {
     phone:    pContact?.phone?.normalized    || phoneMatch?.[0]    || null,
     linkedin: pContact?.linkedin?.normalized || (linkedinMatch ? "https://" + linkedinMatch[0] : null),
     github:   pContact?.github?.normalized   || (githubMatch   ? "https://" + githubMatch[0]   : null),
-    hasExperienceSection:     hasExperienceSection || isComplexFormat,
-    hasEducationSection:      hasEducationSection  || isComplexFormat,
+    hasExperienceSection:     authenticHasExperience,
+    hasEducationSection:      authenticHasEducation,
     hasCertificationsSection: hasCertificationsSection,
     hasContact:               hasContact,
     degree:   extractedDegree,
@@ -440,7 +452,16 @@ export async function parseResumeFile(file) {
   if (parsedDetails.hasExperienceSection)   completeness += 20;
   if (parsedDetails.hasEducationSection)    completeness += 20;
 
-  // ── Step 7: Return legacy shape + new `parsed` field (additive) ──────────
+  // ── Step 7: Phase 2 — Resume Quality and Extraction Validation ────────────
+  const qualityAssessment = assessResumeQuality({
+    rawText: text,
+    details: parsedDetails,
+    skills: mergedSkills,
+    parsedPipeline: pipelineResult,
+    fileName: file.name
+  });
+
+  // ── Step 8: Return legacy shape + new fields (additive) ───────────────────
   return {
     // ─ Legacy fields — 100% backward compatible ─
     score:        Math.round(score),
@@ -448,8 +469,9 @@ export async function parseResumeFile(file) {
     skills:       mergedSkills,
     details:      parsedDetails,
     extractedText: text,   // used by embeddingService for semantic encoding
-    // ─ New fields — existing callers safely ignore these ─
+    // ─ Phase 1 & 2 additions ─
     parsed:       pipelineResult,
+    qualityAssessment,     // Phase 2 Quality & Extraction Assessment
   };
 }
 
