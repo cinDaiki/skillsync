@@ -21,8 +21,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import {
   QUALIFICATION_STATES,
+  APPLICATION_DECISION,
   evaluateMandatoryEligibility,
   simulateProposedGating,
+  resolveThreeOutputAssessment,
   formatAndValidatePilotCase
 } from '../src/services/evaluation/pilotDataEntry.js';
 import { validateBenchmarkCase } from '../src/services/evaluation/benchmarkSchema.js';
@@ -177,6 +179,46 @@ async function runTestSuite() {
   };
   const badProvValidation = validateBenchmarkCase(badProvCase);
   assert(badProvValidation.isValid === false, 'Rejects unapproved source_type');
+
+  // ── Test 11: Three-Output Conceptual Decoupling Model ─────────────────────
+  console.log('\n[Test 11] Three-Output Model: Job-Fit Score, Eligibility, & Application Decision');
+  
+  // Scenario A: Candidate with high score (82%) missing mandatory certification (NOT_MET)
+  const candidateHighSkillMissingCert = {
+    'Active CPA or Equivalent': QUALIFICATION_STATES.NOT_MET
+  };
+  const resA = resolveThreeOutputAssessment(82, candidateHighSkillMissingCert, { minimumPassingScore: 60 });
+  assert(resA.jobFitScore === 82, 'Job-Fit Score remains objectively 82% without artificial truncation');
+  assert(resA.tier === 'Strong Match', 'Job-Fit Tier accurately reflects strong skills alignment');
+  assert(resA.eligibility.status === 'INELIGIBLE', 'Mandatory eligibility cleanly identifies INELIGIBLE status');
+  assert(resA.decision === APPLICATION_DECISION.DISQUALIFIED, 'Application decision cleanly reflects DISQUALIFIED based on screening policy');
+
+  // Scenario B: Candidate with high score (85%) with missing evidence (UNKNOWN)
+  const candidateHighSkillUnknownCert = {
+    'Active CPA or Equivalent': QUALIFICATION_STATES.UNKNOWN
+  };
+  const resB = resolveThreeOutputAssessment(85, candidateHighSkillUnknownCert, { minimumPassingScore: 60 });
+  assert(resB.jobFitScore === 85, 'Job-Fit Score is preserved at 85%');
+  assert(resB.eligibility.status === 'PENDING_VERIFICATION', 'Eligibility is PENDING_VERIFICATION');
+  assert(resB.decision === APPLICATION_DECISION.HOLD_FOR_REVIEW, 'Application decision is HOLD_FOR_REVIEW instead of rejection');
+
+  // Scenario C: Candidate with high score (88%) satisfying all mandatory requirements (MET)
+  const candidateMet = {
+    '5+ years Node.js': QUALIFICATION_STATES.MET
+  };
+  const resC = resolveThreeOutputAssessment(88, candidateMet, { minimumPassingScore: 60 });
+  assert(resC.jobFitScore === 88, 'Job-Fit Score is 88%');
+  assert(resC.eligibility.status === 'ELIGIBLE', 'Eligibility is ELIGIBLE');
+  assert(resC.decision === APPLICATION_DECISION.ADVANCE, 'Application decision is ADVANCE');
+
+  // Scenario D: Candidate with low score (45%) but satisfying mandatory requirements (MET)
+  const candidateLowScoreMet = {
+    'Basic Node.js': QUALIFICATION_STATES.MET
+  };
+  const resD = resolveThreeOutputAssessment(45, candidateLowScoreMet, { minimumPassingScore: 60 });
+  assert(resD.jobFitScore === 45, 'Job-Fit Score is 45%');
+  assert(resD.eligibility.status === 'ELIGIBLE', 'Eligibility is ELIGIBLE');
+  assert(resD.decision === APPLICATION_DECISION.DISQUALIFIED, 'Application decision rejects due to score below minimum threshold');
 
   console.log(`\n🎉 ALL ${passedTests}/${totalTests} MANDATORY GATING RFC & PILOT PREPARATION TESTS PASSED!`);
 }

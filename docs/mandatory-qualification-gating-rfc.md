@@ -24,40 +24,53 @@ This RFC proposes decoupling **Overall Job-Fit Alignment** from **Mandatory Elig
 
 ---
 
-## 2. Decoupling Job Fit from Mandatory Eligibility
+## 2. Decoupling Job Fit from Mandatory Eligibility: The Three-Output Architecture
 
-SkillSync must answer two related but distinct questions for every job requisition:
+SkillSync must answer three related but conceptually distinct questions for every job requisition:
 
 ```mermaid
 graph TD
-    A[Candidate Application] --> B[SkillSync Assessment]
-    B --> C[1. Overall Job-Fit Alignment]
-    B --> D[2. Mandatory Eligibility Gating]
+    A[Candidate Application] --> B[SkillSync Assessment Engine]
+    B --> C[Output 1: Numerical Job-Fit Score]
+    B --> D[Output 2: Mandatory Eligibility State]
     
-    C -->|Continuous Metric: 0-100%| C1[Evaluates depth, experience breadth, transferable skills, project accomplishments]
-    D -->|Discrete Policy State| D1{Has candidate satisfied all non-negotiable prerequisites?}
+    C -->|Continuous Metric: 0-100%| C1[Quantifies alignment across skills, experience depth, domain familiarity, education]
+    D -->|Discrete State| D1{Has candidate satisfied non-negotiable prerequisites?}
     
-    D1 -->|MET| E1[Eligible: Full score preserved]
-    D1 -->|NOT_MET| E2[Ineligible: Score capped <= 35%, Flagged as Missing Mandatory]
-    D1 -->|UNKNOWN| E3[Pending Verification: Score held, Flagged for HR Review]
+    D1 -->|MET| E1[ELIGIBLE]
+    D1 -->|NOT_MET| E2[INELIGIBLE]
+    D1 -->|UNKNOWN| E3[PENDING_VERIFICATION]
+    
+    C1 --> F[Output 3: Application Decision Pipeline]
+    E1 --> F
+    E2 --> F
+    E3 --> F
+    
+    F -->|Applies Approved HR Screening Policy| G1[ADVANCE: Eligible + Score >= Threshold]
+    F -->|Applies Approved HR Screening Policy| G2[HOLD_FOR_REVIEW: Unverified / Needs Human Review]
+    F -->|Applies Approved HR Screening Policy| G3[DISQUALIFIED: Ineligible or Score < Threshold]
 ```
 
-1. **Overall Job-Fit Alignment (Continuous 0–100%)**:
-   Measures the candidate's holistic alignment across required technical skills, transferable problem-solving, education, work experience, and domain achievements.
-2. **Mandatory Eligibility (Discrete Status)**:
-   Determines whether the candidate satisfies every legal, regulatory, or operational non-negotiable condition required to perform the job.
+### The Three Conceptually Distinct Outputs:
+1. **Output 1 — Numerical Job-Fit Score (Continuous 0–100%)**:
+   Quantifies the objective alignment between the candidate's documented qualifications and the job requirements (technical skills, experience seniority, domain competencies). It is an honest measure of capability that should not be artificially suppressed.
+2. **Output 2 — Mandatory Eligibility State (Discrete Category)**:
+   Classifies candidate fulfillment of explicit, non-negotiable prerequisites into `ELIGIBLE`, `INELIGIBLE`, or `PENDING_VERIFICATION`.
+3. **Output 3 — Application Decision (Policy Action)**:
+   Applies the approved organizational screening policy combining eligibility and score thresholds to produce an operational workflow outcome: `ADVANCE`, `HOLD_FOR_REVIEW`, or `DISQUALIFIED`.
 
 ---
 
 ## 3. The Three Qualification States
 
-For each designated mandatory requirement, SkillSync must evaluate candidate evidence into one of three distinct states:
+For each designated mandatory requirement, SkillSync evaluates candidate evidence into one of three distinct states:
 
-| Qualification State | Operational Meaning | System Handling & Score Impact | User Explanation |
+| Qualification State | Operational Meaning | Recommended Output 2 Status | User & Recruiter Explanation |
 | :--- | :--- | :--- | :--- |
-| **`MET`** | Documentary evidence in the resume or verified profile satisfies the requirement. | Normal weighted scoring continues without capping. | *"Requirement satisfied: [Evidence details from resume]."* |
-| **`NOT_MET`** | Reliable documentary evidence affirmatively establishes that the requirement is **not satisfied** (e.g. candidate has 8 months total experience for a 5-year senior role; or candidate explicitly notes lack of required certification). | Overall score is capped at **$\le 35\%$** (`Skills Gap`). Status set to `Ineligible`. | *"Ineligible: Job mandates [Requirement Name]. Available records indicate this requirement is not met."* |
-| **`UNKNOWN`** | The resume and profile omit mention of the qualification (**Absence of Evidence $\neq$ Evidence of Absence**). | **NO automatic rejection or score penalty.** Score is preserved with an `Unverified Mandatory` flag. Requires human recruiter review or candidate self-attestation. | *"Pending Verification: [Requirement Name] is not mentioned in your resume. You may submit verification or contact the hiring team."* |
+| **`MET`** | Documentary evidence in the resume or verified profile satisfies the requirement. | `ELIGIBLE` | *"Requirement satisfied: [Evidence details from resume]."* |
+| **`NOT_MET`** | Reliable documentary evidence affirmatively establishes that the requirement is **not satisfied** (e.g. candidate has 8 months total experience for a 5-year senior role; or candidate explicitly notes lack of required license). | `INELIGIBLE` | *"Ineligible: Job mandates [Requirement Name]. Available records confirm this requirement is not met."* |
+| **`UNKNOWN`** | The resume and profile omit mention of the qualification (**Absence of Evidence $\neq$ Evidence of Absence**). | `PENDING_VERIFICATION` | *"Pending Verification: [Requirement Name] is not mentioned in your resume. Candidate self-attestation or recruiter review requested."* |
+
 
 ---
 
@@ -99,21 +112,28 @@ In automated screening, a resume parser may fail to recognize a certification du
 
 ---
 
-## 6. Interaction with Existing Score Tiers
+## 6. Unresolved Policy Decision: Score Capping vs. Conceptual Decoupling
 
-SkillSync's existing UI renders matches in 4 tiers:
-- **Strong Match**: $\ge 80\%$
-- **Good Match**: $60\% - 79\%$
-- **Potential Match**: $40\% - 59\%$
-- **Skills Gap**: $< 40\%$
+A critical architectural and talent-policy question must be resolved by HR leadership prior to production implementation:
 
-### Proposed Gating Policy Integration:
-1. **If all mandatory items are `MET`**:
-   The calculated weighted score displays normally in its respective tier.
-2. **If any mandatory item is `NOT_MET`**:
-   The displayed match score is capped at $\min(\text{RawScore}, 35\%)$, forcing placement in the `Skills Gap` tier. A badge **"Mandatory Requirement Unmet"** displays alongside the specific item name.
-3. **If any mandatory item is `UNKNOWN`**:
-   The calculated match score is displayed alongside a yellow **"Verification Required"** pill. The candidate is NOT moved to `Skills Gap`.
+> **The Policy Question:**  
+> When a candidate explicitly fails a valid mandatory requirement (`NOT_MET`), should SkillSync:
+> - **Option A (Score Capping):** Artificially overwrite the candidate's numerical Job-Fit Score with a hard cap at $\le 35\%$ (`Skills Gap`)?
+> - **Option B (Conceptual Decoupling — Recommended):** Preserve the honest, unpenalized numerical Job-Fit Score (e.g., $82\%$), while enforcing disqualification strictly via the **Mandatory Eligibility State** (`INELIGIBLE`) and **Application Decision** (`DISQUALIFIED`)?
+
+### Comparative Analysis:
+
+| Dimension | Option A: Hard Score Capping ($\le 35\%$) | Option B: 3-Output Decoupling (Recommended) |
+| :--- | :--- | :--- |
+| **Architectural Separation** | Conflates qualification scoring with screening policy. | Strict separation between scoring, eligibility, and decision. |
+| **Research & Calibration Impact** | Corrupts benchmark metrics ($\mathrm{MAE}/\mathrm{RMSE}$ conflate algorithm calibration with hard gating). | Allows measuring continuous score accuracy independently from categorical eligibility accuracy. |
+| **Recruiter Transparency** | Recruiter sees a low score but may not know if candidate lacked skills or just missed one license. | Recruiter sees high technical skills ($82\%$) alongside clear badge *"Ineligible: Missing State Bar License"*. |
+| **Legal & Audit Defensibility** | Risky: masks underlying skill evaluation behind arbitrary score truncation. | Defensible: audit trail records genuine skill alignment and explicit statutory disqualification separately. |
+| **Candidate Experience** | Demoralizing: candidate with 10 years experience sees a failing $35\%$ score without nuance. | Transparent: candidate sees strong qualification match with actionable note on missing prerequisite. |
+
+### Current Resolution Status:
+- The evaluation and simulation test harness supports **both models** (via `simulateProposedGating` for Option A and `resolveThreeOutputAssessment` for Option B).
+- **Mandatory Approval Requirement**: Neither option will be deployed to production or encoded into database RPCs until HR, Talent Science, and Legal formally review and approve the preferred operational policy.
 
 ---
 
@@ -121,8 +141,8 @@ SkillSync's existing UI renders matches in 4 tiers:
 
 | Error Type | Scenario | Consequence | Mitigation in RFC |
 | :--- | :--- | :--- | :--- |
-| **False Negative (Type I)** | Qualified candidate has license, but parser failed to extract it. | Unfair rejection of qualified applicant. | Classified as `UNKNOWN` rather than `NOT_MET`; human review triggered. |
-| **False Positive (Type II)** | Candidate lacks critical medical license, but weighted average gives 65% match. | Recruiter wastes time interviewing ineligible applicant. | `NOT_MET` hard cap ($\le 35\%$) immediately flags ineligibility. |
+| **False Negative (Type I)** | Qualified candidate has license, but parser failed to extract it. | Unfair rejection of qualified applicant. | Classified as `UNKNOWN` rather than `NOT_MET`; human review triggered (`HOLD_FOR_REVIEW`). |
+| **False Positive (Type II)** | Candidate lacks critical medical license, but weighted average gives 65% match. | Recruiter wastes time interviewing ineligible applicant. | `NOT_MET` status immediately sets `INELIGIBLE` and `DISQUALIFIED`. |
 | **Requirement Creep** | Employer marks 15 preferred skills as mandatory. | Severe talent pipeline starvation. | Employer UI limits mandatory flags to verified credentials and core minimums. |
 
 ---
@@ -137,7 +157,9 @@ SkillSync's existing UI renders matches in 4 tiers:
 
 ## 9. RFC Approval Workflow & Next Steps
 
-This RFC is an **architectural proposal**. Prior to any database migration or RPC modification:
-1. **Recruiter Calibration Review**: Review gating definitions during the Stage 1 HR Pilot.
-2. **Staging Validation**: Implement gating logic in an isolated test environment and validate across test cohorts.
-3. **Formal Sign-Off**: Approval by Talent Science Working Group and Lead Architect.
+This RFC is an **architectural proposal and readiness review document**. Prior to any database migration or RPC modification:
+1. **HR & Legal Sign-Off**: Formally decide between Option A (Score Capping) and Option B (3-Output Decoupling).
+2. **Recruiter Calibration Review**: Review gating definitions during the Stage 1 HR Pilot.
+3. **Staging Validation**: Implement gating logic in an isolated test environment and validate across test cohorts.
+4. **Formal Sign-Off**: Approval by Talent Science Working Group, Legal, and Lead Architect.
+

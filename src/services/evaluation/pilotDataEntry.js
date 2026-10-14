@@ -114,6 +114,57 @@ function getTierName(score) {
   return 'Skills Gap';
 }
 
+export const APPLICATION_DECISION = {
+  ADVANCE: 'ADVANCE',
+  HOLD_FOR_REVIEW: 'HOLD_FOR_REVIEW',
+  DISQUALIFIED: 'DISQUALIFIED'
+};
+
+/**
+ * Resolves the 3-output evaluation model recommended for architectural independence:
+ * Output 1: jobFitScore (continuous 0-100%, preserved without artificial caps)
+ * Output 2: mandatoryEligibility (ELIGIBLE | INELIGIBLE | PENDING_VERIFICATION)
+ * Output 3: applicationDecision (ADVANCE | HOLD_FOR_REVIEW | DISQUALIFIED)
+ *
+ * @param {number} rawScore - Numerical calculated match score (0-100)
+ * @param {Record<string, 'MET' | 'NOT_MET' | 'UNKNOWN'>} requirementStates - Qualification states
+ * @param {Object} [options]
+ * @param {number} [options.minimumPassingScore=60] - Minimum match score required to advance eligible candidates
+ * @returns {Object} { jobFitScore, tier, eligibility, decision, explanation }
+ */
+export function resolveThreeOutputAssessment(rawScore, requirementStates = {}, options = {}) {
+  const { minimumPassingScore = 60 } = options;
+  const eligibility = evaluateMandatoryEligibility(requirementStates);
+
+  let decision;
+  let explanation;
+
+  if (eligibility.status === QUALIFICATION_STATES.NOT_MET || eligibility.status === 'INELIGIBLE') {
+    decision = APPLICATION_DECISION.DISQUALIFIED;
+    explanation = `Candidate does not satisfy non-negotiable mandatory requirement(s): ${eligibility.unmetRequirements.join(', ')}.`;
+  } else if (eligibility.status === QUALIFICATION_STATES.UNKNOWN || eligibility.status === 'PENDING_VERIFICATION') {
+    decision = APPLICATION_DECISION.HOLD_FOR_REVIEW;
+    explanation = `Mandatory requirement verification needed for: ${eligibility.unknownRequirements.join(', ')}. Score preserved pending human review.`;
+  } else {
+    // ELIGIBLE
+    if (rawScore >= minimumPassingScore) {
+      decision = APPLICATION_DECISION.ADVANCE;
+      explanation = `Candidate satisfies all mandatory requirements and meets/exceeds the job-fit threshold (${rawScore}% >= ${minimumPassingScore}%).`;
+    } else {
+      decision = APPLICATION_DECISION.DISQUALIFIED;
+      explanation = `Candidate satisfies mandatory requirements but does not meet the job-fit score threshold (${rawScore}% < ${minimumPassingScore}%).`;
+    }
+  }
+
+  return {
+    jobFitScore: rawScore,
+    tier: getTierName(rawScore),
+    eligibility,
+    decision,
+    explanation
+  };
+}
+
 /**
  * Validates and formats a newly entered pilot case.
  *
@@ -128,3 +179,4 @@ export function formatAndValidatePilotCase(rawCase) {
     formattedCase: validation.isValid ? rawCase : null
   };
 }
+
