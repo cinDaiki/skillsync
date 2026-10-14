@@ -1,0 +1,104 @@
+{
+  "$schema": "SkillSync-Benchmark-Case-v1",
+  "case_id": "BENCH-PILOT-001",
+  "provenance": {
+    "source_type": "authorized_candidate_case",
+    "license_or_consent": "Candidate-Consent-Signed-2026",
+    "created_at": "2026-10-14T00:00:00Z",
+    "anonymized_by": "Coordinator-ID"
+  },
+  "validation_split": "CALIBRATION",
+  "job_posting": {
+    "job_id": "JOB-PILOT-01",
+    "title": "Role Title Here",
+    "department": "Engineering",
+    "job_category": "Frontend",
+    "seniority_level": "MID",
+    "mandatory_requirements": [
+      "Mandatory Requirement 1",
+      "Mandatory Requirement 2"
+    ],
+    "preferred_qualifications": [
+      "Preferred Qualification 1"
+    ],
+    "description_text": "Full job description text goes here..."
+  },
+  "candidate_profile_anonymized": {
+    "profile_id": "CAND-PILOT-001",
+    "target_role": "Target Role",
+    "seniority_level": "MID",
+    "education": {
+      "degree": "Bachelor of Science",
+      "field": "Computer Science",
+      "institution_type": "University"
+    },
+    "years_of_experience": 3,
+    "extracted_skills": ["Skill1", "Skill2"],
+    "anonymized_resume_text": "Anonymized resume text with all PII scrubbed..."
+  },
+  "evaluations": [
+    {
+      "evaluator_id": "RECRUITER_A",
+      "criteria_scores": {
+        "REQ_SKILLS": 3,
+        "EXP_RELEVANCE": 3,
+        "EVIDENCE_ACHIEVE": 3,
+        "TRANS_SKILLS": 3,
+        "EDU_QUAL": 3,
+        "CERTS_CRED": 1
+      },
+      "criteria_evidence": {
+        "REQ_SKILLS": "Cite resume text here...",
+        "EXP_RELEVANCE": "Cite resume text here...",
+        "EVIDENCE_ACHIEVE": "Cite resume text here...",
+        "TRANS_SKILLS": "Cite resume text here...",
+        "EDU_QUAL": "Cite resume text here...",
+        "CERTS_CRED": "Cite resume text here..."
+      },
+      "mandatory_qualification_status": {
+        "Mandatory Requirement 1": "MET",
+        "Mandatory Requirement 2": "MET"
+      },
+      "overall_fit_percentage": 76,
+      "recommendation": "ACCEPTABLE_MATCH",
+      "confidence": "HIGH",
+      "notes": "Evaluator A summary rationale..."
+    },
+    {
+      "evaluator_id": "RECRUITER_B",
+      "criteria_scores": {
+        "REQ_SKILLS": 3,
+        "EXP_RELEVANCE": 3,
+        "EVIDENCE_ACHIEVE": 3,
+        "TRANS_SKILLS": 3,
+        "EDU_QUAL": 3,
+        "CERTS_CRED": 1
+      },
+      "criteria_evidence": {
+        "REQ_SKILLS": "Cite resume text here...",
+        "EXP_RELEVANCE": "Cite resume text here...",
+        "EVIDENCE_ACHIEVE": "Cite resume text here...",
+        "TRANS_SKILLS": "Cite resume text here...",
+        "EDU_QUAL": "Cite resume text here...",
+        "CERTS_CRED": "Cite resume text here..."
+      },
+      "mandatory_qualification_status": {
+        "Mandatory Requirement 1": "MET",
+        "Mandatory Requirement 2": "MET"
+      },
+      "overall_fit_percentage": 76,
+      "recommendation": "ACCEPTABLE_MATCH",
+      "confidence": "HIGH",
+      "notes": "Evaluator B summary rationale..."
+    }
+  ],
+  "adjudication": {
+    "is_adjudicated": false,
+    "adjudicator_id": null,
+    "reference_score": 76,
+    "adjudication_rationale": null
+  },
+  "system_baseline": {
+    "skillsync_score": null
+  }
+}
