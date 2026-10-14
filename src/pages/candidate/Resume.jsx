@@ -16,6 +16,7 @@ import { useToast }                                from "../../contexts/ToastCon
 import ErrorBoundary                               from "../../components/guards/ErrorBoundary.jsx";
 import { getCandidateSkillEvidence }               from "../../services/ai/jobFitEngine";
 import "./Resume.css";
+import ResumeTemplateSection                       from "../../components/resume/ResumeTemplateSection.jsx";
 
 // Lazy-loaded sub-components for Phase 6 modular UI
 const ResumeTabs = lazy(() => import("../../components/resume/ResumeTabs.jsx"));
@@ -510,32 +511,26 @@ export default function Resume() {
         />
 
         {!resumeFile ? (
-          <div className="empty-state">
-            <span>▤</span>
-            <h3>No resume uploaded yet</h3>
-            <p>
-              Upload your resume in PDF or Word format. SkillSync will automatically analyze the structure, extract skill tags, and compile your match percentage.
-            </p>
-            <button
-              className="panel-action"
-              type="button"
-              onClick={handleAddResume}
-              disabled={loading}
-              style={{ marginTop: "12px", marginBottom: "20px" }}
-            >
-              {loading ? "Parsing file..." : "Choose File"}
-            </button>
-            <div className="resume-templates-section" style={{ borderTop: "1px solid #e2e8f0", paddingTop: "20px", marginTop: "10px", width: "100%", maxWidth: "400px", margin: "0 auto" }}>
-              <p style={{ fontSize: "13px", color: "#667085", marginBottom: "12px", fontWeight: "600" }}>Need a standard format? Download our ATS-friendly templates:</p>
-              <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
-                <a href="#" className="template-download-btn" style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", padding: "6px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", textDecoration: "none", color: "#334155" }}>
-                  <span style={{ color: "#ef4444" }}>📄</span> PDF Template
-                </a>
-                <a href="#" className="template-download-btn" style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", padding: "6px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", textDecoration: "none", color: "#334155" }}>
-                  <span style={{ color: "#2563eb" }}>📝</span> DOCX Template
-                </a>
-              </div>
+          <div>
+            <div className="empty-state">
+              <span>▤</span>
+              <h3>No resume uploaded yet</h3>
+              <p>
+                Upload your resume in PDF or Word format. SkillSync will automatically analyze the structure, extract skill tags, and compile your match percentage.
+              </p>
+              <button
+                className="panel-action"
+                type="button"
+                onClick={handleAddResume}
+                disabled={loading}
+                style={{ marginTop: "12px", marginBottom: "8px" }}
+              >
+                {loading ? "Parsing file..." : "Choose File"}
+              </button>
             </div>
+
+            {/* Standard Resume Templates & ATS Guide */}
+            <ResumeTemplateSection />
           </div>
         ) : (
           <div>
@@ -578,6 +573,9 @@ export default function Resume() {
                 </button>
               </div>
             </div>
+
+            {/* Standard Resume Templates & ATS Guide for active resume holders */}
+            <ResumeTemplateSection variant="compact" />
 
             {/* Post-Upload Primary View: Recommended Jobs */}
             <div className="resume-recommendations-wrapper" style={{ marginTop: "24px" }}>

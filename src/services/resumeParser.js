@@ -96,10 +96,65 @@ async function extractTextFromDocx(file) {
       return extractTextFallback(arrayBuffer);
     }
 
-    const blob = new Blob([arrayBuffer], { type: "application/zip" });
-    const rawString = new TextDecoder("utf-8", { fatal: false }).decode(uint8);
+    // Try structured ZIP extraction for word/document.xml
+    try {
+      let idx = 0;
+      while (idx + 30 < uint8.length) {
+        if (uint8[idx] === 0x50 && uint8[idx + 1] === 0x4B && uint8[idx + 2] === 0x03 && uint8[idx + 3] === 0x04) {
+          const view = new DataView(uint8.buffer, uint8.byteOffset + idx);
+          const method = view.getUint16(8, true);
+          const compressedSize = view.getUint32(18, true);
+          const filenameLen = view.getUint16(26, true);
+          const extraLen = view.getUint16(28, true);
+          const filenameStart = idx + 30;
+          const dataStart = filenameStart + filenameLen + extraLen;
+          const filename = new TextDecoder("utf-8").decode(uint8.subarray(filenameStart, filenameStart + filenameLen));
 
-    // Find the document.xml content — DOCX stores content in <w:t> tags
+          if (filename === "word/document.xml") {
+            const fileData = uint8.subarray(dataStart, dataStart + compressedSize);
+            let xml = "";
+            if (method === 0) {
+              xml = new TextDecoder("utf-8").decode(fileData);
+            } else if (method === 8 && typeof DecompressionStream !== "undefined") {
+              const ds = new DecompressionStream("deflate-raw");
+              const writer = ds.writable.getWriter();
+              writer.write(fileData);
+              writer.close();
+              xml = await new Response(ds.readable).text();
+            }
+
+            if (xml) {
+              const pRegex = /<w:p(?:\s[^>]*)?>([\s\S]*?)<\/w:p>/gi;
+              const wTextRegex = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/gi;
+              const lines = [];
+              let pMatch;
+              while ((pMatch = pRegex.exec(xml)) !== null) {
+                const pContent = pMatch[1];
+                const words = [];
+                let tMatch;
+                while ((tMatch = wTextRegex.exec(pContent)) !== null) {
+                  const t = tMatch[1].trim();
+                  if (t.length > 0) words.push(t);
+                }
+                if (words.length > 0) lines.push(words.join(" "));
+              }
+
+              if (lines.length > 0) {
+                return lines.join("\n");
+              }
+            }
+          }
+          idx = dataStart + compressedSize;
+        } else {
+          idx++;
+        }
+      }
+    } catch (zipErr) {
+      console.warn("[Parser] Structured DOCX extraction failed, using fallback:", zipErr);
+    }
+
+    // Fallback: search entire raw buffer for <w:t> tags
+    const rawString = new TextDecoder("utf-8", { fatal: false }).decode(uint8);
     const wTextRegex = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/gi;
     const texts = [];
     let match;

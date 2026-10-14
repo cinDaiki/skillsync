@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test:tiers": "node tests/careerRelevanceTier.test.mjs",
     "test:admin": "node tests/adminJobseekerManagement.test.mjs",
-    "test": "node tests/careerRelevanceTier.test.mjs && node tests/adminJobseekerManagement.test.mjs"
+    "test:templates": "node tests/resumeTemplateWorkflow.test.mjs",
+    "test": "node tests/careerRelevanceTier.test.mjs && node tests/adminJobseekerManagement.test.mjs && node tests/resumeTemplateWorkflow.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",

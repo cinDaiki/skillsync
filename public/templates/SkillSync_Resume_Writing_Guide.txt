@@ -1,0 +1,90 @@
+================================================================================
+SKILLSYNC ATS RESUME WRITING GUIDE & SECTION-BY-SECTION INSTRUCTIONS
+================================================================================
+
+Welcome to the SkillSync Resume Optimization Guide. This document provides clear,
+practical instructions to help you complete your resume template, maximize your
+ATS (Applicant Tracking System) parse accuracy, and achieve high job-fit scores.
+
+--------------------------------------------------------------------------------
+1. GENERAL FORMATTING RULES FOR ATS COMPATIBILITY
+--------------------------------------------------------------------------------
+• Single-Column Layout: SkillSync and modern ATS parsers read resumes from top
+  to bottom. Multi-column tables, text boxes, and sidebars can scramble the
+  extraction sequence.
+• Standard Fonts: Use standard, clean fonts such as Calibri, Arial, Helvetica,
+  or Georgia (10 to 12 pt for body text, 14 to 20 pt for section headers and name).
+• Conventional Section Headings: Always use standard section titles:
+    - PROFESSIONAL SUMMARY
+    - CORE SKILLS (or TECHNICAL SKILLS)
+    - WORK EXPERIENCE
+    - EDUCATION
+    - KEY PROJECTS
+    - CERTIFICATIONS & CREDENTIALS
+    - HONORS & ACHIEVEMENTS
+• File Formats: Save your completed file as .docx (Microsoft Word) or .pdf.
+  Both formats are fully parsed and validated by SkillSync.
+
+--------------------------------------------------------------------------------
+2. SECTION-BY-SECTION FILLING INSTRUCTIONS
+--------------------------------------------------------------------------------
+
+[A] CONTACT INFORMATION (Top of Page)
+• Full Name: Clearly positioned at the top in large font (18-22 pt bold).
+• Professional Title: Target role matching the jobs you seek (e.g., Senior Full Stack Engineer).
+• Email Address: Professional email format (e.g., first.last@example.com).
+• Phone Number: Include international or area code (e.g., +63 917 555 0192).
+• Location: City and Country (street address is unnecessary for privacy).
+• Links: Include clean URLs to your LinkedIn and GitHub / Portfolio profile.
+
+[B] PROFESSIONAL SUMMARY
+• Keep it between 2 to 4 impactful sentences.
+• Formula: [Target Job Title] + [Years of Experience] + [Core Strengths & Technologies] + [1-2 Measurable Key Impact Achievements].
+• Avoid generic clichés like "hardworking team player". Be specific about what you build.
+
+[C] CORE SKILLS
+• Categorize your skills: Programming Languages, Frameworks, Databases, Cloud & DevOps, Tools.
+• Match Industry Standard Terms: Use exact terms recognized by SkillSync's AI dictionary
+  (e.g., "React", "Node.js", "TypeScript", "Python", "Docker", "AWS", "SQL", "Agile").
+• Avoid abbreviations that obscure skills (e.g., write "JavaScript" rather than "JS").
+
+[D] WORK EXPERIENCE
+• Structure: [Job Title] | [Company Name] | [City, Country] | [Dates: Month Year - Month Year/Present]
+• Bullet Points: 3 to 5 bullets per position.
+• High-Impact Formula:
+    Action Verb + Task/Scope + Technologies Used + Measurable Result/Metric
+  Example:
+    "Architected distributed microservices in Node.js and PostgreSQL, cutting API latency by 45%."
+• Quantify impact: percentages, numbers of users, revenue, time saved, or defect reductions.
+
+[E] EDUCATION
+• Include: Degree name, Major/Specialization, Institution name, City, Country, Graduation year.
+• Format: "Bachelor of Science in Computer Science" or "BS in Information Technology".
+• Honors: Mention Magna Cum Laude, Dean's Lister, or relevant academic distinctions.
+
+[F] KEY PROJECTS
+• Ideal for demonstrating practical experience, especially for recent graduates and career switchers.
+• Include project title, key technologies used, problem solved, and measurable impact or demo link.
+
+[G] CERTIFICATIONS & CREDENTIALS
+• Format: [Certification Name] | [Issuing Body] – [Year]
+• Examples: AWS Certified Solutions Architect, Meta Front-End Developer, Certified ScrumMaster, NC II, TESDA.
+• SkillSync awards bonus credential score points for verified professional certifications.
+
+[H] HONORS & ACHIEVEMENTS
+• List hackathons, innovation awards, academic distinctions, or community contributions.
+
+--------------------------------------------------------------------------------
+3. UPLOADING & VERIFYING YOUR RESUME IN SKILLSYNC
+--------------------------------------------------------------------------------
+1. Open the SkillSync Candidate Resume page (/candidate/resume).
+2. Click "Upload New Resume" or "Choose File".
+3. Select your saved .docx or .pdf file.
+4. SkillSync will automatically:
+   - Extract your contact details and qualifications.
+   - Scan and tag recognized technical and professional skills.
+   - Calculate your ATS Completeness and Resume Quality Score.
+   - Generate your personalized Recommended Jobs with match percentages!
+5. Review your extracted skills in the AI Skill Dictionary tab and adjust any tags
+   to keep your profile continuously updated.
+================================================================================
