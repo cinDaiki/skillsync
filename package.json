@@ -11,7 +11,8 @@
     "test:admin": "node tests/adminJobseekerManagement.test.mjs",
     "test:templates": "node tests/resumeTemplateWorkflow.test.mjs",
     "test:quality": "node tests/resumeQualityValidation.test.mjs",
-    "test": "node tests/careerRelevanceTier.test.mjs && node tests/adminJobseekerManagement.test.mjs && node tests/resumeTemplateWorkflow.test.mjs && node tests/resumeQualityValidation.test.mjs"
+    "test:benchmark": "node tests/hrEvaluationBenchmark.test.mjs",
+    "test": "node tests/careerRelevanceTier.test.mjs && node tests/adminJobseekerManagement.test.mjs && node tests/resumeTemplateWorkflow.test.mjs && node tests/resumeQualityValidation.test.mjs && node tests/hrEvaluationBenchmark.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
