@@ -99,12 +99,22 @@ export function loadBenchmarkDataset(source) {
 export function assertSafeNonProductionEnvironment(supabaseUrl) {
   if (!supabaseUrl) return true; // Offline / synthetic evaluation harness mode
 
-  const isLocal = supabaseUrl.includes('127.0.0.1') || supabaseUrl.includes('localhost');
-  const isPreviewOrStaging = supabaseUrl.includes('preview') || supabaseUrl.includes('staging');
+  const normalized = String(supabaseUrl).toLowerCase();
 
-  if (!isLocal && !isPreviewOrStaging) {
+  // Explicit production indicator check: hard reject regardless of environment flags
+  if (normalized.includes('production') || normalized.includes('prod-') || normalized.includes('-prod') || normalized.includes('.prod.')) {
     throw new Error(
-      `SAFETY VIOLATION: Refusing to execute benchmark RPC against potential production URL "${supabaseUrl}". ` +
+      `SAFETY VIOLATION: Refusing to execute benchmark RPC against production target URL "${supabaseUrl}". ` +
+      'Benchmark harness must run only in an isolated local or verified staging environment. Environment flags cannot override this safety block.'
+    );
+  }
+
+  const isLocal = normalized.includes('127.0.0.1') || normalized.includes('localhost') || normalized.includes('0.0.0.0');
+  const isStagingOrPreview = (normalized.includes('staging') || normalized.includes('preview')) && !normalized.includes('prod');
+
+  if (!isLocal && !isStagingOrPreview) {
+    throw new Error(
+      `SAFETY VIOLATION: Refusing to execute benchmark RPC against non-verified database target "${supabaseUrl}". ` +
       'Authoritative matching RPC modifies public.job_matches and must run only in an isolated local/staging environment.'
     );
   }
