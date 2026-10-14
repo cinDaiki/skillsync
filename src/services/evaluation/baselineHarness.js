@@ -96,26 +96,71 @@ export function loadBenchmarkDataset(source) {
  * @param {string} supabaseUrl - Target database URL
  * @returns {boolean} True if safe non-production environment
  */
+/**
+ * Approved positive allowlist of target environments for benchmark execution.
+ * Only explicit local loopback hosts and approved staging/preview domains are permitted.
+ */
+export const APPROVED_TARGET_DOMAINS = [
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '.skillsync.internal',
+  '.supabase.co'
+];
+
+export const KNOWN_PRODUCTION_IDENTIFIERS = [
+  'production',
+  'prod-',
+  '-prod',
+  '.prod.',
+  'skillsync-prod',
+  'live-db',
+  'main-db'
+];
+
+/**
+ * Executes a safety check against a target database environment using a positive allowlist
+ * as the primary defense, combined with fail-closed production project rejection.
+ *
+ * @param {string} supabaseUrl - Target database URL
+ * @returns {boolean} True if safe non-production environment; throws Error otherwise.
+ */
 export function assertSafeNonProductionEnvironment(supabaseUrl) {
   if (!supabaseUrl) return true; // Offline / synthetic evaluation harness mode
 
-  const normalized = String(supabaseUrl).toLowerCase();
-
-  // Explicit production indicator check: hard reject regardless of environment flags
-  if (normalized.includes('production') || normalized.includes('prod-') || normalized.includes('-prod') || normalized.includes('.prod.')) {
+  let parsed;
+  try {
+    parsed = new URL(supabaseUrl);
+  } catch (err) {
     throw new Error(
-      `SAFETY VIOLATION: Refusing to execute benchmark RPC against production target URL "${supabaseUrl}". ` +
-      'Benchmark harness must run only in an isolated local or verified staging environment. Environment flags cannot override this safety block.'
+      `SAFETY VIOLATION: Malformed database target URL "${supabaseUrl}". ` +
+      'Benchmark harness must run only against a valid, verified non-production target.'
     );
   }
 
-  const isLocal = normalized.includes('127.0.0.1') || normalized.includes('localhost') || normalized.includes('0.0.0.0');
-  const isStagingOrPreview = (normalized.includes('staging') || normalized.includes('preview')) && !normalized.includes('prod');
+  const hostname = parsed.hostname.toLowerCase();
+  const fullTargetString = (supabaseUrl + ' ' + parsed.pathname).toLowerCase();
+
+  // 1. Fail-closed rejection: Hard block any known production identifiers
+  for (const prodId of KNOWN_PRODUCTION_IDENTIFIERS) {
+    if (fullTargetString.includes(prodId)) {
+      throw new Error(
+        `SAFETY VIOLATION: Refusing to execute benchmark RPC against production target "${supabaseUrl}". ` +
+        `Detected production identifier "${prodId}". Environment flags cannot override this safety block.`
+      );
+    }
+  }
+
+  // 2. Primary defense: Positive allowlist validation
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+  const isStagingOrPreview =
+    (hostname.includes('staging') || hostname.includes('preview')) &&
+    (hostname.endsWith('.supabase.co') || hostname.endsWith('.skillsync.internal'));
 
   if (!isLocal && !isStagingOrPreview) {
     throw new Error(
-      `SAFETY VIOLATION: Refusing to execute benchmark RPC against non-verified database target "${supabaseUrl}". ` +
-      'Authoritative matching RPC modifies public.job_matches and must run only in an isolated local/staging environment.'
+      `SAFETY VIOLATION: Database target "${supabaseUrl}" is not on the approved non-production allowlist. ` +
+      'Execution fail-closed: benchmark harness permits only verified local loopback (127.0.0.1, localhost) or staging/preview instances.'
     );
   }
 
