@@ -9,7 +9,7 @@ export default function ResumeTemplateSection({ variant = "standard" }) {
       <div className="template-section-header">
         <div className="template-section-title-wrap">
           <div className="template-toolkit-badge">
-            <span>✨</span> ATS-Optimized Resume Toolkit
+            <span>📄</span> Resume Resources
           </div>
           <h3>Download Standard Resume Templates</h3>
           <p>
@@ -86,7 +86,7 @@ export default function ResumeTemplateSection({ variant = "standard" }) {
           <div className="template-card-content">
             <h4>Writing Guide & ATS Tips</h4>
             <p>
-              Section-by-section filling instructions, AI dictionary keyword recommendations, and step-by-step guidance on uploading to SkillSync.
+              Section-by-section filling instructions, skill keyword recommendations, and step-by-step guidance on uploading to SkillSync.
             </p>
             <div className="template-card-meta">
               <span>ATS Formatting Checklist • Text Guide</span>

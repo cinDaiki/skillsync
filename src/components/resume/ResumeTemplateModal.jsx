@@ -53,9 +53,9 @@ export default function ResumeTemplateModal({ isOpen, onClose }) {
               <div className="template-guide-intro">
                 <h4>Why Use the SkillSync Standard Template?</h4>
                 <p>
-                  SkillSync’s AI parser and algorithmic matching engine evaluate resumes against job requirements.
+                  SkillSync’s resume check and job matching engine evaluate resumes against role qualifications.
                   Using our single-column, cleanly structured Microsoft Word (<code>.docx</code>) template ensures that
-                  your skills, work history, education, and credentials are read with 100% fidelity.
+                  your skills, work history, education, and credentials are read with maximum fidelity.
                 </p>
               </div>
 
@@ -263,7 +263,7 @@ export default function ResumeTemplateModal({ isOpen, onClose }) {
                 <div className="ats-rule-card pass">
                   <span className="rule-icon">✅</span>
                   <h5>Explicit Technical Keyword Matching</h5>
-                  <p>Spell out exact technologies (e.g., <em>TypeScript</em>, <em>PostgreSQL</em>, <em>Docker</em>, <em>AWS</em>) so the AI skill dictionary indexes your competencies.</p>
+                  <p>Spell out exact technologies (e.g., <em>TypeScript</em>, <em>PostgreSQL</em>, <em>Docker</em>, <em>AWS</em>) so skill matching accurately indexes your competencies.</p>
                 </div>
                 <div className="ats-rule-card pass">
                   <span className="rule-icon">✅</span>
