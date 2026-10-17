@@ -14,6 +14,7 @@ import ResetPassword from "./pages/auth/ResetPassword";
 
 import CandidateDashboard from "./pages/candidate/CandidateDashboard";
 import Resume from "./pages/candidate/Resume";
+import ResumeBuilder from "./pages/candidate/ResumeBuilder";
 import JobMatches from "./pages/candidate/JobMatches";
 import AIJobMatches from "./pages/candidate/AIJobMatches";
 import Applications from "./pages/candidate/Applications";
@@ -86,6 +87,15 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.CANDIDATE]}>
               <Resume />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/candidate/resume-builder"
+          element={
+            <RoleRoute allowedRoles={[ROLES.CANDIDATE]}>
+              <ResumeBuilder />
             </RoleRoute>
           }
         />

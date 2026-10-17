@@ -22,7 +22,8 @@ Thumbs.db
 .idea/
 
 # Scratch / local tooling
-scratch/
+scratch/*
+!scratch/test_staging_resume_sources_e2e.mjs
 .tools/
 supabase/.temp/
 supabase/.branches/

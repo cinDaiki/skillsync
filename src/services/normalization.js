@@ -3,16 +3,36 @@
  * Used to normalize skills and degrees across different industries.
  */
 
-// ── Known Legacy Multi-Word Patterns for Un-delimited String Recovery ────────
+// ── Known Multi-Word Patterns for Un-delimited String Recovery ──────────────
 const KNOWN_LEGACY_PATTERNS = [
-  'Responsive Web Design', 'Responsive Design', 'Office Administration',
-  'Administrative Support', 'Email Management', 'Calendar Management',
-  'Google Workspace', 'Customer Service', 'Internet Research',
+  // Healthcare & Caregiving
+  'Vital Signs Monitoring', 'Vital Signs', 'Patient Care', 'First Aid', 'Infection Control',
+  'Medical Terminology', 'Medication Administration', 'Patient Assessment', 'Elderly Care',
+  // Accounting & Business
+  'Accounts Payable', 'Accounts Receivable', 'Financial Reporting', 'Payroll Processing',
+  'Bank Reconciliation', 'Cost Accounting', 'Tax Preparation', 'Bookkeeping',
+  'Office Administration', 'Administrative Support', 'Email Management', 'Calendar Management',
+  'Google Workspace', 'Customer Service', 'Internet Research', 'Data Entry',
+  'Microsoft Office', 'Microsoft Word', 'Microsoft Excel', 'Microsoft PowerPoint',
+  // Sales & Hospitality
+  'Front Desk Operations', 'Food Service', 'Guest Relations', 'Food Safety',
+  'Hotel Reception', 'Concierge Services', 'Client Relations', 'Lead Generation',
+  'POS Operation', 'Cash Handling', 'Call Center Operations', 'Customer Retention',
+  // Trades & Engineering
+  'AutoCAD', 'Technical Drawing', 'Quality Control', 'Electrical Installation',
+  'Safety Procedures', 'Blueprint Reading', 'Preventive Maintenance', 'Machine Operation',
+  // Education & Logistics
+  'Lesson Planning', 'Classroom Management', 'Curriculum Support', 'Student Engagement',
+  'Inventory Management', 'Stock Control', 'Warehouse Operations', 'Order Fulfillment', 'Forklift Operation',
+  // Creative & Media
+  'Graphic Design', 'Video Editing', 'Content Writing', 'Social Media Management',
+  // Transferable & Soft Skills
   'Time Management', 'Attention to Detail', 'Problem Solving',
-  'Data Entry', 'Microsoft Office', 'Microsoft Word', 'Microsoft Excel',
-  'JavaScript', 'Teamwork', 'Communication', 'Organization',
-  'HTML & CSS', 'Git/GitHub', 'Basic SQL',
-  'HTML', 'CSS', 'Git', 'GitHub', 'SQL', 'React', 'Node.js', 'Python'
+  'Teamwork', 'Communication', 'Organization', 'Leadership',
+  // IT & Tech
+  'Responsive Web Design', 'Responsive Design', 'JavaScript', 'TypeScript',
+  'HTML & CSS', 'Git/GitHub', 'Basic SQL', 'REST APIs',
+  'HTML', 'CSS', 'Git', 'GitHub', 'SQL', 'React', 'Node.js', 'Python', 'Docker'
 ];
 
 /**
@@ -102,7 +122,72 @@ export function normalizeSkillName(skill) {
     "encoded records": "data entry",
     "record maintenance": "data entry",
     "maintain records": "data entry",
-    "maintained records": "data entry"
+    "maintained records": "data entry",
+
+    // Healthcare & Caregiving
+    "vital signs": "vital signs monitoring",
+    "vitals": "vital signs monitoring",
+    "patient vital signs": "vital signs monitoring",
+    "cpr": "first aid",
+    "bls": "first aid",
+    "basic life support": "first aid",
+    "first aid cpr": "first aid",
+    "patient assistance": "patient care",
+    "bedside care": "patient care",
+
+    // Accounting & Finance
+    "ap": "accounts payable",
+    "ar": "accounts receivable",
+    "payroll": "payroll processing",
+    "financial statements": "financial reporting",
+    "financial statement preparation": "financial reporting",
+    "quick books": "quickbooks",
+    "bank reconciliation": "bank reconciliation",
+    "tax filing": "tax preparation",
+
+    // Sales & Customer Service
+    "customer support": "customer service",
+    "client support": "customer service",
+    "customer assistance": "customer service",
+    "pos": "pos operation",
+    "point of sale": "pos operation",
+    "cashiering": "cash handling",
+
+    // Hospitality & Tourism
+    "front desk": "front desk operations",
+    "hotel reception": "front desk operations",
+    "food and beverage": "food service",
+    "f&b": "food service",
+    "food preparation": "food service",
+    "food sanitation": "food safety & sanitation",
+    "food safety": "food safety & sanitation",
+
+    // Engineering & Trades
+    "cad": "autocad",
+    "drafting": "technical drawing",
+    "smaw": "welding",
+    "shielded metal arc welding": "welding",
+    "tig welding": "welding",
+    "mig welding": "welding",
+    "arc welding": "welding",
+    "wiring": "electrical installation",
+    "electrical wiring": "electrical installation",
+
+    // Education
+    "teaching": "lesson planning",
+    "instruction": "lesson planning",
+    "classroom instruction": "classroom management",
+
+    // Logistics & Operations
+    "inventory tracking": "inventory management",
+    "stocking": "stock control",
+    "warehouse management": "warehouse operations",
+    "forklift driving": "forklift operation",
+
+    // Creative
+    "graphic designing": "graphic design",
+    "visual design": "graphic design",
+    "video production": "video editing"
   };
 
   return aliases[s] || s;
@@ -227,6 +312,12 @@ export function normalizeDegree(degree) {
     "bscs": "bachelor of science in computer science",
     "bsa": "bachelor of science in accountancy",
     "bsn": "bachelor of science in nursing",
+    "beed": "bachelor of elementary education",
+    "bsed": "bachelor of secondary education",
+    "bshm": "bachelor of science in hospitality management",
+    "bsce": "bachelor of science in civil engineering",
+    "bsee": "bachelor of science in electrical engineering",
+    "bsme": "bachelor of science in mechanical engineering",
     "ms": "master of science",
     "ma": "master of arts",
     "mba": "master of business administration",

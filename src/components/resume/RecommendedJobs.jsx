@@ -240,7 +240,7 @@ export default function RecommendedJobs({
         <div className="rec-jobs-loading">
           <div className="rec-jobs-spinner" />
           <h3>Analyzing your resume and finding the best job matches...</h3>
-          <p>Comparing your skills, education, and semantic embedding against active open positions.</p>
+          <p>Comparing your qualifications with available job opportunities.</p>
         </div>
       </div>
     );

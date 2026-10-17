@@ -115,6 +115,43 @@ export function isSkillMatch(candSkill, reqSkill) {
     if (c === 'responsive design' || cClean === 'responsivedesign' || c === 'responsive') return true;
   }
 
+  // 6. Healthcare & First Aid
+  if (r === 'first aid' || rClean === 'firstaid') {
+    const aidFamily = ['first aid', 'cpr', 'bls', 'basic life support', 'first aid cpr'];
+    if (aidFamily.some(f => c === f || cClean.includes(f))) return true;
+  }
+  if (r.includes('vital signs') || rClean.includes('vitalsigns')) {
+    const vitalFamily = ['vital signs monitoring', 'vital signs', 'patient care', 'nursing care'];
+    if (vitalFamily.some(f => c === f || cClean.includes(f))) return true;
+  }
+
+  // 7. Accounting & Bookkeeping
+  if (r === 'bookkeeping' || rClean === 'bookkeeping') {
+    const acctFamily = ['bookkeeping', 'quickbooks', 'accounts payable', 'accounts receivable', 'accounting'];
+    if (acctFamily.some(f => c === f || cClean.includes(f))) return true;
+  }
+  if (r === 'accounts payable' || r === 'accounts receivable') {
+    if (c.includes('bookkeeping') || c.includes('accounting') || c.includes('accounts')) return true;
+  }
+
+  // 8. Customer Service & Client Relations
+  if (r === 'customer service' || rClean === 'customerservice') {
+    const csFamily = ['customer service', 'client relations', 'guest relations', 'customer support', 'client support', 'front desk operations'];
+    if (csFamily.some(f => c === f || cClean.includes(f))) return true;
+  }
+
+  // 9. Skilled Trades / Welding
+  if (r === 'welding' || rClean === 'welding') {
+    const weldFamily = ['welding', 'smaw', 'tig welding', 'mig welding', 'arc welding', 'shielded metal arc welding'];
+    if (weldFamily.some(f => c === f || cClean.includes(f))) return true;
+  }
+
+  // 10. Creative / Design
+  if (r === 'graphic design' || rClean === 'graphicdesign') {
+    const designFamily = ['graphic design', 'canva', 'adobe photoshop', 'photoshop', 'illustrator', 'ui design', 'visual design'];
+    if (designFamily.some(f => c === f || cClean.includes(f))) return true;
+  }
+
   return false;
 }
 
@@ -276,9 +313,66 @@ export function evaluateEducation(candidateEduRaw, jobEduRaw, jobTitleStr = '', 
     return 100;
   }
 
-  // 4. Relevant technical / computer degree match for software/IT jobs
+  // 4. Discipline-aware degree matching across all career fields
+  // IT & Computer Science
   if (candEdu.includes('it') || candEdu.includes('computer') || candEdu.includes('software') || candEdu.includes('technology')) {
-    if (jobTitle.includes('developer') || jobTitle.includes('web') || jobTitle.includes('software') || jobTitle.includes('it') || jobTitle.includes('engineer')) {
+    if (jobTitle.includes('developer') || jobTitle.includes('web') || jobTitle.includes('software') || jobTitle.includes('it') || jobTitle.includes('engineer') || jobTitle.includes('programmer')) {
+      return 100;
+    }
+  }
+
+  // Nursing & Healthcare
+  if (candEdu.includes('nurs') || candEdu.includes('health') || candEdu.includes('medical') || candEdu.includes('caregiv')) {
+    if (jobTitle.includes('nurse') || jobTitle.includes('health') || jobTitle.includes('medical') || jobTitle.includes('care') || jobTitle.includes('clinic')) {
+      return 100;
+    }
+  }
+
+  // Accountancy & Finance
+  if (candEdu.includes('account') || candEdu.includes('finance') || candEdu.includes('commerce') || candEdu.includes('bookkeep')) {
+    if (jobTitle.includes('account') || jobTitle.includes('bookkeep') || jobTitle.includes('audit') || jobTitle.includes('finance') || jobTitle.includes('billing')) {
+      return 100;
+    }
+  }
+
+  // Education & Teaching
+  if (candEdu.includes('education') || candEdu.includes('teach') || candEdu.includes('pedagogy')) {
+    if (jobTitle.includes('teacher') || jobTitle.includes('instructor') || jobTitle.includes('tutor') || jobTitle.includes('educat') || jobTitle.includes('faculty')) {
+      return 100;
+    }
+  }
+
+  // Hospitality & Tourism
+  if (candEdu.includes('hospitality') || candEdu.includes('hotel') || candEdu.includes('tourism') || candEdu.includes('culinary')) {
+    if (jobTitle.includes('hotel') || jobTitle.includes('front desk') || jobTitle.includes('hospitality') || jobTitle.includes('food') || jobTitle.includes('guest') || jobTitle.includes('reception') || jobTitle.includes('resort')) {
+      return 100;
+    }
+  }
+
+  // Engineering & Construction (Civil, Mechanical, Electrical)
+  if (candEdu.includes('civil') || candEdu.includes('electrical') || candEdu.includes('mechanical') || candEdu.includes('construction')) {
+    if (jobTitle.includes('engineer') || jobTitle.includes('cad') || jobTitle.includes('drafting') || jobTitle.includes('technician') || jobTitle.includes('construction') || jobTitle.includes('site')) {
+      return 100;
+    }
+  }
+
+  // Skilled Trades / Vocational / TESDA
+  if (candEdu.includes('vocational') || candEdu.includes('tesda') || candEdu.includes('weld') || candEdu.includes('automotive') || candEdu.includes('nc ii') || candEdu.includes('nc iii') || candEdu.includes('technical')) {
+    if (jobTitle.includes('weld') || jobTitle.includes('mechanic') || jobTitle.includes('technician') || jobTitle.includes('electrician') || jobTitle.includes('maintenance') || jobTitle.includes('operator')) {
+      return 100;
+    }
+  }
+
+  // Creative & Graphic Design
+  if (candEdu.includes('design') || candEdu.includes('fine arts') || candEdu.includes('multimedia') || candEdu.includes('arts')) {
+    if (jobTitle.includes('designer') || jobTitle.includes('artist') || jobTitle.includes('creative') || jobTitle.includes('media') || jobTitle.includes('content')) {
+      return 100;
+    }
+  }
+
+  // Business & Administration
+  if (candEdu.includes('business') || candEdu.includes('administration') || candEdu.includes('management') || candEdu.includes('marketing')) {
+    if (jobTitle.includes('manager') || jobTitle.includes('admin') || jobTitle.includes('marketing') || jobTitle.includes('coordinator') || jobTitle.includes('operations')) {
       return 100;
     }
   }

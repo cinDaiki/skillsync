@@ -1,0 +1,962 @@
+[
+  {
+    "case_id": "BENCH-SYNTH-001",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "CALIBRATION",
+    "job_posting": {
+      "job_id": "JOB-FE-SR-01",
+      "title": "Senior Frontend Engineer",
+      "department": "Engineering",
+      "job_category": "Frontend",
+      "seniority_level": "SENIOR",
+      "mandatory_requirements": [
+        "At least 5 years of professional frontend web development experience",
+        "Expert proficiency in React, TypeScript, and state management (Redux/Zustand)",
+        "Demonstrated experience optimizing web performance and Core Web Vitals"
+      ],
+      "preferred_qualifications": [
+        "Experience with Next.js App Router and server components",
+        "Contributions to open-source UI libraries or design systems"
+      ],
+      "description_text": "We are seeking a Senior Frontend Engineer to lead architecture for our enterprise SaaS product. You will lead UI engineering, mentor junior developers, and ensure sub-second response times across global regions."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-001",
+      "target_role": "Senior Frontend Developer",
+      "seniority_level": "SENIOR",
+      "education": {
+        "degree": "Bachelor of Science",
+        "field": "Computer Science",
+        "institution_type": "State University"
+      },
+      "years_of_experience": 6,
+      "extracted_skills": ["React", "TypeScript", "Redux", "Next.js", "JavaScript", "HTML", "CSS", "Jest", "Tailwind CSS"],
+      "anonymized_resume_text": "SUMMARY: Senior Frontend Engineer with 6 years of experience building high-performance web applications in React, TypeScript, and Next.js.\nEXPERIENCE: Senior Frontend Developer at CloudScale Technologies (2021-Present, 3 years). Led migration from legacy SPA to Next.js, improving Core Web Vitals LCP from 3.8s to 1.1s. Mentored 4 frontend engineers.\nFrontend Engineer at Alpha Digital (2018-2021, 3 years). Developed React/TypeScript customer dashboards serving 200k monthly users.\nEDUCATION: B.S. in Computer Science, State University, 2018."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 4,
+          "EVIDENCE_ACHIEVE": 4,
+          "TRANS_SKILLS": 3,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 1
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "6 years React, TypeScript, Redux, Next.js explicitly detailed.",
+          "EXP_RELEVANCE": "6 years directly in frontend roles (Senior at CloudScale, Frontend at Alpha Digital).",
+          "EVIDENCE_ACHIEVE": "Quantified Core Web Vitals LCP improvement from 3.8s to 1.1s, serving 200k users.",
+          "TRANS_SKILLS": "Demonstrates mentoring, architecture migration, testing in Jest.",
+          "EDU_QUAL": "BS in Computer Science matches requirements.",
+          "CERTS_CRED": "No specialized frontend certifications listed."
+        },
+        "overall_fit_percentage": 89,
+        "recommendation": "STRONG_MATCH",
+        "confidence": "HIGH",
+        "notes": "Excellent candidate who exceeds experience and skill expectations with strong performance metrics."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 4,
+          "EVIDENCE_ACHIEVE": 3,
+          "TRANS_SKILLS": 3,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 2
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Strong demonstration of React, TypeScript, Next.js.",
+          "EXP_RELEVANCE": "Meets 5-year requirement with 6 years total.",
+          "EVIDENCE_ACHIEVE": "Good LCP metrics and migration leadership.",
+          "TRANS_SKILLS": "Team leadership and mentorship proven.",
+          "EDU_QUAL": "BS in Computer Science.",
+          "CERTS_CRED": "None listed, standard baseline."
+        },
+        "overall_fit_percentage": 86,
+        "recommendation": "STRONG_MATCH",
+        "confidence": "HIGH",
+        "notes": "Clear senior-level hire with direct alignment to our stack and seniority."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": false,
+      "adjudicator_id": null,
+      "reference_score": 88,
+      "adjudication_rationale": "Evaluators in consensus (89% vs 86%). Average 87.5% rounded to 88%."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  },
+  {
+    "case_id": "BENCH-SYNTH-002",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "CALIBRATION",
+    "job_posting": {
+      "job_id": "JOB-BE-SR-02",
+      "title": "Senior Backend Go Engineer",
+      "department": "Infrastructure",
+      "job_category": "Backend",
+      "seniority_level": "SENIOR",
+      "mandatory_requirements": [
+        "Minimum 4 years of production Go (Golang) microservices experience",
+        "Deep expertise with PostgreSQL, Redis, and Kafka",
+        "Experience designing distributed systems handling > 10,000 QPS"
+      ],
+      "preferred_qualifications": [
+        "Kubernetes orchestration and Helm chart management",
+        "gRPC and Protocol Buffers"
+      ],
+      "description_text": "Join our core platform team building high-throughput payment and ledger streaming pipelines using Go, Kafka, and PostgreSQL."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-002",
+      "target_role": "Backend Go Developer",
+      "seniority_level": "MID",
+      "education": {
+        "degree": "Bachelor of Engineering",
+        "field": "Information Technology",
+        "institution_type": "Technical Institute"
+      },
+      "years_of_experience": 3,
+      "extracted_skills": ["Go", "Golang", "PostgreSQL", "Docker", "REST API", "Git", "Linux"],
+      "anonymized_resume_text": "SUMMARY: Backend Developer with 3 years of experience writing Go microservices and REST APIs.\nEXPERIENCE: Backend Engineer at PayFlow Systems (2021-Present, 3 years). Built payment gateway endpoints in Go with PostgreSQL. Maintained Redis caching layer for session storage.\nJunior Developer at NetSolutions (2020-2021, 1 year). Developed PHP and MySQL web applications.\nEDUCATION: B.E. in Information Technology, 2020."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 2,
+          "EXP_RELEVANCE": 2,
+          "EVIDENCE_ACHIEVE": 2,
+          "TRANS_SKILLS": 2,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 1
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Has Go and PostgreSQL, but no Kafka and no evidence of 10k QPS distributed scale.",
+          "EXP_RELEVANCE": "Has 3 years Go experience against 4 years minimum senior requirement.",
+          "EVIDENCE_ACHIEVE": "Describes endpoints built, but no performance or throughput figures.",
+          "TRANS_SKILLS": "Basic Redis caching and Linux.",
+          "EDU_QUAL": "Relevant IT degree.",
+          "CERTS_CRED": "No certifications."
+        },
+        "overall_fit_percentage": 53,
+        "recommendation": "BORDERLINE",
+        "confidence": "MEDIUM",
+        "notes": "Candidate is mid-level rather than senior; lacks Kafka and high-scale distributed systems experience."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 2,
+          "EXP_RELEVANCE": 1,
+          "EVIDENCE_ACHIEVE": 2,
+          "TRANS_SKILLS": 2,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 1
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Go present, but misses mandatory distributed Kafka experience.",
+          "EXP_RELEVANCE": "3 years mid-level, role requires 4+ senior years.",
+          "EVIDENCE_ACHIEVE": "No metrics on high-throughput streaming.",
+          "TRANS_SKILLS": "Good baseline web fundamentals.",
+          "EDU_QUAL": "Technical degree verified.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 47,
+        "recommendation": "REJECT",
+        "confidence": "HIGH",
+        "notes": "Under-qualified for senior backend role. Does not meet mandatory scale or streaming requirements."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": true,
+      "adjudicator_id": "ADJUDICATOR_SR",
+      "reference_score": 50,
+      "adjudication_rationale": "Evaluators split on recommendation (Borderline 53% vs Reject 47%). Candidate has solid mid-level Go fundamentals but demonstrably lacks the 4-year senior threshold and Kafka streaming scale. Adjudicated to 50% (Borderline/Reject threshold)."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  },
+  {
+    "case_id": "BENCH-SYNTH-003",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "CALIBRATION",
+    "job_posting": {
+      "job_id": "JOB-DEVOPS-03",
+      "title": "Cloud DevOps Engineer",
+      "department": "Operations",
+      "job_category": "DevOps",
+      "seniority_level": "MID",
+      "mandatory_requirements": [
+        "Hands-on experience managing AWS infrastructure with Terraform",
+        "Kubernetes cluster administration and CI/CD pipelines (GitHub Actions/GitLab)",
+        "Minimum 2 years of DevOps/SRE operational experience"
+      ],
+      "preferred_qualifications": [
+        "AWS Solutions Architect certification",
+        "Prometheus and Grafana monitoring"
+      ],
+      "description_text": "We need a Cloud DevOps Engineer to maintain automated infrastructure, CI/CD pipelines, and Kubernetes deployment automation on AWS."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-003",
+      "target_role": "DevOps Engineer",
+      "seniority_level": "MID",
+      "education": {
+        "degree": "Bachelor of Science",
+        "field": "Computer Engineering",
+        "institution_type": "University"
+      },
+      "years_of_experience": 3,
+      "extracted_skills": ["AWS", "Terraform", "Kubernetes", "Docker", "CI/CD", "GitHub Actions", "Prometheus", "Grafana", "Linux", "Bash"],
+      "anonymized_resume_text": "SUMMARY: DevOps Engineer with 3 years managing AWS infrastructure using Terraform and Kubernetes (EKS).\nEXPERIENCE: DevOps Engineer at Nexus Cloud (2022-Present, 2 years). Provisioned AWS EKS clusters and VPCs via Terraform. Reduced deployment time by 65% with GitHub Actions.\nCloud Support Engineer at DataVibe (2021-2022, 1 year). Monitored server health using Prometheus & Grafana.\nCERTIFICATIONS: AWS Certified Solutions Architect - Associate (Active).\nEDUCATION: B.S. in Computer Engineering, 2021."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 3,
+          "EVIDENCE_ACHIEVE": 3,
+          "TRANS_SKILLS": 3,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 3
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "AWS, Terraform, Kubernetes EKS, GitHub Actions all present.",
+          "EXP_RELEVANCE": "3 years total cloud experience meets 2-year minimum.",
+          "EVIDENCE_ACHIEVE": "65% deployment speedup documented.",
+          "TRANS_SKILLS": "Linux, Bash scripting, Prometheus monitoring.",
+          "EDU_QUAL": "BS Computer Engineering.",
+          "CERTS_CRED": "Active AWS Solutions Architect Associate."
+        },
+        "overall_fit_percentage": 83,
+        "recommendation": "ACCEPTABLE_MATCH",
+        "confidence": "HIGH",
+        "notes": "Direct fit for mid-level DevOps role with all core requirements and preferred AWS certification met."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 3,
+          "EVIDENCE_ACHIEVE": 4,
+          "TRANS_SKILLS": 3,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 3
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Complete match on mandatory AWS/Terraform/K8s/CI stack.",
+          "EXP_RELEVANCE": "Meets experience threshold well.",
+          "EVIDENCE_ACHIEVE": "Clear impact on build pipeline velocity.",
+          "TRANS_SKILLS": "Strong observability and automation skills.",
+          "EDU_QUAL": "Relevant degree.",
+          "CERTS_CRED": "Verified AWS Associate."
+        },
+        "overall_fit_percentage": 86,
+        "recommendation": "STRONG_MATCH",
+        "confidence": "HIGH",
+        "notes": "Very strong mid-level candidate with active certifications and demonstrated automation impact."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": false,
+      "adjudicator_id": null,
+      "reference_score": 85,
+      "adjudication_rationale": "High evaluator agreement (83% vs 86%). Average 84.5% rounded to 85%."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  },
+  {
+    "case_id": "BENCH-SYNTH-004",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "CALIBRATION",
+    "job_posting": {
+      "job_id": "JOB-DS-04",
+      "title": "Machine Learning Engineer",
+      "department": "AI Research",
+      "job_category": "Data",
+      "seniority_level": "MID",
+      "mandatory_requirements": [
+        "Strong experience in Python, PyTorch or TensorFlow, and Scikit-learn",
+        "Experience deploying machine learning models into production APIs",
+        "Solid foundation in statistical modeling and evaluation metrics"
+      ],
+      "preferred_qualifications": [
+        "NLP / LLM fine-tuning or vector databases",
+        "Master's or Ph.D. in Computer Science, Data Science, or related field"
+      ],
+      "description_text": "Join our AI team to develop, train, and deploy predictive models and NLP recommendation pipelines."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-004",
+      "target_role": "Data Analyst",
+      "seniority_level": "JUNIOR",
+      "education": {
+        "degree": "Bachelor of Science",
+        "field": "Business Administration",
+        "institution_type": "College"
+      },
+      "years_of_experience": 2,
+      "extracted_skills": ["Python", "SQL", "Excel", "Tableau", "Pandas"],
+      "anonymized_resume_text": "SUMMARY: Data Analyst with 2 years of experience analyzing sales metrics and creating Tableau dashboards.\nEXPERIENCE: Data Analyst at MarketGrowth (2022-Present, 2 years). Cleaned data in Python and Pandas. Built weekly SQL reporting models.\nEDUCATION: B.S. in Business Administration, 2022."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 1,
+          "EXP_RELEVANCE": 1,
+          "EVIDENCE_ACHIEVE": 2,
+          "TRANS_SKILLS": 2,
+          "EDU_QUAL": 1,
+          "CERTS_CRED": 0
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Only basic Python/Pandas. No PyTorch, no TensorFlow, no ML models.",
+          "EXP_RELEVANCE": "BI/Analytics experience, not ML Engineering.",
+          "EVIDENCE_ACHIEVE": "Good reporting accomplishments, but unrelated to production model serving.",
+          "TRANS_SKILLS": "SQL and analytical mindset transferable, but steep learning curve.",
+          "EDU_QUAL": "Business Administration degree lacks mathematical/CS depth.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 33,
+        "recommendation": "REJECT",
+        "confidence": "HIGH",
+        "notes": "Candidate is a BI/Data Analyst lacking core ML engineering, deep learning frameworks, and production deployment."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 1,
+          "EXP_RELEVANCE": 1,
+          "EVIDENCE_ACHIEVE": 1,
+          "TRANS_SKILLS": 2,
+          "EDU_QUAL": 1,
+          "CERTS_CRED": 0
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Fails mandatory deep learning framework requirement.",
+          "EXP_RELEVANCE": "Analytics role does not qualify for ML Engineer.",
+          "EVIDENCE_ACHIEVE": "No model deployment evidence.",
+          "TRANS_SKILLS": "Basic Python.",
+          "EDU_QUAL": "Non-technical degree.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 28,
+        "recommendation": "REJECT",
+        "confidence": "HIGH",
+        "notes": "Clear Reject. Demonstrably lacks machine learning engineering competencies."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": false,
+      "adjudicator_id": null,
+      "reference_score": 30,
+      "adjudication_rationale": "Evaluators in consensus on Reject (33% vs 28%). Reference score 30%."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  },
+  {
+    "case_id": "BENCH-SYNTH-005",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "CALIBRATION",
+    "job_posting": {
+      "job_id": "JOB-FS-05",
+      "title": "Full Stack Software Engineer",
+      "department": "Engineering",
+      "job_category": "Fullstack",
+      "seniority_level": "MID",
+      "mandatory_requirements": [
+        "Experience building full stack applications with Node.js and React",
+        "Relational database design (PostgreSQL or MySQL)",
+        "Minimum 2 years commercial software engineering experience"
+      ],
+      "preferred_qualifications": [
+        "TypeScript across client and server",
+        "Docker containerization"
+      ],
+      "description_text": "Join our product team to deliver new features across our customer-facing web app and REST APIs."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-005",
+      "target_role": "Full Stack Developer",
+      "seniority_level": "MID",
+      "education": {
+        "degree": "Bachelor of Science",
+        "field": "Information Technology",
+        "institution_type": "University"
+      },
+      "years_of_experience": 3,
+      "extracted_skills": ["JavaScript", "TypeScript", "React", "Node.js", "Express", "PostgreSQL", "Docker", "Git"],
+      "anonymized_resume_text": "SUMMARY: Full Stack Developer with 3 years building web apps in React, Node.js, and PostgreSQL.\nEXPERIENCE: Software Engineer at WebVenture (2021-Present, 3 years). Developed React frontend components and Express REST endpoints. Optimized PostgreSQL database queries reducing API response times by 30%.\nEDUCATION: B.S. in Information Technology, 2021."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 3,
+          "EVIDENCE_ACHIEVE": 3,
+          "TRANS_SKILLS": 3,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 1
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "React, Node.js, Express, PostgreSQL all proven in commercial role.",
+          "EXP_RELEVANCE": "3 years meets 2-year requirement.",
+          "EVIDENCE_ACHIEVE": "30% query response time reduction.",
+          "TRANS_SKILLS": "TypeScript and Docker present.",
+          "EDU_QUAL": "BS IT.",
+          "CERTS_CRED": "No certs."
+        },
+        "overall_fit_percentage": 81,
+        "recommendation": "ACCEPTABLE_MATCH",
+        "confidence": "HIGH",
+        "notes": "Solid mid-level full stack engineer who directly satisfies all job specifications."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 3,
+          "EXP_RELEVANCE": 3,
+          "EVIDENCE_ACHIEVE": 3,
+          "TRANS_SKILLS": 3,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 1
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Good React/Node stack coverage.",
+          "EXP_RELEVANCE": "3 years experience matches requirement.",
+          "EVIDENCE_ACHIEVE": "Good database optimization metrics.",
+          "TRANS_SKILLS": "TypeScript on both client and server.",
+          "EDU_QUAL": "Degree verified.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 76,
+        "recommendation": "ACCEPTABLE_MATCH",
+        "confidence": "HIGH",
+        "notes": "Strong candidate for full stack role with balanced frontend and backend capabilities."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": false,
+      "adjudicator_id": null,
+      "reference_score": 79,
+      "adjudication_rationale": "Consensus reached (81% vs 76%). Average 78.5% rounded to 79%."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  },
+  {
+    "case_id": "BENCH-SYNTH-006",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "CALIBRATION",
+    "job_posting": {
+      "job_id": "JOB-SEC-06",
+      "title": "Cybersecurity Analyst",
+      "department": "Security",
+      "job_category": "General",
+      "seniority_level": "MID",
+      "mandatory_requirements": [
+        "At least 2 years in SOC, incident response, or vulnerability management",
+        "Active security certification: CompTIA Security+, CEH, or CISSP",
+        "Familiarity with SIEM tooling (Splunk, Sentinel, or Elastic SIEM)"
+      ],
+      "preferred_qualifications": [
+        "Python scripting for security automation",
+        "Cloud security posture management (AWS Security Hub)"
+      ],
+      "description_text": "Join our SOC team to monitor, detect, and respond to cyber threats across corporate and cloud infrastructure."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-006",
+      "target_role": "IT Support / Junior Security",
+      "seniority_level": "JUNIOR",
+      "education": {
+        "degree": "Associate Degree",
+        "field": "Network Administration",
+        "institution_type": "Community College"
+      },
+      "years_of_experience": 2,
+      "extracted_skills": ["Network Security", "Firewalls", "Wireshark", "Active Directory", "Linux"],
+      "anonymized_resume_text": "SUMMARY: IT Support Specialist with 2 years of experience managing firewalls and network security.\nEXPERIENCE: IT Support Technician at CorpSafe (2022-Present, 2 years). Configured corporate firewalls and investigated user login alerts in Active Directory.\nEDUCATION: Associate Degree in Network Administration, 2022."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 2,
+          "EXP_RELEVANCE": 2,
+          "EVIDENCE_ACHIEVE": 1,
+          "TRANS_SKILLS": 2,
+          "EDU_QUAL": 2,
+          "CERTS_CRED": 0
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Network security present, but no SIEM tools (Splunk, Sentinel) mentioned.",
+          "EXP_RELEVANCE": "IT support, not dedicated SOC or incident response.",
+          "EVIDENCE_ACHIEVE": "Routine task descriptions only.",
+          "TRANS_SKILLS": "Good network foundation.",
+          "EDU_QUAL": "Associate degree.",
+          "CERTS_CRED": "Fails mandatory certification requirement: no Security+, CEH, or CISSP."
+        },
+        "overall_fit_percentage": 35,
+        "recommendation": "REJECT",
+        "confidence": "HIGH",
+        "notes": "Candidate demonstrably lacks the mandatory security certification (Security+/CEH/CISSP) and lacks SIEM experience."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 1,
+          "EXP_RELEVANCE": 1,
+          "EVIDENCE_ACHIEVE": 1,
+          "TRANS_SKILLS": 2,
+          "EDU_QUAL": 2,
+          "CERTS_CRED": 0
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Misses SIEM and mandatory cert.",
+          "EXP_RELEVANCE": "Helpdesk/support rather than SOC.",
+          "EVIDENCE_ACHIEVE": "No incident response deliverables.",
+          "TRANS_SKILLS": "Wireshark, Linux.",
+          "EDU_QUAL": "Associate in networking.",
+          "CERTS_CRED": "No security credentials."
+        },
+        "overall_fit_percentage": 31,
+        "recommendation": "REJECT",
+        "confidence": "HIGH",
+        "notes": "Mandatory qualification gating applied due to missing mandatory security certification."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": false,
+      "adjudicator_id": null,
+      "reference_score": 33,
+      "adjudication_rationale": "Consensus on Reject with mandatory qualification gating. Reference score 33%."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  },
+  {
+    "case_id": "BENCH-SYNTH-007",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "HELD_OUT_VALIDATION",
+    "job_posting": {
+      "job_id": "JOB-FE-LEAD-07",
+      "title": "Staff / Lead Frontend Architect",
+      "department": "Engineering",
+      "job_category": "Frontend",
+      "seniority_level": "LEAD",
+      "mandatory_requirements": [
+        "7+ years of engineering experience with at least 3 years as a tech lead or staff engineer",
+        "Extensive architecture experience with micro-frontends, design systems, and TypeScript",
+        "Proven record of establishing engineering standards and driving multi-team technical roadmaps"
+      ],
+      "preferred_qualifications": [
+        "Monorepo architecture with Turborepo or Nx",
+        "High-scale web accessibility (WCAG AAA) compliance"
+      ],
+      "description_text": "We are seeking a Staff/Lead Frontend Architect to define UI architecture across 6 cross-functional engineering squads."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-007",
+      "target_role": "Lead Frontend Architect",
+      "seniority_level": "LEAD",
+      "education": {
+        "degree": "Master of Science",
+        "field": "Computer Science",
+        "institution_type": "Research University"
+      },
+      "years_of_experience": 8,
+      "extracted_skills": ["React", "TypeScript", "Micro-frontends", "Design Systems", "Webpack", "Turborepo", "GraphQL", "Node.js", "Accessibility", "Jest"],
+      "anonymized_resume_text": "SUMMARY: Staff Frontend Architect with 8 years of engineering experience, including 3.5 years leading UI platform architecture across 80+ engineers.\nEXPERIENCE: Staff Frontend Engineer at FinGlobal (2020-Present, 4 years). Architected company-wide micro-frontend framework using Module Federation and Turborepo. Established design system adopted by 12 product squads.\nSenior Frontend Engineer at DataVenture (2016-2020, 4 years). Built enterprise React analytics portals.\nEDUCATION: M.S. in Computer Science, 2016. B.S. in Software Engineering, 2014."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 4,
+          "EVIDENCE_ACHIEVE": 4,
+          "TRANS_SKILLS": 4,
+          "EDU_QUAL": 4,
+          "CERTS_CRED": 2
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Extensive micro-frontend Module Federation, Turborepo, TypeScript, design system architecture.",
+          "EXP_RELEVANCE": "8 years total, 4 as Staff leading 80+ engineers directly matches Lead criteria.",
+          "EVIDENCE_ACHIEVE": "Adoption across 12 squads and 80+ engineers.",
+          "TRANS_SKILLS": "Cross-functional roadmap leadership and technical governance.",
+          "EDU_QUAL": "MS in Computer Science exceeds requirement.",
+          "CERTS_CRED": "Standard tech credentials."
+        },
+        "overall_fit_percentage": 94,
+        "recommendation": "STRONG_MATCH",
+        "confidence": "HIGH",
+        "notes": "Ideal Staff Frontend Architect candidate. Exceeds experience, leadership, and technical depth."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 4,
+          "EVIDENCE_ACHIEVE": 4,
+          "TRANS_SKILLS": 4,
+          "EDU_QUAL": 4,
+          "CERTS_CRED": 2
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Complete mastery of frontend architectural requirements.",
+          "EXP_RELEVANCE": "Demonstrated Staff-level seniority.",
+          "EVIDENCE_ACHIEVE": "Wide multi-squad architectural footprint.",
+          "TRANS_SKILLS": "Engineering governance and cross-team alignment.",
+          "EDU_QUAL": "Advanced degree in Computer Science.",
+          "CERTS_CRED": "Not necessary given pedigree."
+        },
+        "overall_fit_percentage": 94,
+        "recommendation": "STRONG_MATCH",
+        "confidence": "HIGH",
+        "notes": "Flawless match for Lead Architect requisition."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": false,
+      "adjudicator_id": null,
+      "reference_score": 94,
+      "adjudication_rationale": "Perfect consensus between evaluators at 94%."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  },
+  {
+    "case_id": "BENCH-SYNTH-008",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "HELD_OUT_VALIDATION",
+    "job_posting": {
+      "job_id": "JOB-BE-PYTHON-08",
+      "title": "Backend Python / Django Engineer",
+      "department": "Engineering",
+      "job_category": "Backend",
+      "seniority_level": "MID",
+      "mandatory_requirements": [
+        "3+ years of professional backend development with Python and Django / FastAPI",
+        "Strong relational database schema design and ORM optimization (PostgreSQL)",
+        "Experience writing automated unit and integration tests (Pytest)"
+      ],
+      "preferred_qualifications": [
+        "Celery background workers and Redis",
+        "AWS deployment experience"
+      ],
+      "description_text": "Looking for a mid-level Python backend engineer to build customer-facing APIs and backend business logic."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-008",
+      "target_role": "Backend Python Developer",
+      "seniority_level": "MID",
+      "education": {
+        "degree": "Bachelor of Science",
+        "field": "Computer Science",
+        "institution_type": "University"
+      },
+      "years_of_experience": 3,
+      "extracted_skills": ["Python", "Django", "FastAPI", "PostgreSQL", "Pytest", "Redis", "Celery", "Docker", "Git"],
+      "anonymized_resume_text": "SUMMARY: Backend Engineer with 3 years writing Python APIs using Django and FastAPI.\nEXPERIENCE: Python Developer at HealthTech Solutions (2021-Present, 3 years). Built REST APIs in Django REST Framework and FastAPI with PostgreSQL. Created asynchronous task workers with Celery and Redis. Achieved 92% test coverage using Pytest.\nEDUCATION: B.S. in Computer Science, 2021."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 3,
+          "EVIDENCE_ACHIEVE": 3,
+          "TRANS_SKILLS": 3,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 1
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Python, Django, FastAPI, PostgreSQL, Pytest all directly verified.",
+          "EXP_RELEVANCE": "3 years experience matches requirement.",
+          "EVIDENCE_ACHIEVE": "92% test coverage metric and production asynchronous tasks.",
+          "TRANS_SKILLS": "Celery, Redis, Docker present.",
+          "EDU_QUAL": "BS in CS matches.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 81,
+        "recommendation": "ACCEPTABLE_MATCH",
+        "confidence": "HIGH",
+        "notes": "Direct match on all mandatory criteria with relevant background tasks experience."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 3,
+          "EVIDENCE_ACHIEVE": 4,
+          "TRANS_SKILLS": 3,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 1
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Strong demonstration of Python/Django/FastAPI.",
+          "EXP_RELEVANCE": "Direct 3 years backend experience.",
+          "EVIDENCE_ACHIEVE": "Excellent test coverage and async processing evidence.",
+          "TRANS_SKILLS": "Solid testing and containerization background.",
+          "EDU_QUAL": "Degree in Computer Science.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 84,
+        "recommendation": "ACCEPTABLE_MATCH",
+        "confidence": "HIGH",
+        "notes": "Very clean mid-level backend engineer profile. High confidence hire."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": false,
+      "adjudicator_id": null,
+      "reference_score": 83,
+      "adjudication_rationale": "Close evaluator consensus (81% vs 84%). Average 82.5% rounded to 83%."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  },
+  {
+    "case_id": "BENCH-SYNTH-009",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "HELD_OUT_VALIDATION",
+    "job_posting": {
+      "job_id": "JOB-MOB-IOS-09",
+      "title": "Senior iOS Engineer",
+      "department": "Mobile Engineering",
+      "job_category": "Mobile",
+      "seniority_level": "SENIOR",
+      "mandatory_requirements": [
+        "At least 4 years of native iOS development with Swift and SwiftUI",
+        "Experience releasing and maintaining apps on the Apple App Store",
+        "Solid architecture patterns (MVVM, Clean Architecture, Combine/Async-Await)"
+      ],
+      "preferred_qualifications": [
+        "CoreData or SwiftData offline sync",
+        "CI/CD for mobile using Fastlane"
+      ],
+      "description_text": "We need a Senior iOS Engineer to own architecture, feature delivery, and App Store releases for our flagship consumer iOS application."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-009",
+      "target_role": "Mobile Developer",
+      "seniority_level": "JUNIOR",
+      "education": {
+        "degree": "Bootcamp Certificate",
+        "field": "Web Development",
+        "institution_type": "Coding Bootcamp"
+      },
+      "years_of_experience": 1,
+      "extracted_skills": ["JavaScript", "React Native", "Expo", "HTML", "CSS"],
+      "anonymized_resume_text": "SUMMARY: Junior Mobile Developer with 1 year building cross-platform mobile apps in React Native and Expo.\nEXPERIENCE: Junior Mobile Developer at AppCraft (2023-Present, 1 year). Created React Native screens and connected to Firebase backend.\nEDUCATION: Certificate in Web & Mobile Development, 2023."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 1,
+          "EXP_RELEVANCE": 1,
+          "EVIDENCE_ACHIEVE": 1,
+          "TRANS_SKILLS": 2,
+          "EDU_QUAL": 1,
+          "CERTS_CRED": 0
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Candidate has React Native (JS), NOT native Swift/SwiftUI. Fails mandatory language.",
+          "EXP_RELEVANCE": "1 year junior experience vs 4-year senior requirement.",
+          "EVIDENCE_ACHIEVE": "Simple cross-platform screens, no App Store ownership.",
+          "TRANS_SKILLS": "Mobile UI concepts transferable from React Native, but significant native Swift gap.",
+          "EDU_QUAL": "Bootcamp certificate.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 28,
+        "recommendation": "REJECT",
+        "confidence": "HIGH",
+        "notes": "Candidate lacks native iOS stack (Swift/SwiftUI) and is far below the senior experience threshold."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 1,
+          "EXP_RELEVANCE": 0,
+          "EVIDENCE_ACHIEVE": 1,
+          "TRANS_SKILLS": 2,
+          "EDU_QUAL": 1,
+          "CERTS_CRED": 0
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Fails mandatory Swift/SwiftUI requirement.",
+          "EXP_RELEVANCE": "Zero native iOS experience.",
+          "EVIDENCE_ACHIEVE": "No native App Store deliverables.",
+          "TRANS_SKILLS": "Basic JavaScript/React Native.",
+          "EDU_QUAL": "Bootcamp.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 24,
+        "recommendation": "REJECT",
+        "confidence": "HIGH",
+        "notes": "Reject. Candidate does not meet native platform requirements or senior scope."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": false,
+      "adjudicator_id": null,
+      "reference_score": 26,
+      "adjudication_rationale": "Consensus on Reject (28% vs 24%). Reference score 26%."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  },
+  {
+    "case_id": "BENCH-SYNTH-010",
+    "provenance": {
+      "source_type": "synthetic_fixture",
+      "license_or_consent": "CC0-Synthetic-Test-Fixture",
+      "created_at": "2026-10-14T00:00:00Z"
+    },
+    "validation_split": "HELD_OUT_VALIDATION",
+    "job_posting": {
+      "job_id": "JOB-DATA-SR-10",
+      "title": "Senior Data Platform Engineer",
+      "department": "Data Engineering",
+      "job_category": "Data",
+      "seniority_level": "SENIOR",
+      "mandatory_requirements": [
+        "5+ years of data engineering experience with Apache Spark, Scala or Python",
+        "Data warehousing and distributed query optimization (Snowflake or BigQuery)",
+        "Orchestration of complex DAGs using Apache Airflow"
+      ],
+      "preferred_qualifications": [
+        "dbt (data build tool) modeling",
+        "Streaming data with Apache Kafka or Flink"
+      ],
+      "description_text": "Seeking a Senior Data Engineer to scale our petabyte-scale data warehouse and Airflow pipelines."
+    },
+    "candidate_profile_anonymized": {
+      "profile_id": "CAND-SYNTH-010",
+      "target_role": "Senior Data Engineer",
+      "seniority_level": "SENIOR",
+      "education": {
+        "degree": "Bachelor of Science",
+        "field": "Computer Science",
+        "institution_type": "University"
+      },
+      "years_of_experience": 6,
+      "extracted_skills": ["Python", "Spark", "PySpark", "Airflow", "Snowflake", "dbt", "SQL", "Kafka", "AWS", "Docker"],
+      "anonymized_resume_text": "SUMMARY: Senior Data Engineer with 6 years building data lakes and distributed pipelines using PySpark, Airflow, and Snowflake.\nEXPERIENCE: Senior Data Engineer at StreamMetrics (2020-Present, 4 years). Designed PySpark processing pipelines handling 50TB daily. Built 40+ Airflow DAGs and modeled Snowflake warehouses with dbt.\nData Engineer at InfoGrid (2018-2020, 2 years). Maintained ETL jobs in Python and PostgreSQL.\nEDUCATION: B.S. in Computer Science, 2018."
+    },
+    "evaluations": [
+      {
+        "evaluator_id": "EVAL_A",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 4,
+          "EVIDENCE_ACHIEVE": 4,
+          "TRANS_SKILLS": 4,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 1
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "PySpark, Airflow, Snowflake, dbt, Kafka all present.",
+          "EXP_RELEVANCE": "6 years data engineering exceeds 5-year requirement.",
+          "EVIDENCE_ACHIEVE": "50TB daily pipeline scale and 40+ Airflow DAGs documented.",
+          "TRANS_SKILLS": "Kafka streaming and dbt modeling.",
+          "EDU_QUAL": "BS in Computer Science.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 90,
+        "recommendation": "STRONG_MATCH",
+        "confidence": "HIGH",
+        "notes": "Outstanding senior data engineer candidate with exact technology and scale match."
+      },
+      {
+        "evaluator_id": "EVAL_B",
+        "criteria_scores": {
+          "REQ_SKILLS": 4,
+          "EXP_RELEVANCE": 4,
+          "EVIDENCE_ACHIEVE": 4,
+          "TRANS_SKILLS": 3,
+          "EDU_QUAL": 3,
+          "CERTS_CRED": 1
+        },
+        "criteria_evidence": {
+          "REQ_SKILLS": "Meets all mandatory criteria with high competency.",
+          "EXP_RELEVANCE": "Seniority and tenure confirmed.",
+          "EVIDENCE_ACHIEVE": "Petabyte/terabyte operational experience verified.",
+          "TRANS_SKILLS": "Strong SQL, cloud, and streaming knowledge.",
+          "EDU_QUAL": "Relevant degree.",
+          "CERTS_CRED": "None."
+        },
+        "overall_fit_percentage": 87,
+        "recommendation": "STRONG_MATCH",
+        "confidence": "HIGH",
+        "notes": "Top tier candidate for Senior Data Engineer."
+      }
+    ],
+    "adjudication": {
+      "is_adjudicated": false,
+      "adjudicator_id": null,
+      "reference_score": 89,
+      "adjudication_rationale": "High evaluator agreement (90% vs 87%). Average 88.5% rounded to 89%."
+    },
+    "system_baseline": {
+      "skillsync_score": null
+    }
+  }
+]

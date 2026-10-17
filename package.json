@@ -9,7 +9,13 @@
     "preview": "vite preview",
     "test:tiers": "node tests/careerRelevanceTier.test.mjs",
     "test:admin": "node tests/adminJobseekerManagement.test.mjs",
-    "test": "node tests/careerRelevanceTier.test.mjs && node tests/adminJobseekerManagement.test.mjs"
+    "test:templates": "node tests/resumeTemplateWorkflow.test.mjs",
+    "test:quality": "node tests/resumeQualityValidation.test.mjs",
+    "test:benchmark": "node tests/hrEvaluationBenchmark.test.mjs",
+    "test:baseline": "node tests/baselineJobFitAccuracy.test.mjs",
+    "test:gating": "node tests/mandatoryGatingAndPilot.test.mjs",
+    "test:builder": "node tests/resumeBuilderWorkflow.test.mjs",
+    "test": "node tests/careerRelevanceTier.test.mjs && node tests/adminJobseekerManagement.test.mjs && node tests/resumeTemplateWorkflow.test.mjs && node tests/resumeQualityValidation.test.mjs && node tests/hrEvaluationBenchmark.test.mjs && node tests/baselineJobFitAccuracy.test.mjs && node tests/mandatoryGatingAndPilot.test.mjs && node tests/resumeBuilderWorkflow.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
