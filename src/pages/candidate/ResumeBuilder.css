@@ -5,6 +5,81 @@
   padding: 12px 16px 80px;
 }
 
+/* ── Active Resume Source Selector Bar ───────────────────────────────────────── */
+.active-source-selector-bar {
+  max-width: 900px;
+  margin: 0 auto 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.source-selector-content {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.source-selector-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.source-selector-options {
+  display: flex;
+  gap: 8px;
+}
+
+.source-radio-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.source-radio-pill:hover {
+  border-color: #0284c7;
+  color: #0284c7;
+}
+
+.source-radio-pill.selected {
+  background: #e0f2fe;
+  border-color: #0284c7;
+  color: #0369a1;
+  font-weight: 600;
+}
+
+.source-radio-pill input[type="radio"] {
+  margin: 0;
+  accent-color: #0284c7;
+  cursor: pointer;
+}
+
+.source-switching-spinner {
+  font-size: 12px;
+  color: #0284c7;
+  font-style: italic;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ── Top Progress & Stepper Bar ────────────────────────────────────────────── */
 .builder-progress-container {
   max-width: 900px;

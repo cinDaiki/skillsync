@@ -147,17 +147,24 @@ export function generateProfessionalSummary(data) {
 
   const parts = [];
 
-  // 1. Education clause
+  // 1. Education clause (truthful distinction - zero fallback to completed)
   const eduEntries = data.education?.entries || [];
-  const completedEdu = eduEntries.find(e => e.status === "Completed") || eduEntries[0];
+  const completedEdu = eduEntries.find(e => e.status === "Completed");
   const studyingEdu = eduEntries.find(e => e.status === "Currently Studying");
+  const incompleteEdu = eduEntries.find(e => e.status === "Attended but Did Not Complete");
 
   if (completedEdu && completedEdu.courseOrProgram) {
     parts.push(`Graduate in ${completedEdu.courseOrProgram}`);
   } else if (studyingEdu && studyingEdu.courseOrProgram) {
-    parts.push(`Student pursuing ${studyingEdu.courseOrProgram}`);
+    parts.push(`Student currently pursuing ${studyingEdu.courseOrProgram}`);
+  } else if (incompleteEdu && incompleteEdu.courseOrProgram) {
+    parts.push(`Academic background in ${incompleteEdu.courseOrProgram}`);
   } else if (completedEdu && completedEdu.level) {
-    parts.push(`Background in ${completedEdu.level}`);
+    parts.push(`Graduate with ${completedEdu.level}`);
+  } else if (studyingEdu && studyingEdu.level) {
+    parts.push(`Student pursuing ${studyingEdu.level}`);
+  } else if (incompleteEdu && incompleteEdu.level) {
+    parts.push(`Foundational studies in ${incompleteEdu.level}`);
   }
 
   // 2. Experience clause
@@ -448,18 +455,135 @@ export async function loadCanonicalResume(userId) {
 }
 
 /**
- * Saves canonical structured resume data and synchronizes projections.
- * 1. Saves to candidate_form_resumes (and resumes.parsed_details.form_resume as fallback).
- * 2. Projects to profiles (for snapshots and profile views).
- * 3. Projects to candidate_profiles (for server matching RPC).
- * 4. Preserves historical uploaded document in resumes table.
- * 5. Generates embedding and updates resumes.resume_embedding.
- * 6. Executes server matching flow.
+ * Parses user-provided date string into epoch milliseconds.
+ * Supports "YYYY-MM-DD", "YYYY-MM", "YYYY", "Present", "Current", and standard date strings.
  */
-export async function saveCanonicalResume(userId, resumeData, options = {}) {
+export function parseDateToMs(dateStr, isEnd = false) {
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const trimmed = dateStr.trim();
+  if (/^(present|current)$/i.test(trimmed)) {
+    return Date.now();
+  }
+
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? null : d.getTime();
+  }
+
+  // YYYY-MM
+  if (/^\d{4}-\d{2}$/.test(trimmed)) {
+    const [year, month] = trimmed.split("-").map(Number);
+    if (isEnd) {
+      return new Date(year, month, 0, 23, 59, 59, 999).getTime();
+    } else {
+      return new Date(year, month - 1, 1).getTime();
+    }
+  }
+
+  // YYYY
+  if (/^\d{4}$/.test(trimmed)) {
+    const year = Number(trimmed);
+    if (isEnd) {
+      return new Date(year, 11, 31, 23, 59, 59, 999).getTime();
+    } else {
+      return new Date(year, 0, 1).getTime();
+    }
+  }
+
+  const parsed = Date.parse(trimmed);
+  return isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Calculates total years of experience strictly from dates by merging overlapping intervals.
+ * Never fabricates years from the number of entries.
+ * Returns:
+ * - 0 if noExperience flag is true or no entries exist.
+ * - null if entries exist but none have parseable dates (unknown/unspecified).
+ * - number of years (rounded to 1 decimal place) if valid dates exist.
+ */
+export function calculateExperienceYears(experienceData) {
+  if (!experienceData) return null;
+  if (experienceData.noExperience === true) return 0;
+
+  const entries = experienceData.entries || [];
+  if (entries.length === 0) return 0;
+
+  const intervals = [];
+  let datesFound = 0;
+
+  for (const item of entries) {
+    const startMs = parseDateToMs(item.startDate, false);
+    let endMs = null;
+    if (item.isCurrent) {
+      endMs = Date.now();
+    } else if (item.endDate) {
+      endMs = parseDateToMs(item.endDate, true);
+    }
+
+    if (startMs !== null) {
+      datesFound++;
+      const resolvedEnd = endMs !== null && endMs >= startMs ? endMs : startMs + (30 * 24 * 60 * 60 * 1000);
+      intervals.push([startMs, resolvedEnd]);
+    }
+  }
+
+  if (datesFound === 0) {
+    return null;
+  }
+
+  // Sort by start date and merge overlapping or adjacent intervals
+  intervals.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const [start, end] of intervals) {
+    if (merged.length === 0) {
+      merged.push([start, end]);
+    } else {
+      const last = merged[merged.length - 1];
+      if (start <= last[1]) {
+        last[1] = Math.max(last[1], end);
+      } else {
+        merged.push([start, end]);
+      }
+    }
+  }
+
+  let totalMs = 0;
+  for (const [start, end] of merged) {
+    totalMs += (end - start);
+  }
+
+  const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
+  const rawYears = totalMs / msPerYear;
+  return Math.max(0, Math.round(rawYears * 10) / 10);
+}
+
+// Sequential queue state to eliminate autosave races
+let _saveQueuePromise = Promise.resolve();
+let _saveSequenceCounter = 0;
+
+/**
+ * Public wrapper ensuring all save requests execute sequentially.
+ * Prevents race conditions where an older autosave finishes after a newer one.
+ */
+export function saveCanonicalResume(userId, resumeData, options = {}) {
+  const sequence = ++_saveSequenceCounter;
+  _saveQueuePromise = _saveQueuePromise
+    .then(() => _executeSaveCanonicalResume(userId, resumeData, options, sequence))
+    .catch(err => {
+      console.error("[ResumeBuilder] Sequential save queue catch:", err);
+      return { success: false, error: err?.message || "Internal save queue failure" };
+    });
+  return _saveQueuePromise;
+}
+
+/**
+ * Core internal executor for saving canonical structured resume data and synchronizing projections.
+ */
+async function _executeSaveCanonicalResume(userId, resumeData, options = {}, sequence = 1) {
   if (!userId || !resumeData) return { success: false, error: "Missing userId or resumeData" };
 
-  const currentSequence = ++_lastSaveSequence;
   const nowIso = new Date().toISOString();
 
   const preparedData = {
@@ -469,24 +593,30 @@ export async function saveCanonicalResume(userId, resumeData, options = {}) {
   };
 
   try {
-    // 1. Primary Save: candidate_form_resumes (always persists full structured form data)
-    try {
-      await supabase.from("candidate_form_resumes").upsert({
-        user_id: userId,
-        resume_data: preparedData,
-        version: RESUME_VERSION,
-        updated_at: nowIso
-      }, { onConflict: "user_id" });
-    } catch (tblErr) {
-      console.warn("[ResumeBuilder] candidate_form_resumes upsert notice:", tblErr?.message);
+    // 1. Primary Save: candidate_form_resumes (persists full structured form data)
+    const { error: formUpsertErr } = await supabase.from("candidate_form_resumes").upsert({
+      user_id: userId,
+      resume_data: preparedData,
+      version: RESUME_VERSION,
+      updated_at: nowIso
+    }, { onConflict: "user_id" });
+
+    if (formUpsertErr) {
+      console.error("[ResumeBuilder] candidate_form_resumes upsert failed:", formUpsertErr);
+      return { success: false, error: formUpsertErr.message || "Failed to persist resume form data" };
     }
 
     // 2. Fetch existing resume row to PRESERVE historical uploaded document
-    const { data: existingResume } = await supabase
+    const { data: existingResume, error: resumeFetchErr } = await supabase
       .from("resumes")
       .select("*")
       .eq("applicant_id", userId)
       .maybeSingle();
+
+    if (resumeFetchErr) {
+      console.error("[ResumeBuilder] resumes fetch error:", resumeFetchErr);
+      return { success: false, error: resumeFetchErr.message || "Failed to query resume records" };
+    }
 
     const skillsArray = (preparedData.skills || []).map(s => (typeof s === "string" ? s : s.name)).filter(Boolean);
     const skillsCsv = skillsArray.join(",");
@@ -510,12 +640,17 @@ export async function saveCanonicalResume(userId, resumeData, options = {}) {
       if (shouldSyncToMatching) {
         updatePayload.extracted_skills = skillsCsv;
       }
-      await supabase
+      const { error: resumeUpdateErr } = await supabase
         .from("resumes")
         .update(updatePayload)
         .eq("applicant_id", userId);
+
+      if (resumeUpdateErr) {
+        console.error("[ResumeBuilder] resumes update failed:", resumeUpdateErr);
+        return { success: false, error: resumeUpdateErr.message || "Failed to update resume record" };
+      }
     } else {
-      await supabase
+      const { error: resumeInsertErr } = await supabase
         .from("resumes")
         .insert([{
           applicant_id: userId,
@@ -523,10 +658,15 @@ export async function saveCanonicalResume(userId, resumeData, options = {}) {
           file_name: null,
           file_size: null,
           extracted_skills: skillsCsv,
-          resume_score: 50,
+          resume_score: null, // Zero fabrication: null until actual assessment
           completeness: calculateResumeReadiness(preparedData).percentage,
           parsed_details: mergedParsedDetails
         }]);
+
+      if (resumeInsertErr) {
+        console.error("[ResumeBuilder] resumes insert failed:", resumeInsertErr);
+        return { success: false, error: resumeInsertErr.message || "Failed to create resume record" };
+      }
     }
 
     // 3. Project to public.profiles and candidate_profiles only when syncing to matching
@@ -557,36 +697,69 @@ export async function saveCanonicalResume(userId, resumeData, options = {}) {
         credential_id: c.credentialId
       }));
 
-      await supabase.from("profiles").update({
-        full_name: preparedData.personalDetails?.fullName || null,
-        contact_number: preparedData.personalDetails?.phone || null,
-        address: preparedData.personalDetails?.city || null,
+      // Blocker 5: Fetch existing profile to prevent wiping unspecified fields
+      const { data: existingProfile } = await supabase
+        .from("profiles")
+        .select("full_name, contact_number, address")
+        .eq("id", userId)
+        .maybeSingle();
+
+      const profileUpdate = {
         skills: skillsCsv,
         education: eduList,
         work_experience: expList,
         certifications: certList,
         updated_at: nowIso
-      }).eq("id", userId);
+      };
 
-      // 4. Project to public.candidate_profiles (used by compute_and_save_job_match RPC)
-      const highestEdu = (preparedData.education?.entries || []).find(e => e.status === "Completed") ||
-                        (preparedData.education?.entries || [])[0] || {};
-
-      let estimatedYears = 0;
-      if (preparedData.experience?.entries?.length > 0 && !preparedData.experience.noExperience) {
-        estimatedYears = Math.max(1, Math.round(preparedData.experience.entries.length * 1.5));
+      if (preparedData.personalDetails?.fullName?.trim()) {
+        profileUpdate.full_name = preparedData.personalDetails.fullName.trim();
+      }
+      if (preparedData.personalDetails?.phone?.trim()) {
+        profileUpdate.contact_number = preparedData.personalDetails.phone.trim();
+      }
+      const candidateCity = (preparedData.personalDetails?.city || preparedData.personalDetails?.region)?.trim();
+      if (candidateCity) {
+        profileUpdate.address = candidateCity;
       }
 
-      await supabase.from("candidate_profiles").upsert({
+      const { error: profUpdateErr } = await supabase
+        .from("profiles")
+        .update(profileUpdate)
+        .eq("id", userId);
+
+      if (profUpdateErr) {
+        console.error("[ResumeBuilder] Failed updating profiles:", profUpdateErr);
+        return { success: false, error: profUpdateErr.message || "Failed to update profile record" };
+      }
+
+      // Blocker 3: Calculate experience strictly from dates, merging overlapping periods
+      const calculatedYears = calculateExperienceYears(preparedData.experience);
+
+      const completedOrFirst = (preparedData.education?.entries || []).find(e => e.status === "Completed") ||
+                               (preparedData.education?.entries || []).find(e => e.status === "Currently Studying") ||
+                               (preparedData.education?.entries || [])[0] || {};
+
+      const candProfilePayload = {
         user_id: userId,
-        course: highestEdu.courseOrProgram || null,
-        degree: highestEdu.level || null,
-        education_level: highestEdu.level || null,
+        course: completedOrFirst.courseOrProgram || null,
+        degree: completedOrFirst.level || null,
+        education_level: completedOrFirst.level || null,
         skills: JSON.stringify(skillsArray),
         certifications: JSON.stringify(certList),
-        years_experience: estimatedYears,
+        years_experience: calculatedYears,
+        active_resume_source: "builder",
         updated_at: nowIso
-      }, { onConflict: "user_id" });
+      };
+
+      const { error: candProfErr } = await supabase
+        .from("candidate_profiles")
+        .upsert(candProfilePayload, { onConflict: "user_id" });
+
+      if (candProfErr) {
+        console.error("[ResumeBuilder] Failed updating candidate_profiles:", candProfErr);
+        return { success: false, error: candProfErr.message || "Failed to update candidate profile" };
+      }
 
       // 5. Asynchronous: build canonical resume text, generate embedding, run server matching
       ;(async () => {
@@ -610,12 +783,7 @@ export async function saveCanonicalResume(userId, resumeData, options = {}) {
       })();
     }
 
-    // Check if a newer save request has started
-    if (currentSequence < _lastSaveSequence) {
-      console.log(`[ResumeBuilder] Save #${currentSequence} succeeded, but superseded by newer save #${_lastSaveSequence}.`);
-    }
-
-    return { success: true, savedAt: nowIso, data: preparedData };
+    return { success: true, savedAt: nowIso, data: preparedData, sequence };
   } catch (err) {
     console.error("[ResumeBuilder] Failed saving canonical resume:", err);
     return { success: false, error: err.message || "Failed to save resume" };
@@ -623,39 +791,179 @@ export async function saveCanonicalResume(userId, resumeData, options = {}) {
 }
 
 /**
- * Sets which resume source is actively used for job matching: 'builder' | 'upload'.
- * Records choice in candidate_form_resumes and resumes.parsed_details.
+ * Retrieves which resume source is actively used for matching: 'upload' | 'builder'.
  */
-export async function setActiveResumeSource(userId, source) {
-  if (!userId || !["builder", "upload"].includes(source)) return { success: false };
+export async function getActiveResumeSource(userId) {
+  if (!userId) return { success: false, source: "upload" };
   try {
-    const { data: formRow } = await supabase
-      .from("candidate_form_resumes")
-      .select("resume_data")
+    const { data: candProf, error } = await supabase
+      .from("candidate_profiles")
+      .select("active_resume_source")
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (formRow?.resume_data) {
+    if (error) {
+      console.warn("[ResumeBuilder] getActiveResumeSource query notice:", error.message);
+    }
+
+    if (candProf?.active_resume_source && ["upload", "builder"].includes(candProf.active_resume_source)) {
+      return { success: true, source: candProf.active_resume_source };
+    }
+
+    // Fallback: check if uploaded file exists in resumes table
+    const { data: resumeRow } = await supabase
+      .from("resumes")
+      .select("file_url")
+      .eq("applicant_id", userId)
+      .maybeSingle();
+
+    const fallbackSource = resumeRow?.file_url ? "upload" : "builder";
+    return { success: true, source: fallbackSource };
+  } catch (err) {
+    console.warn("[ResumeBuilder] getActiveResumeSource fallback:", err?.message);
+    return { success: true, source: "upload" };
+  }
+}
+
+/**
+ * Sets which resume source is actively used for job matching: 'builder' | 'upload'.
+ * Fully bidirectional:
+ * - When source === 'builder': projects candidate_form_resumes to candidate_profiles & profiles, sets active_resume_source = 'builder'
+ * - When source === 'upload': projects resumes (parsed_details + extracted_skills) to candidate_profiles & profiles, sets active_resume_source = 'upload'
+ */
+export async function setActiveResumeSource(userId, source) {
+  if (!userId || !["builder", "upload"].includes(source)) {
+    return { success: false, error: "Invalid userId or source" };
+  }
+
+  try {
+    const nowIso = new Date().toISOString();
+
+    if (source === "builder") {
+      // 1. Fetch form builder data
+      const { data: formRow, error: formErr } = await supabase
+        .from("candidate_form_resumes")
+        .select("resume_data")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (formErr) {
+        return { success: false, error: formErr.message };
+      }
+
+      if (!formRow?.resume_data) {
+        return { success: false, error: "No built resume found. Please create a resume in the builder first." };
+      }
+
+      // Synchronize built resume data to matching engine & candidate_profiles
+      const saveRes = await saveCanonicalResume(userId, formRow.resume_data, { setActiveForMatching: true, isFinalize: true });
+      if (!saveRes.success) {
+        return saveRes;
+      }
+
+      // Update candidate_form_resumes with explicit active_resume_source
       await supabase
         .from("candidate_form_resumes")
         .update({
           resume_data: {
             ...formRow.resume_data,
-            active_resume_source: source
-          }
+            active_resume_source: "builder"
+          },
+          updated_at: nowIso
         })
         .eq("user_id", userId);
-    }
 
-    if (source === "builder" && formRow?.resume_data) {
-      // Synchronize built resume data to matching engine
-      await saveCanonicalResume(userId, formRow.resume_data, { setActiveForMatching: true });
-    }
+      return { success: true, source: "builder" };
+    } else {
+      // 2. Switching back to uploaded resume
+      const { data: resumeRow, error: resumeErr } = await supabase
+        .from("resumes")
+        .select("*")
+        .eq("applicant_id", userId)
+        .maybeSingle();
 
-    return { success: true, source };
+      if (resumeErr) {
+        return { success: false, error: resumeErr.message };
+      }
+
+      if (!resumeRow || (!resumeRow.file_url && !resumeRow.extracted_skills)) {
+        return { success: false, error: "No uploaded resume file found. Please upload a resume first." };
+      }
+
+      const parsed = resumeRow.parsed_details || {};
+      const details = parsed.details || parsed;
+      const skillsList = resumeRow.extracted_skills
+        ? resumeRow.extracted_skills.split(",").map(s => s.trim()).filter(Boolean)
+        : (parsed.skills || []);
+
+      // Reconstruct candidate_profiles from uploaded resume
+      const candProfilePayload = {
+        user_id: userId,
+        course: details.course || parsed.course || null,
+        degree: details.degree || parsed.degree || null,
+        education_level: details.degree || parsed.degree || null,
+        skills: JSON.stringify(skillsList),
+        certifications: JSON.stringify(details.certifications || parsed.certifications || []),
+        years_experience: details.yearsOfExperience ?? parsed.yearsOfExperience ?? 0,
+        active_resume_source: "upload",
+        updated_at: nowIso
+      };
+
+      const { error: candErr } = await supabase
+        .from("candidate_profiles")
+        .upsert(candProfilePayload, { onConflict: "user_id" });
+
+      if (candErr) {
+        return { success: false, error: candErr.message };
+      }
+
+      // Re-project skills to profiles table
+      const { error: profErr } = await supabase
+        .from("profiles")
+        .update({
+          skills: skillsList.join(","),
+          updated_at: nowIso
+        })
+        .eq("id", userId);
+
+      if (profErr) {
+        console.warn("[ResumeBuilder] Notice updating profiles on upload switch:", profErr.message);
+      }
+
+      // Record choice in candidate_form_resumes if row exists
+      const { data: formRow } = await supabase
+        .from("candidate_form_resumes")
+        .select("resume_data")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (formRow?.resume_data) {
+        await supabase
+          .from("candidate_form_resumes")
+          .update({
+            resume_data: {
+              ...formRow.resume_data,
+              active_resume_source: "upload"
+            },
+            updated_at: nowIso
+          })
+          .eq("user_id", userId);
+      }
+
+      // Re-run matching engine for uploaded resume
+      try {
+        await runMatchingForCandidate(userId);
+        syncApplicantSnapshot(userId).catch(() => {});
+      } catch (matchErr) {
+        console.warn("[ResumeBuilder] Re-matching notice on source switch:", matchErr?.message);
+      }
+
+      return { success: true, source: "upload" };
+    }
   } catch (err) {
-    console.warn("[ResumeBuilder] setActiveResumeSource notice:", err?.message);
-    return { success: false, error: err.message };
+    console.error("[ResumeBuilder] setActiveResumeSource failure:", err);
+    return { success: false, error: err.message || "Failed to switch resume source" };
   }
 }
+
 

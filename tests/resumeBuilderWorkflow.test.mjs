@@ -31,7 +31,10 @@ import {
   generateProfessionalSummary,
   buildCanonicalResumeText,
   loadCanonicalResume,
-  saveCanonicalResume
+  saveCanonicalResume,
+  calculateExperienceYears,
+  getActiveResumeSource,
+  setActiveResumeSource
 } from '../src/services/resumeBuilderService.js';
 import {
   generateDocxResumeBlob,
@@ -57,6 +60,48 @@ function assert(condition, message) {
   }
   passedTests++;
   console.log(`✓ PASS: ${message}`);
+}
+
+/**
+ * Strict XML well-formedness validator.
+ * Validates matching tags on a stack, detects unclosed or mismatched tags (e.g. </w:pPr> closing <w:p>).
+ */
+export function validateStrictXml(xmlString) {
+  const stack = [];
+  const tagRegex = /<(\/)?([a-zA-Z0-9_:]+)([^>]*?)(\/)?>/g;
+  let match;
+
+  const cleanXml = xmlString
+    .replace(/<\?xml[\s\S]*?\?>/g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '');
+
+  while ((match = tagRegex.exec(cleanXml)) !== null) {
+    const isClosing = Boolean(match[1]);
+    const tagName = match[2];
+    const isSelfClosing = Boolean(match[4]) || match[3].trim().endsWith('/');
+
+    if (isSelfClosing) {
+      continue;
+    }
+
+    if (isClosing) {
+      if (stack.length === 0) {
+        throw new Error(`Unexpected closing tag </${tagName}> with empty tag stack`);
+      }
+      const top = stack.pop();
+      if (top !== tagName) {
+        throw new Error(`Mismatched closing tag: expected </${top}>, but found </${tagName}> at offset ${match.index}`);
+      }
+    } else {
+      stack.push(tagName);
+    }
+  }
+
+  if (stack.length > 0) {
+    throw new Error(`Unclosed XML tags remain: ${stack.join(', ')}`);
+  }
+  return true;
 }
 
 async function runTestSuite() {
@@ -168,8 +213,48 @@ async function runTestSuite() {
   const summary = generateProfessionalSummary(freshGradResume);
   assert(!summary.includes('years of experience') && !summary.includes('senior'),
     'Generated summary does not invent years of experience for first-time job seekers');
-  assert(summary.includes('BS Computer Science') && summary.includes('JavaScript'),
-    'Summary truthfully reflects entered education and skills');
+  assert(summary.includes('Graduate in BS Computer Science') && summary.includes('JavaScript'),
+    'Summary truthfully reflects completed education and skills');
+
+  // Candidate with ONLY "Currently Studying" (Zero completed degrees)
+  const studyingOnlyResume = {
+    ...DEFAULT_RESUME_DATA,
+    personalDetails: { fullName: 'Joy Reyes' },
+    education: {
+      entries: [{
+        institution: 'University of Santo Tomas',
+        level: 'Currently studying',
+        courseOrProgram: 'BS Nursing',
+        status: 'Currently Studying'
+      }]
+    },
+    skills: [{ name: 'Patient Care' }]
+  };
+  const studyingSummary = generateProfessionalSummary(studyingOnlyResume);
+  assert(!studyingSummary.includes('Graduate in'),
+    'Never claims "Graduate in" when status is Currently Studying');
+  assert(studyingSummary.includes('pursuing BS Nursing') || studyingSummary.includes('studying'),
+    'Accurately states currently pursuing course for active student');
+
+  // Candidate with ONLY "Attended but Did Not Complete"
+  const incompleteOnlyResume = {
+    ...DEFAULT_RESUME_DATA,
+    personalDetails: { fullName: 'Mark Tan' },
+    education: {
+      entries: [{
+        institution: 'De La Salle University',
+        level: 'College/university undergraduate studies',
+        courseOrProgram: 'BS Accountancy',
+        status: 'Attended but Did Not Complete'
+      }]
+    },
+    skills: [{ name: 'Bookkeeping' }]
+  };
+  const incompleteSummary = generateProfessionalSummary(incompleteOnlyResume);
+  assert(!incompleteSummary.includes('Graduate in'),
+    'Never claims "Graduate in" when status is Attended but Did Not Complete');
+  assert(incompleteSummary.includes('Academic background in BS Accountancy') || incompleteSummary.includes('background in'),
+    'Accurately reflects academic background without claiming graduation');
 
   // ── Test 4: Required vs Optional Information & Readiness Metric ──────────
   console.log('\n[Test 4] Required vs Optional Information & Readiness Metric');
@@ -308,6 +393,22 @@ async function runTestSuite() {
   assert(docxXml.includes('EXPERIENCE'), 'Document XML contains Experience heading');
   assert(docxXml.includes('EDUCATION &amp; TRAINING') || docxXml.includes('EDUCATION & TRAINING'),
     'Document XML contains Education heading');
+
+  // Strict XML well-formedness validation on docxXml (catches invalid closing tags such as </w:pPr>)
+  const isStrictValid = validateStrictXml(docxXml);
+  assert(isStrictValid === true,
+    'Generated word/document.xml passes strict XML well-formedness validation with 100% matched tags');
+
+  // Negative test: verify that strict XML validator specifically catches mismatched </w:pPr> tag closing <w:p>
+  const invalidMismatchedXml = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>Contact</w:t></w:r></w:pPr>';
+  let caughtMismatchedTag = false;
+  try {
+    validateStrictXml(invalidMismatchedXml);
+  } catch (err) {
+    caughtMismatchedTag = true;
+  }
+  assert(caughtMismatchedTag === true,
+    'Strict XML validator successfully identifies and rejects invalid </w:pPr> tag closing <w:p>');
 
   // Generate binary PKZIP Blob
   const docxBlob = generateDocxResumeBlob(fullCandidateData);
@@ -605,6 +706,81 @@ async function runTestSuite() {
   const appJsx = fs.readFileSync(path.join(ROOT_DIR, 'src', 'App.jsx'), 'utf8');
   assert(appJsx.includes('path="/candidate/resume"'), 'App.jsx defines /candidate/resume route');
   assert(appJsx.includes('path="/candidate/resume-builder"'), 'App.jsx defines /candidate/resume-builder route');
+
+  // ── Test 14: Experience Calculation Strictly From Dates ───────────────────
+  console.log('\n[Test 14] Experience Calculation Strictly From Dates (No Entry Count Fabrication)');
+
+  // 1. Single 3-month internship
+  const shortInternship = {
+    noExperience: false,
+    entries: [{
+      title: 'QA Intern',
+      organization: 'Tech Corp PH',
+      startDate: '2023-01',
+      endDate: '2023-03',
+      isCurrent: false
+    }]
+  };
+  const shortYears = calculateExperienceYears(shortInternship);
+  assert(shortYears !== null && shortYears >= 0.1 && shortYears <= 0.3,
+    `3-month internship calculates ~0.2 years (${shortYears}), never inflated to 1 or 1.5 years`);
+
+  // 2. Overlapping roles: 1 full-time job (Jan-Dec 2023) + concurrent freelance (Jun-Dec 2023)
+  const concurrentExp = {
+    noExperience: false,
+    entries: [
+      {
+        title: 'Full-time Developer',
+        organization: 'Alpha Corp',
+        startDate: '2023-01',
+        endDate: '2023-12',
+        isCurrent: false
+      },
+      {
+        title: 'Freelance Consultant',
+        organization: 'Client Beta',
+        startDate: '2023-06',
+        endDate: '2023-12',
+        isCurrent: false
+      }
+    ]
+  };
+  const concurrentYears = calculateExperienceYears(concurrentExp);
+  assert(concurrentYears === 1.0,
+    `Overlapping concurrent roles merge into 1.0 year (${concurrentYears}), never inflated to 3.0 years`);
+
+  // 3. Entries without parseable dates return null (unknown/unspecified, zero fabrication)
+  const missingDatesExp = {
+    noExperience: false,
+    entries: [{ title: 'Store Assistant', organization: 'Retail Shop' }]
+  };
+  const missingDatesYears = calculateExperienceYears(missingDatesExp);
+  assert(missingDatesYears === null,
+    'Entries without dates return null rather than an invented or fabricated number');
+
+  // 4. Explicit no experience returns exactly 0
+  const zeroExp = {
+    noExperience: true,
+    entries: []
+  };
+  const zeroYears = calculateExperienceYears(zeroExp);
+  assert(zeroYears === 0, 'Explicit no-experience returns exactly 0 years');
+
+  // ── Test 15: Bidirectional Active Resume Source Selector ───────────────────
+  console.log('\n[Test 15] Bidirectional Active Resume Source Selector');
+
+  assert(typeof getActiveResumeSource === 'function', 'getActiveResumeSource is an exported function');
+  assert(typeof setActiveResumeSource === 'function', 'setActiveResumeSource is an exported function');
+
+  // Check UI presence in both Builder and Upload pages
+  const builderSourceUi = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pages', 'candidate', 'ResumeBuilder.jsx'), 'utf8');
+  assert(builderSourceUi.includes('active-source-selector-bar'), 'ResumeBuilder renders active-source-selector-bar');
+  assert(builderSourceUi.includes('handleSwitchSource'), 'ResumeBuilder implements handleSwitchSource');
+
+  const uploadSourceUi = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pages', 'candidate', 'ResumeUpload.jsx'), 'utf8');
+  assert(uploadSourceUi.includes('active-source-selector-bar'), 'ResumeUpload renders active-source-selector-bar');
+  assert(uploadSourceUi.includes('handleSwitchSource'), 'ResumeUpload implements handleSwitchSource');
+  assert(uploadSourceUi.includes("active_resume_source: 'upload'"), 'ResumeUpload tags uploaded matching data with active_resume_source');
 
   console.log(`\n🎉 ALL ${passedTests}/${totalTests} RESUME BUILDER TESTS PASSED!`);
 }

@@ -158,7 +158,7 @@ export function buildDocumentXml(resumeData) {
         </w:rPr>
         <w:t>${escapeXml(contactParts.join(" | "))}</w:t>
       </w:r>
-    </w:pPr>`);
+    </w:p>`);
   }
 
   // 2. Professional Summary

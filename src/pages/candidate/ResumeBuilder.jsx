@@ -5,7 +5,9 @@ import {
   DEFAULT_RESUME_DATA,
   calculateResumeReadiness,
   loadCanonicalResume,
-  saveCanonicalResume
+  saveCanonicalResume,
+  getActiveResumeSource,
+  setActiveResumeSource
 } from "../../services/resumeBuilderService";
 import { useToast } from "../../contexts/ToastContext";
 
@@ -27,6 +29,9 @@ export default function ResumeBuilder() {
   const [currentStep, setCurrentStep] = useState(1);
   const [resumeData, setResumeData] = useState(DEFAULT_RESUME_DATA);
   const [historicalResume, setHistoricalResume] = useState(null);
+  const [activeSource, setActiveSource] = useState("upload");
+  const [isSwitchingSource, setIsSwitchingSource] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Autosave status state: 'idle' | 'saving' | 'saved' | 'error'
@@ -36,7 +41,7 @@ export default function ResumeBuilder() {
   const latestDataRef = useRef(resumeData);
   latestDataRef.current = resumeData;
 
-  // Load candidate resume data on mount
+  // Load candidate resume data and active resume source on mount
   useEffect(() => {
     async function init() {
       setLoading(true);
@@ -45,10 +50,16 @@ export default function ResumeBuilder() {
         if (!user) return;
         setUserId(user.id);
 
-        // Load canonical structured data (with historical fallback prefill)
-        const { resumeData: loadedData, historicalResume: hist } = await loadCanonicalResume(user.id);
+        const [{ resumeData: loadedData, historicalResume: hist }, sourceRes] = await Promise.all([
+          loadCanonicalResume(user.id),
+          getActiveResumeSource(user.id)
+        ]);
+
         setResumeData(loadedData);
         setHistoricalResume(hist);
+        if (sourceRes?.success) {
+          setActiveSource(sourceRes.source);
+        }
       } catch (err) {
         console.error("[ResumeBuilder] Init error:", err);
       } finally {
@@ -60,12 +71,12 @@ export default function ResumeBuilder() {
 
   // ── Autosave Engine ────────────────────────────────────────────────────────
   const performSave = useCallback(async (dataToSave, options = {}) => {
-    if (!userId) return;
+    if (!userId) return { success: false, error: "No user authenticated" };
     setSaveStatus("saving");
 
     try {
       const res = await saveCanonicalResume(userId, dataToSave, options);
-      if (res.success) {
+      if (res?.success) {
         setSaveStatus("saved");
         const formattedTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         setLastSavedTime(formattedTime);
@@ -74,12 +85,15 @@ export default function ResumeBuilder() {
         try {
           localStorage.setItem(`skillsync_resume_draft_${userId}`, JSON.stringify(dataToSave));
         } catch (_) {}
+        return res;
       } else {
         setSaveStatus("error");
+        return res;
       }
     } catch (saveErr) {
       console.error("[ResumeBuilder] Autosave error:", saveErr);
       setSaveStatus("error");
+      return { success: false, error: saveErr?.message || "Failed to save" };
     }
   }, [userId]);
 
@@ -97,20 +111,62 @@ export default function ResumeBuilder() {
     }, 1200);
   }
 
-  function handleExplicitSaveDraft() {
+  async function handleExplicitSaveDraft() {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
-    performSave(latestDataRef.current);
-    if (toast?.addToast) {
-      toast.addToast("Draft saved successfully.", "success");
+    const res = await performSave(latestDataRef.current);
+    if (res?.success) {
+      if (toast?.addToast) {
+        toast.addToast("Draft saved successfully.", "success");
+      }
+    } else {
+      if (toast?.addToast) {
+        toast.addToast(res?.error || "Failed to save draft.", "error");
+      }
     }
   }
 
-  function handleFinalize() {
-    performSave(latestDataRef.current, { isFinalize: true, setActiveForMatching: true });
-    if (toast?.addToast) {
-      toast.addToast("Resume finalized and active for job matching!", "success");
+  async function handleFinalize() {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    setIsFinalizing(true);
+    try {
+      const res = await performSave(latestDataRef.current, { isFinalize: true, setActiveForMatching: true });
+      if (res?.success) {
+        setActiveSource("builder");
+        if (toast?.addToast) {
+          toast.addToast("Resume finalized and active for job matching!", "success");
+        }
+      } else {
+        if (toast?.addToast) {
+          toast.addToast(res?.error || "Failed to finalize resume. Please try again.", "error");
+        }
+      }
+    } finally {
+      setIsFinalizing(false);
+    }
+  }
+
+  async function handleSwitchSource(newSource) {
+    if (newSource === activeSource || isSwitchingSource || !userId) return;
+    setIsSwitchingSource(true);
+    try {
+      const res = await setActiveResumeSource(userId, newSource);
+      if (res?.success) {
+        setActiveSource(newSource);
+        if (toast?.addToast) {
+          const label = newSource === "builder" ? "Built Resume" : "Uploaded Resume";
+          toast.addToast(`Resume used for job matching switched to: ${label}`, "success");
+        }
+      } else {
+        if (toast?.addToast) {
+          toast.addToast(res?.error || "Failed to switch active resume source", "error");
+        }
+      }
+    } finally {
+      setIsSwitchingSource(false);
     }
   }
 
@@ -148,6 +204,40 @@ export default function ResumeBuilder() {
         {/* Historical Upload Notice (if candidate has a preserved upload) */}
         {historicalResume && (
           <HistoricalResumeNotice historicalResume={historicalResume} />
+        )}
+
+        {/* Bidirectional Active Resume Source Selector */}
+        {historicalResume && (
+          <div className="active-source-selector-bar" role="region" aria-label="Resume used for job matching">
+            <div className="source-selector-content">
+              <span className="source-selector-heading">Resume used for job matching:</span>
+              <div className="source-selector-options">
+                <label className={`source-radio-pill ${activeSource === "upload" ? "selected" : ""}`}>
+                  <input
+                    type="radio"
+                    name="builder_active_source"
+                    value="upload"
+                    checked={activeSource === "upload"}
+                    onChange={() => handleSwitchSource("upload")}
+                    disabled={isSwitchingSource}
+                  />
+                  <span className="source-pill-text">📄 Uploaded Resume</span>
+                </label>
+                <label className={`source-radio-pill ${activeSource === "builder" ? "selected" : ""}`}>
+                  <input
+                    type="radio"
+                    name="builder_active_source"
+                    value="builder"
+                    checked={activeSource === "builder"}
+                    onChange={() => handleSwitchSource("builder")}
+                    disabled={isSwitchingSource}
+                  />
+                  <span className="source-pill-text">📝 Built Resume</span>
+                </label>
+              </div>
+            </div>
+            {isSwitchingSource && <span className="source-switching-spinner">Switching active matching source...</span>}
+          </div>
         )}
 
         {/* 6-Step Visual Progress Bar with integrated Readiness Meter & Autosave */}
@@ -210,6 +300,8 @@ export default function ResumeBuilder() {
                   onChange={handleDataChange}
                   onNavigateStep={handleStepChange}
                   onFinalize={handleFinalize}
+                  isFinalizing={isFinalizing}
+                  activeSource={activeSource}
                 />
               )}
             </>
@@ -232,7 +324,7 @@ export default function ResumeBuilder() {
               type="button"
               className="builder-action-btn secondary save-draft-btn"
               onClick={handleExplicitSaveDraft}
-              disabled={saveStatus === "saving"}
+              disabled={saveStatus === "saving" || isFinalizing}
             >
               {saveStatus === "saving" ? "Saving..." : "Save Draft"}
             </button>
@@ -250,8 +342,9 @@ export default function ResumeBuilder() {
                 type="button"
                 className="builder-action-btn primary next-btn finish-btn"
                 onClick={handleFinalize}
+                disabled={isFinalizing}
               >
-                Save & Complete Resume ✓
+                {isFinalizing ? "Finalizing & Saving..." : "Save & Complete Resume ✓"}
               </button>
             )}
           </div>

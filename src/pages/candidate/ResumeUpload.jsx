@@ -19,6 +19,7 @@ import "./ResumeUpload.css";
 import ResumeTemplateSection                       from "../../components/resume/ResumeTemplateSection.jsx";
 import ResumeQualityCard                           from "../../components/resume/ResumeQualityCard.jsx";
 import { assessResumeQuality }                     from "../../services/parser/qualityAssessor.js";
+import { getActiveResumeSource, setActiveResumeSource } from "../../services/resumeBuilderService";
 
 // Lazy-loaded sub-components for Phase 6 modular UI
 const ResumeTabs = lazy(() => import("../../components/resume/ResumeTabs.jsx"));
@@ -40,6 +41,9 @@ export default function ResumeUpload() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
+  const [hasBuiltResume, setHasBuiltResume] = useState(false);
+  const [activeSource, setActiveSource] = useState("upload");
+  const [isSwitchingSource, setIsSwitchingSource] = useState(false);
 
   // Tab State
   const [activeTab, setActiveTab] = useState('jobs');
@@ -142,10 +146,19 @@ export default function ResumeUpload() {
     if (!user) return;
     setUserId(user.id);
 
-    const [{ data }, { data: candProfRow }] = await Promise.all([
+    const [{ data }, { data: candProfRow }, sourceRes, { data: formRow }] = await Promise.all([
       getResume(user.id),
-      supabase.from("candidate_profiles").select("*").eq("user_id", user.id).maybeSingle()
+      supabase.from("candidate_profiles").select("*").eq("user_id", user.id).maybeSingle(),
+      getActiveResumeSource(user.id),
+      supabase.from("candidate_form_resumes").select("user_id").eq("user_id", user.id).maybeSingle()
     ]);
+
+    if (formRow) {
+      setHasBuiltResume(true);
+    }
+    if (sourceRes?.success) {
+      setActiveSource(sourceRes.source);
+    }
 
     if (data || candProfRow) {
       if (data) {
@@ -203,6 +216,33 @@ export default function ResumeUpload() {
 
   function handleAddResume() {
     if (fileInputRef.current) fileInputRef.current.click();
+  }
+
+  async function handleSwitchSource(newSource) {
+    if (newSource === activeSource || isSwitchingSource || !userId) return;
+    setIsSwitchingSource(true);
+    try {
+      const res = await setActiveResumeSource(userId, newSource);
+      if (res?.success) {
+        setActiveSource(newSource);
+        const label = newSource === "builder" ? "Built Resume" : "Uploaded Resume";
+        if (toast?.addToast) {
+          toast.addToast(`Resume used for job matching switched to: ${label}`, "success");
+        } else if (toast?.success) {
+          toast.success(`Resume used for job matching switched to: ${label}`);
+        }
+        await loadResume();
+      } else {
+        const errMsg = res?.error || "Failed to switch resume source";
+        if (toast?.addToast) {
+          toast.addToast(errMsg, "error");
+        } else if (toast?.error) {
+          toast.error(errMsg);
+        }
+      }
+    } finally {
+      setIsSwitchingSource(false);
+    }
   }
 
   async function handleFileChange(event) {
@@ -309,6 +349,7 @@ export default function ResumeUpload() {
       skills: JSON.stringify(analysis.parsed?.skills || analysis.skills),
       certifications: JSON.stringify([]),
       years_experience: analysis.details.yearsOfExperience || 0,
+      active_resume_source: 'upload',
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id' });
 
@@ -510,6 +551,40 @@ export default function ResumeUpload() {
             {loading ? "Processing..." : "Upload New Resume"}
           </button>
         </div>
+
+        {/* Bidirectional Active Resume Source Selector */}
+        {hasBuiltResume && (
+          <div className="active-source-selector-bar" role="region" aria-label="Resume used for job matching" style={{ margin: "16px 0 20px" }}>
+            <div className="source-selector-content">
+              <span className="source-selector-heading">Resume used for job matching:</span>
+              <div className="source-selector-options">
+                <label className={`source-radio-pill ${activeSource === "upload" ? "selected" : ""}`}>
+                  <input
+                    type="radio"
+                    name="upload_active_source"
+                    value="upload"
+                    checked={activeSource === "upload"}
+                    onChange={() => handleSwitchSource("upload")}
+                    disabled={isSwitchingSource}
+                  />
+                  <span className="source-pill-text">📄 Uploaded Resume</span>
+                </label>
+                <label className={`source-radio-pill ${activeSource === "builder" ? "selected" : ""}`}>
+                  <input
+                    type="radio"
+                    name="upload_active_source"
+                    value="builder"
+                    checked={activeSource === "builder"}
+                    onChange={() => handleSwitchSource("builder")}
+                    disabled={isSwitchingSource}
+                  />
+                  <span className="source-pill-text">📝 Built Resume</span>
+                </label>
+              </div>
+            </div>
+            {isSwitchingSource && <span className="source-switching-spinner">Switching active matching source...</span>}
+          </div>
+        )}
 
         {message && <div className="profile-message">{message}</div>}
 
