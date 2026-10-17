@@ -29,8 +29,8 @@ const ResumeMetadata = lazy(() => import("../../components/resume/ResumeMetadata
 
 const TABS_CONFIG = [
   { id: 'jobs', label: 'Recommended Jobs', icon: '🎯' },
-  { id: 'ats', label: 'ATS Scan Report', icon: '🤖' },
-  { id: 'skills', label: 'AI Skill Dictionary', icon: '🧠' },
+  { id: 'ats', label: 'Resume Check', icon: '📋' },
+  { id: 'skills', label: 'Skills', icon: '🏷️' },
   { id: 'meta', label: 'Parsed Metadata', icon: '📝' }
 ];
 
@@ -294,11 +294,15 @@ export default function ResumeUpload() {
 
     const tDbOpsStart = performance.now();
     // Delete existing resume record before inserting new one
-    await supabase.from("resumes").delete().eq("applicant_id", user.id);
+    const { error: delResumeErr } = await supabase.from("resumes").delete().eq("applicant_id", user.id);
+    if (delResumeErr) {
+      console.warn("[ResumeUpload] Notice clearing previous resume record:", delResumeErr.message);
+    }
 
     const parsedDetailsObj = {
       ...(analysis.parsed || {}),
       ...analysis.details,
+      skills: analysis.skills,
       qualityAssessment: analysis.qualityAssessment
     };
 
@@ -335,13 +339,20 @@ export default function ResumeUpload() {
     setUploadHistory(updatedHistory);
     localStorage.setItem(`skillsync_resume_history_${user.id}`, JSON.stringify(updatedHistory));
 
-    // Sync detected skills to profiles table (ALWAYS overwrite with latest parsed data)
-    await supabase.from("profiles").update({
+    // Sync detected skills to profiles table (BLOCKER 5: strict check)
+    const { error: profErr } = await supabase.from("profiles").update({
       skills: analysis.skills.join(","),
     }).eq("id", user.id);
 
-    // FIX: Persist ALL parsed resume data to candidate_profiles before running matching engine
-    await supabase.from("candidate_profiles").upsert({
+    if (profErr) {
+      console.error("[ResumeUpload] Error updating profile skills:", profErr);
+      setMessage(`Resume uploaded but failed to update profile skills: ${profErr.message}`);
+      setLoading(false);
+      return;
+    }
+
+    // BLOCKER 5: Persist ALL parsed resume data to candidate_profiles with strict error checking
+    const { error: candProfErr } = await supabase.from("candidate_profiles").upsert({
       user_id: user.id,
       course: analysis.details.course || null,
       degree: analysis.details.degree || null,
@@ -352,6 +363,13 @@ export default function ResumeUpload() {
       active_resume_source: 'upload',
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id' });
+
+    if (candProfErr) {
+      console.error("[ResumeUpload] Error upserting candidate_profiles:", candProfErr);
+      setMessage(`Resume uploaded but failed to update candidate matching profile: ${candProfErr.message}`);
+      setLoading(false);
+      return;
+    }
 
     // Trigger platform match notifications
     await triggerSimulationNotification(user.id, "resume_uploaded", {
@@ -389,24 +407,33 @@ export default function ResumeUpload() {
       .catch(console.error);
 
     // ── Semantic AI Embedding Pipeline (non-blocking) ────────────────────
-    // Runs in background — generates a 384-dim embedding from resume text,
-    // stores it in resumes.resume_embedding, then runs semantic matching.
+    // Generates a 384-dim embedding from resume text, stores it in resumes.resume_embedding
+    // and preserves it in parsed_details.upload_embedding for bidirectional restoration.
     ;(async () => {
       try {
         setMatchingJobs(true);
-        const resumeText = buildResumeTextForEmbedding(analysis, analysis.extractedText || '')
-        const { embedding, error: embErr } = await generateAndStoreResumeEmbedding(user.id, resumeText)
+        const resumeText = buildResumeTextForEmbedding(analysis, analysis.extractedText || '');
+        const { embedding, error: embErr } = await generateAndStoreResumeEmbedding(user.id, resumeText);
         if (!embErr && embedding) {
-          await runSemanticMatchingForCandidate(user.id, embedding)
-          console.log('[Resume] Semantic AI matching complete.')
+          // BLOCKER 2 FIX: Preserve upload embedding and canonical text in parsed_details!
+          await supabase.from("resumes").update({
+            parsed_details: {
+              ...parsedDetailsObj,
+              upload_embedding: embedding,
+              upload_canonical_text: resumeText
+            }
+          }).eq("applicant_id", user.id);
+
+          await runSemanticMatchingForCandidate(user.id, embedding);
+          console.log('[Resume] Semantic AI matching complete.');
         } else {
-          console.warn('[Resume] Embedding generation failed — running rule-based fallback matching.', embErr?.message)
-          await runMatchingForCandidate(user.id)
+          console.warn('[Resume] Embedding generation failed — running rule-based fallback matching.', embErr?.message);
+          await runMatchingForCandidate(user.id);
         }
         const freshMatches = await fetchSemanticMatchesForCandidate(user.id);
         setRecommendedJobs(freshMatches || []);
       } catch (aiErr) {
-        console.warn('[Resume] AI pipeline error (non-critical):', aiErr.message)
+        console.warn('[Resume] AI pipeline error (non-critical):', aiErr.message);
       } finally {
         setMatchingJobs(false);
       }
@@ -449,26 +476,72 @@ export default function ResumeUpload() {
   }
 
   async function handleDeleteResume() {
-    const confirmDelete = window.confirm("Are you sure you want to delete your resume? This will also remove your stored resume data.");
+    const confirmDelete = window.confirm("Are you sure you want to remove your uploaded resume?");
     if (!confirmDelete) return;
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Delete resume record
-    await supabase.from("resumes").delete().eq("applicant_id", user.id);
+    // BLOCKER 4 FIX: Check if candidate has a builder resume before deleting matching data
+    const { data: formRow, error: formCheckErr } = await supabase
+      .from("candidate_form_resumes")
+      .select("resume_data")
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    // Clear candidate_profiles (removes matching engine source data)
-    await supabase.from("candidate_profiles").delete().eq("user_id", user.id);
+    if (formCheckErr) {
+      console.warn("[ResumeUpload] Notice checking builder resume before delete:", formCheckErr.message);
+    }
 
-    // Clear skills from profiles table
-    await supabase.from("profiles").update({ skills: "" }).eq("id", user.id);
+    const hasBuilder = Boolean(formRow?.resume_data);
+
+    if (hasBuilder) {
+      // User has a built resume: delete only the uploaded resume record
+      const { error: delErr } = await supabase.from("resumes").delete().eq("applicant_id", user.id);
+      if (delErr) {
+        console.error("[ResumeUpload] Error deleting resumes row:", delErr);
+        if (toast?.error) toast.error("Failed to remove uploaded resume");
+        return;
+      }
+
+      // Automatically project / activate Builder as active source
+      const switchRes = await setActiveResumeSource(user.id, "builder");
+      if (!switchRes.success) {
+        console.warn("[ResumeUpload] Notice projecting builder source after upload removal:", switchRes.error);
+      }
+
+      setActiveSource("builder");
+      if (toast?.success) {
+        toast.success("Uploaded resume removed. Your Built Resume is now actively used for job matching.");
+      }
+    } else {
+      // Neither source remains: clear all resume and matching data with strict error checking
+      const { error: delResumeErr } = await supabase.from("resumes").delete().eq("applicant_id", user.id);
+      if (delResumeErr) {
+        console.error("[ResumeUpload] Error deleting resumes row:", delResumeErr);
+      }
+
+      const { error: delCandProfErr } = await supabase.from("candidate_profiles").delete().eq("user_id", user.id);
+      if (delCandProfErr) {
+        console.error("[ResumeUpload] Error deleting candidate_profiles row:", delCandProfErr);
+      }
+
+      const { error: clearProfErr } = await supabase.from("profiles").update({ skills: "" }).eq("id", user.id);
+      if (clearProfErr) {
+        console.error("[ResumeUpload] Error clearing profile skills:", clearProfErr);
+      }
+
+      if (toast?.success) {
+        toast.success("Resume deleted successfully.");
+      }
+    }
 
     syncApplicantSnapshot(user.id).catch(() => {});
     setResumeFile(null);
     setExtractedSkills([]);
-    setMessage("Resume deleted successfully.");
+    setMessage("Uploaded resume removed.");
     if (fileInputRef.current) fileInputRef.current.value = "";
+    await loadResume();
   }
 
   // Manage Extracted Skills Editor
@@ -496,16 +569,64 @@ export default function ResumeUpload() {
     setSavingSkills(true);
     const skillsString = skillsArray.join(",");
 
-    // Save to resumes table
-    await supabase.from("resumes").update({ extracted_skills: skillsString }).eq("applicant_id", userId);
+    // Always update resumes table (the upload source snapshot) with strict error check
+    const { error: resumeErr } = await supabase
+      .from("resumes")
+      .update({ extracted_skills: skillsString })
+      .eq("applicant_id", userId);
 
-    // Save to profiles table as well to keep skills synchronized
-    await supabase.from("profiles").update({ skills: skillsString }).eq("id", userId);
+    if (resumeErr) {
+      console.error("[ResumeUpload] Error updating resumes extracted_skills:", resumeErr);
+      if (toast?.error) toast.error("Failed to update uploaded skills");
+      setSavingSkills(false);
+      return;
+    }
 
-    syncApplicantSnapshot(userId).catch(() => {});
-    
-    // Run AI Matching Engine since skills were updated
-    runMatchingForCandidate(userId).catch(console.error);
+    // BLOCKER 3 FIX: Only update active matching projections if Upload is the active source!
+    if (activeSource === "upload") {
+      const { error: profErr } = await supabase
+        .from("profiles")
+        .update({ skills: skillsString })
+        .eq("id", userId);
+
+      if (profErr) {
+        console.error("[ResumeUpload] Error updating profiles skills:", profErr);
+        if (toast?.error) toast.error("Failed to update matching skills in profile");
+        setSavingSkills(false);
+        return;
+      }
+
+      const { error: candProfErr } = await supabase
+        .from("candidate_profiles")
+        .update({
+          skills: JSON.stringify(skillsArray),
+          updated_at: new Date().toISOString()
+        })
+        .eq("user_id", userId);
+
+      if (candProfErr) {
+        console.error("[ResumeUpload] Error updating candidate_profiles skills:", candProfErr);
+        if (toast?.error) toast.error("Failed to update candidate matching profile");
+        setSavingSkills(false);
+        return;
+      }
+
+      syncApplicantSnapshot(userId).catch(() => {});
+      
+      // Run AI Matching Engine since upload skills were updated while upload is active
+      runMatchingForCandidate(userId).catch(console.error);
+
+      if (toast?.success) {
+        toast.success("Skills updated and job matching recalculated.");
+      }
+    } else {
+      // When Builder is active, do NOT alter candidate matching projection
+      if (toast?.info) {
+        toast.info("Uploaded skills updated. Your Built Resume remains active for job matching.");
+      } else if (toast?.success) {
+        toast.success("Uploaded skills updated (Built Resume remains active for matching).");
+      }
+    }
 
     setSavingSkills(false);
   }

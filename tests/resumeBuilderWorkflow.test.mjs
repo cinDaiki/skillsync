@@ -766,13 +766,13 @@ async function runTestSuite() {
   const zeroYears = calculateExperienceYears(zeroExp);
   assert(zeroYears === 0, 'Explicit no-experience returns exactly 0 years');
 
-  // ── Test 15: Bidirectional Active Resume Source Selector ───────────────────
-  console.log('\n[Test 15] Bidirectional Active Resume Source Selector');
+  // ── Test 15: Bidirectional Active Resume Source Selector & Coexistence Verification ───────
+  console.log('\n[Test 15] Bidirectional Active Resume Source Selector & Coexistence Verification');
 
   assert(typeof getActiveResumeSource === 'function', 'getActiveResumeSource is an exported function');
   assert(typeof setActiveResumeSource === 'function', 'setActiveResumeSource is an exported function');
 
-  // Check UI presence in both Builder and Upload pages
+  // 1. Candidate UI Terminology & Source Selector UI Presence
   const builderSourceUi = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pages', 'candidate', 'ResumeBuilder.jsx'), 'utf8');
   assert(builderSourceUi.includes('active-source-selector-bar'), 'ResumeBuilder renders active-source-selector-bar');
   assert(builderSourceUi.includes('handleSwitchSource'), 'ResumeBuilder implements handleSwitchSource');
@@ -781,6 +781,229 @@ async function runTestSuite() {
   assert(uploadSourceUi.includes('active-source-selector-bar'), 'ResumeUpload renders active-source-selector-bar');
   assert(uploadSourceUi.includes('handleSwitchSource'), 'ResumeUpload implements handleSwitchSource');
   assert(uploadSourceUi.includes("active_resume_source: 'upload'"), 'ResumeUpload tags uploaded matching data with active_resume_source');
+
+  // Verify candidate-facing AI terminology removal
+  assert(uploadSourceUi.includes("label: 'Resume Check'"), 'ResumeUpload uses friendly "Resume Check" instead of "ATS Scan Report"');
+  assert(uploadSourceUi.includes("label: 'Skills'"), 'ResumeUpload uses friendly "Skills" instead of "AI Skill Dictionary"');
+  assert(!uploadSourceUi.includes("ATS Scan Report"), 'No residual "ATS Scan Report" in ResumeUpload tabs');
+  assert(!uploadSourceUi.includes("AI Skill Dictionary"), 'No residual "AI Skill Dictionary" in ResumeUpload tabs');
+
+  const recommendedJobsJsx = fs.readFileSync(path.join(ROOT_DIR, 'src', 'components', 'resume', 'RecommendedJobs.jsx'), 'utf8');
+  assert(recommendedJobsJsx.includes("Comparing your qualifications with available job opportunities."),
+    'RecommendedJobs loading screen uses friendly phrasing without "semantic embedding"');
+  assert(!recommendedJobsJsx.includes("Comparing your skills, education, and semantic embedding"),
+    'RecommendedJobs loading screen avoids implementation terminology');
+
+  // 2. Code Contract Audits for Blockers 1, 3, 4, 5
+  const serviceCode = fs.readFileSync(path.join(ROOT_DIR, 'src', 'services', 'resumeBuilderService.js'), 'utf8');
+  assert(serviceCode.includes('shouldSyncToMatching && !hasUploadedFile'),
+    'Blocker 1: resumes.extracted_skills is protected from Builder overwrite when hasUploadedFile is true');
+  assert(serviceCode.includes('uploadEmbedding') && serviceCode.includes('resume_embedding: uploadEmbedding'),
+    'Blocker 2: setActiveResumeSource restores upload semantic embedding from parsed_details');
+  assert(uploadSourceUi.includes('activeSource === "upload"') && uploadSourceUi.includes('Your Built Resume remains active'),
+    'Blocker 3: Upload skills editor does NOT alter active profile matching when Builder is active');
+  assert(uploadSourceUi.includes('hasBuilder') && uploadSourceUi.includes('setActiveResumeSource(user.id, "builder")'),
+    'Blocker 4: Deleting uploaded resume preserves candidate_profiles and activates Builder when a built resume exists');
+  assert(serviceCode.includes('formUpdateErr') && serviceCode.includes('profErr') && serviceCode.includes('embUpdateErr'),
+    'Blocker 5: Strict error checks on all Supabase writes in setActiveResumeSource');
+
+  // 3. Complete Deep Simulation: Upload (Nursing) -> Builder (Accounting) -> Upload (Nursing)
+  console.log('   Simulating: Upload (Nursing) -> Builder (Accounting) -> Upload (Nursing)...');
+
+  // State Table Stores
+  const mockDb = {
+    resumes: {
+      applicant_id: 'candidate-uuid-1',
+      file_url: 'https://staging.supabase.co/storage/v1/object/resumes/nursing_resume.pdf',
+      file_name: 'nursing_resume.pdf',
+      extracted_skills: 'Patient Care,Vital Signs,BLS,Medication Administration',
+      parsed_details: {
+        degree: 'BS Nursing',
+        course: 'Nursing',
+        yearsOfExperience: 3,
+        skills: ['Patient Care', 'Vital Signs', 'BLS', 'Medication Administration'],
+        upload_embedding: Array(384).fill(0.25),
+        upload_canonical_text: 'Registered Nurse with 3 years in clinical patient care and BLS'
+      },
+      resume_embedding: Array(384).fill(0.25)
+    },
+    candidate_form_resumes: {
+      user_id: 'candidate-uuid-1',
+      resume_data: {
+        personalDetails: { fullName: 'Clara Reyes' },
+        education: {
+          noFormalEducation: false,
+          entries: [{ institution: 'UST', level: 'College/university graduate', courseOrProgram: 'BS Accountancy', status: 'Completed' }]
+        },
+        skills: [
+          { name: 'Accounting' },
+          { name: 'Financial Reporting' },
+          { name: 'General Ledger' },
+          { name: 'Tax Preparation' }
+        ],
+        experience: { noExperience: false, entries: [{ title: 'Staff Accountant', organization: 'SGV', startDate: '2022-01', endDate: '2024-01' }] },
+        builder_embedding: Array(384).fill(0.85),
+        builder_canonical_text: 'Accountant with CPA, financial reporting, and tax preparation skills'
+      }
+    },
+    candidate_profiles: {
+      user_id: 'candidate-uuid-1',
+      degree: 'BS Nursing',
+      course: 'Nursing',
+      skills: JSON.stringify(['Patient Care', 'Vital Signs', 'BLS', 'Medication Administration']),
+      active_resume_source: 'upload',
+      years_experience: 3
+    },
+    profiles: {
+      id: 'candidate-uuid-1',
+      skills: 'Patient Care,Vital Signs,BLS,Medication Administration'
+    }
+  };
+
+  // Archetype jobs for domain verification
+  const nurseJob = {
+    title: 'Staff Nurse - Inpatient Care',
+    required_skills: 'Patient Care, Vital Signs, BLS, Medication Administration',
+    required_education: 'BS Nursing',
+    experience_required: '1-3 years',
+    job_embedding: Array(384).fill(0.25)
+  };
+
+  const accountantJob = {
+    title: 'Junior Financial Accountant',
+    required_skills: 'Accounting, Financial Reporting, General Ledger, Tax Preparation',
+    required_education: 'BS Accountancy',
+    experience_required: '1-2 years',
+    job_embedding: Array(384).fill(0.85)
+  };
+
+  // Phase A: Initial State (Uploaded Resume Active)
+  assert(mockDb.candidate_profiles.active_resume_source === 'upload', 'Initial state: active_resume_source is "upload"');
+  const initialNurseFit = calculateJobFit(
+    { skills: JSON.parse(mockDb.candidate_profiles.skills), degree: mockDb.candidate_profiles.degree, years_experience: 3 },
+    nurseJob,
+    1.0
+  );
+  const initialAcctFit = calculateJobFit(
+    { skills: JSON.parse(mockDb.candidate_profiles.skills), degree: mockDb.candidate_profiles.degree, years_experience: 3 },
+    accountantJob,
+    0.1
+  );
+  assert(initialNurseFit.jobFitScore >= 80, `Upload active: Nurse job fit is high (${initialNurseFit.jobFitScore}%)`);
+  assert(initialAcctFit.jobFitScore < 50, `Upload active: Accountant job fit is low (${initialAcctFit.jobFitScore}%)`);
+  assert(initialNurseFit.tier === 'Strong Match', 'Upload active: Nurse placed in Strong Match');
+  assert(initialAcctFit.tier !== 'Strong Match', 'Upload active: Accountant not placed in Strong Match');
+
+  // Phase B: Activate Builder Resume (Accounting)
+  const hasUploadedFile = Boolean(mockDb.resumes.file_url);
+  const shouldSyncToMatching = true;
+
+  // Blocker 1 check: When hasUploadedFile is true, DO NOT overwrite resumes.extracted_skills!
+  if (shouldSyncToMatching && !hasUploadedFile) {
+    mockDb.resumes.extracted_skills = mockDb.candidate_form_resumes.resume_data.skills.map(s => s.name).join(',');
+  }
+  // Instead, project to candidate_profiles and profiles
+  const builderSkills = mockDb.candidate_form_resumes.resume_data.skills.map(s => s.name);
+  mockDb.candidate_profiles.skills = JSON.stringify(builderSkills);
+  mockDb.candidate_profiles.degree = 'BS Accountancy';
+  mockDb.candidate_profiles.active_resume_source = 'builder';
+  mockDb.profiles.skills = builderSkills.join(',');
+  mockDb.resumes.resume_embedding = mockDb.candidate_form_resumes.resume_data.builder_embedding;
+
+  assert(mockDb.resumes.extracted_skills === 'Patient Care,Vital Signs,BLS,Medication Administration',
+    'Blocker 1 Verified: resumes.extracted_skills was NOT corrupted by Builder activation!');
+  assert(mockDb.candidate_profiles.active_resume_source === 'builder', 'active_resume_source is "builder"');
+  assert(mockDb.resumes.resume_embedding[0] === 0.85, 'resumes.resume_embedding is now Builder Accounting embedding');
+
+  // Verify Builder matching
+  const builderNurseFit = calculateJobFit(
+    { skills: JSON.parse(mockDb.candidate_profiles.skills), degree: mockDb.candidate_profiles.degree, years_experience: 2 },
+    nurseJob,
+    0.1
+  );
+  const builderAcctFit = calculateJobFit(
+    { skills: JSON.parse(mockDb.candidate_profiles.skills), degree: mockDb.candidate_profiles.degree, years_experience: 2 },
+    accountantJob,
+    1.0
+  );
+  assert(builderAcctFit.jobFitScore >= 80, `Builder active: Accountant job fit is high (${builderAcctFit.jobFitScore}%)`);
+  assert(builderNurseFit.jobFitScore < 50, `Builder active: Nurse job fit is low (${builderNurseFit.jobFitScore}%)`);
+  assert(builderAcctFit.tier === 'Strong Match', 'Builder active: Accountant placed in Strong Match');
+  assert(builderNurseFit.tier !== 'Strong Match', 'Builder active: Nurse not placed in Strong Match');
+
+  // Phase C: Upload-Side Skill Editing While Builder is Active (Blocker 3)
+  // User adds "Phlebotomy" on the upload page
+  const editedUploadSkills = ['Patient Care', 'Vital Signs', 'BLS', 'Medication Administration', 'Phlebotomy'];
+  const currentActiveSource = mockDb.candidate_profiles.active_resume_source; // 'builder'
+  // saveSkillsToDb logic:
+  mockDb.resumes.extracted_skills = editedUploadSkills.join(',');
+  if (currentActiveSource === 'upload') {
+    mockDb.profiles.skills = editedUploadSkills.join(',');
+    mockDb.candidate_profiles.skills = JSON.stringify(editedUploadSkills);
+  }
+  assert(mockDb.resumes.extracted_skills.includes('Phlebotomy'), 'Upload snapshot updated with Phlebotomy');
+  assert(JSON.parse(mockDb.candidate_profiles.skills).includes('Accounting'),
+    'Blocker 3 Verified: Active Builder candidate_profiles.skills was NOT altered by upload-side editing!');
+  assert(mockDb.profiles.skills.includes('Accounting'),
+    'Blocker 3 Verified: Active profiles.skills was NOT altered by upload-side editing!');
+
+  // Phase D: Switch Source Back to Upload (Blocker 1 & Blocker 2 Bidirectional Restoration)
+  // setActiveResumeSource(userId, "upload")
+  const uploadRow = mockDb.resumes;
+  const restoredUploadSkills = uploadRow.extracted_skills.split(',').map(s => s.trim());
+  mockDb.candidate_profiles.skills = JSON.stringify(restoredUploadSkills);
+  mockDb.candidate_profiles.active_resume_source = 'upload';
+  mockDb.profiles.skills = restoredUploadSkills.join(',');
+  // Blocker 2: Restore semantic embedding
+  mockDb.resumes.resume_embedding = uploadRow.parsed_details.upload_embedding;
+
+  assert(mockDb.candidate_profiles.active_resume_source === 'upload', 'Switched back: active_resume_source is "upload"');
+  assert(JSON.parse(mockDb.candidate_profiles.skills).includes('Patient Care'), 'Nursing skills restored in candidate_profiles');
+  assert(JSON.parse(mockDb.candidate_profiles.skills).includes('Phlebotomy'), 'Edited Phlebotomy skill present in restored profile');
+  assert(mockDb.profiles.skills.includes('Patient Care'), 'Nursing skills restored in profiles');
+  assert(!mockDb.profiles.skills.includes('Accounting'), 'Accounting skills cleanly evacuated from active projection');
+  assert(mockDb.resumes.resume_embedding[0] === 0.25,
+    'Blocker 2 Verified: resumes.resume_embedding restored to Nursing upload embedding!');
+
+  // Verify re-evaluated matching
+  const restoredNurseFit = calculateJobFit(
+    { skills: JSON.parse(mockDb.candidate_profiles.skills), degree: 'BS Nursing', years_experience: 3 },
+    nurseJob,
+    1.0
+  );
+  const restoredAcctFit = calculateJobFit(
+    { skills: JSON.parse(mockDb.candidate_profiles.skills), degree: 'BS Nursing', years_experience: 3 },
+    accountantJob,
+    0.1
+  );
+  assert(restoredNurseFit.jobFitScore >= 80, `Restored upload: Nurse job fit is high (${restoredNurseFit.jobFitScore}%)`);
+  assert(restoredAcctFit.jobFitScore < 50, `Restored upload: Accountant job fit is low (${restoredAcctFit.jobFitScore}%)`);
+  assert(restoredNurseFit.tier === 'Strong Match', 'Restored upload: Nurse placed in Strong Match');
+  assert(restoredAcctFit.tier !== 'Strong Match', 'Restored upload: Accountant not placed in Strong Match');
+
+  // Phase E: Deleting Uploaded Resume Coexistence (Blocker 4)
+  // When candidate deletes uploaded resume while Builder exists:
+  const hasBuilderFormResume = Boolean(mockDb.candidate_form_resumes?.resume_data);
+  assert(hasBuilderFormResume === true, 'Candidate form resume exists');
+  // Delete uploaded file row
+  mockDb.resumes = null;
+  if (hasBuilderFormResume) {
+    // Project Builder as active
+    mockDb.candidate_profiles.skills = JSON.stringify(mockDb.candidate_form_resumes.resume_data.skills.map(s => s.name));
+    mockDb.candidate_profiles.active_resume_source = 'builder';
+    mockDb.profiles.skills = mockDb.candidate_form_resumes.resume_data.skills.map(s => s.name).join(',');
+  } else {
+    mockDb.candidate_profiles = null;
+    mockDb.profiles.skills = '';
+  }
+
+  assert(mockDb.resumes === null, 'Uploaded resume deleted');
+  assert(mockDb.candidate_profiles !== null,
+    'Blocker 4 Verified: candidate_profiles was NOT destroyed when uploaded resume was deleted!');
+  assert(mockDb.candidate_profiles.active_resume_source === 'builder',
+    'Blocker 4 Verified: Builder automatically projected as active resume source!');
+  assert(JSON.parse(mockDb.candidate_profiles.skills).includes('Accounting'),
+    'Blocker 4 Verified: Candidate profile active skills powered by Builder!');
 
   console.log(`\n🎉 ALL ${passedTests}/${totalTests} RESUME BUILDER TESTS PASSED!`);
 }

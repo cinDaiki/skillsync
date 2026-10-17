@@ -14,7 +14,7 @@
 import { supabase } from "./supabase.js";
 import { normalizeSkillName, normalizeDegree } from "./normalization.js";
 import { runMatchingForCandidate } from "./matchingEngine.js";
-import { generateAndStoreResumeEmbedding } from "./ai/embeddingService.js";
+import { generateAndStoreResumeEmbedding, buildResumeTextForEmbedding } from "./ai/embeddingService.js";
 import { runSemanticMatchingForCandidate } from "./ai/semanticMatchingService.js";
 import { syncApplicantSnapshot } from "./applicationService.js";
 
@@ -637,7 +637,9 @@ async function _executeSaveCanonicalResume(userId, resumeData, options = {}, seq
       const updatePayload = {
         parsed_details: mergedParsedDetails
       };
-      if (shouldSyncToMatching) {
+      // BLOCKER 1 FIX: When an uploaded file exists, NEVER overwrite its extracted_skills with Builder skills!
+      // Builder skills belong exclusively in candidate_form_resumes, and candidate_profiles is the active projection.
+      if (shouldSyncToMatching && !hasUploadedFile) {
         updatePayload.extracted_skills = skillsCsv;
       }
       const { error: resumeUpdateErr } = await supabase
@@ -766,8 +768,20 @@ async function _executeSaveCanonicalResume(userId, resumeData, options = {}, seq
         try {
           const canonicalText = buildCanonicalResumeText(preparedData);
           if (canonicalText.trim()) {
-            const { embedding } = await generateAndStoreResumeEmbedding(userId, canonicalText);
-            if (embedding && Array.isArray(embedding)) {
+            const { embedding, error: embErr } = await generateAndStoreResumeEmbedding(userId, canonicalText);
+            if (!embErr && embedding && Array.isArray(embedding)) {
+              // Persist builder embedding in candidate_form_resumes so it can be restored anytime
+              await supabase
+                .from("candidate_form_resumes")
+                .update({
+                  resume_data: {
+                    ...preparedData,
+                    builder_embedding: embedding,
+                    builder_canonical_text: canonicalText
+                  }
+                })
+                .eq("user_id", userId);
+
               await runSemanticMatchingForCandidate(userId, embedding);
             } else {
               await runMatchingForCandidate(userId);
@@ -861,8 +875,8 @@ export async function setActiveResumeSource(userId, source) {
         return saveRes;
       }
 
-      // Update candidate_form_resumes with explicit active_resume_source
-      await supabase
+      // Update candidate_form_resumes with explicit active_resume_source (BLOCKER 5: strict error check)
+      const { error: formUpdateErr } = await supabase
         .from("candidate_form_resumes")
         .update({
           resume_data: {
@@ -872,6 +886,58 @@ export async function setActiveResumeSource(userId, source) {
           updated_at: nowIso
         })
         .eq("user_id", userId);
+
+      if (formUpdateErr) {
+        console.error("[ResumeBuilder] Error updating candidate_form_resumes active source:", formUpdateErr);
+        return { success: false, error: formUpdateErr.message || "Failed to update form resume record" };
+      }
+
+      // BLOCKER 2 FIX: Bidirectional semantic embedding restoration for Builder
+      const builderEmbedding = formRow.resume_data?.builder_embedding;
+      if (builderEmbedding && Array.isArray(builderEmbedding)) {
+        const { error: embErr } = await supabase
+          .from("resumes")
+          .update({
+            resume_embedding: builderEmbedding,
+            embedding_generated_at: nowIso
+          })
+          .eq("applicant_id", userId);
+
+        if (embErr) {
+          console.error("[ResumeBuilder] Error restoring builder embedding in resumes:", embErr);
+          return { success: false, error: embErr.message };
+        }
+
+        await runSemanticMatchingForCandidate(userId, builderEmbedding);
+      } else {
+        const canonicalText = buildCanonicalResumeText(formRow.resume_data);
+        if (canonicalText.trim()) {
+          try {
+            const { embedding, error: genErr } = await generateAndStoreResumeEmbedding(userId, canonicalText);
+            if (!genErr && embedding) {
+              await supabase
+                .from("candidate_form_resumes")
+                .update({
+                  resume_data: {
+                    ...formRow.resume_data,
+                    builder_embedding: embedding,
+                    builder_canonical_text: canonicalText,
+                    active_resume_source: "builder"
+                  }
+                })
+                .eq("user_id", userId);
+              await runSemanticMatchingForCandidate(userId, embedding);
+            } else {
+              await runMatchingForCandidate(userId);
+            }
+          } catch (embErr) {
+            console.warn("[ResumeBuilder] Builder embedding generation notice:", embErr?.message);
+            await runMatchingForCandidate(userId);
+          }
+        } else {
+          await runMatchingForCandidate(userId);
+        }
+      }
 
       return { success: true, source: "builder" };
     } else {
@@ -892,6 +958,7 @@ export async function setActiveResumeSource(userId, source) {
 
       const parsed = resumeRow.parsed_details || {};
       const details = parsed.details || parsed;
+      // BLOCKER 1 FIX: resumes.extracted_skills was strictly preserved from upload, never overwritten by Builder
       const skillsList = resumeRow.extracted_skills
         ? resumeRow.extracted_skills.split(",").map(s => s.trim()).filter(Boolean)
         : (parsed.skills || []);
@@ -917,7 +984,7 @@ export async function setActiveResumeSource(userId, source) {
         return { success: false, error: candErr.message };
       }
 
-      // Re-project skills to profiles table
+      // Re-project skills to profiles table (BLOCKER 5: strict error check)
       const { error: profErr } = await supabase
         .from("profiles")
         .update({
@@ -927,18 +994,24 @@ export async function setActiveResumeSource(userId, source) {
         .eq("id", userId);
 
       if (profErr) {
-        console.warn("[ResumeBuilder] Notice updating profiles on upload switch:", profErr.message);
+        console.error("[ResumeBuilder] Failed updating profiles on upload switch:", profErr);
+        return { success: false, error: profErr.message };
       }
 
-      // Record choice in candidate_form_resumes if row exists
-      const { data: formRow } = await supabase
+      // Record choice in candidate_form_resumes if row exists (BLOCKER 5: strict error check)
+      const { data: formRow, error: fetchFormErr } = await supabase
         .from("candidate_form_resumes")
         .select("resume_data")
         .eq("user_id", userId)
         .maybeSingle();
 
+      if (fetchFormErr) {
+        console.error("[ResumeBuilder] Failed checking candidate_form_resumes:", fetchFormErr);
+        return { success: false, error: fetchFormErr.message };
+      }
+
       if (formRow?.resume_data) {
-        await supabase
+        const { error: updateFormErr } = await supabase
           .from("candidate_form_resumes")
           .update({
             resume_data: {
@@ -948,6 +1021,55 @@ export async function setActiveResumeSource(userId, source) {
             updated_at: nowIso
           })
           .eq("user_id", userId);
+
+        if (updateFormErr) {
+          console.error("[ResumeBuilder] Failed updating candidate_form_resumes on upload switch:", updateFormErr);
+          return { success: false, error: updateFormErr.message };
+        }
+      }
+
+      // BLOCKER 2 FIX: Bidirectional semantic embedding restoration for Upload
+      const uploadEmbedding = resumeRow.parsed_details?.upload_embedding;
+      if (uploadEmbedding && Array.isArray(uploadEmbedding)) {
+        const { error: embUpdateErr } = await supabase
+          .from("resumes")
+          .update({
+            resume_embedding: uploadEmbedding,
+            embedding_generated_at: nowIso
+          })
+          .eq("applicant_id", userId);
+
+        if (embUpdateErr) {
+          console.error("[ResumeBuilder] Failed restoring upload embedding in resumes:", embUpdateErr);
+          return { success: false, error: embUpdateErr.message };
+        }
+
+        await runSemanticMatchingForCandidate(userId, uploadEmbedding);
+      } else {
+        try {
+          const uploadText = resumeRow.parsed_details?.upload_canonical_text ||
+            buildResumeTextForEmbedding(resumeRow.parsed_details, resumeRow.parsed_details?._rawText || '');
+          if (uploadText?.trim()) {
+            const { embedding, error: embErr } = await generateAndStoreResumeEmbedding(userId, uploadText);
+            if (!embErr && embedding) {
+              await supabase.from("resumes").update({
+                parsed_details: {
+                  ...(resumeRow.parsed_details || {}),
+                  upload_embedding: embedding,
+                  upload_canonical_text: uploadText
+                }
+              }).eq("applicant_id", userId);
+              await runSemanticMatchingForCandidate(userId, embedding);
+            } else {
+              await runMatchingForCandidate(userId);
+            }
+          } else {
+            await runMatchingForCandidate(userId);
+          }
+        } catch (embErr) {
+          console.warn("[ResumeBuilder] Notice during upload embedding restoration:", embErr?.message);
+          await runMatchingForCandidate(userId);
+        }
       }
 
       // Re-run matching engine for uploaded resume
