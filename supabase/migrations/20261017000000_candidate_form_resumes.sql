@@ -19,6 +19,7 @@ ALTER TABLE public.candidate_form_resumes OWNER TO postgres;
 ALTER TABLE public.candidate_form_resumes ENABLE ROW LEVEL SECURITY;
 
 -- Candidates can view their own structured resume
+DROP POLICY IF EXISTS "Users can view own form resume" ON public.candidate_form_resumes;
 CREATE POLICY "Users can view own form resume"
     ON public.candidate_form_resumes
     FOR SELECT
@@ -26,6 +27,7 @@ CREATE POLICY "Users can view own form resume"
     USING (auth.uid() = user_id);
 
 -- Candidates can insert their own structured resume
+DROP POLICY IF EXISTS "Users can insert own form resume" ON public.candidate_form_resumes;
 CREATE POLICY "Users can insert own form resume"
     ON public.candidate_form_resumes
     FOR INSERT
@@ -33,6 +35,7 @@ CREATE POLICY "Users can insert own form resume"
     WITH CHECK (auth.uid() = user_id);
 
 -- Candidates can update their own structured resume
+DROP POLICY IF EXISTS "Users can update own form resume" ON public.candidate_form_resumes;
 CREATE POLICY "Users can update own form resume"
     ON public.candidate_form_resumes
     FOR UPDATE
@@ -41,6 +44,7 @@ CREATE POLICY "Users can update own form resume"
     WITH CHECK (auth.uid() = user_id);
 
 -- Candidates can delete their own structured resume
+DROP POLICY IF EXISTS "Users can delete own form resume" ON public.candidate_form_resumes;
 CREATE POLICY "Users can delete own form resume"
     ON public.candidate_form_resumes
     FOR DELETE
