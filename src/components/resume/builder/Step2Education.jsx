@@ -252,10 +252,33 @@ export default function Step2Education({ data, onChange }) {
                     id="edu-course"
                     type="text"
                     className="form-input"
-                    placeholder="e.g. BS Computer Science, General Academic Strand (GAS), Web Development NC III"
+                    placeholder="e.g. BS Nursing, BS Accountancy, Bachelor of Elementary Education, Hospitality Management, Automotive Servicing NC II, Caregiving NC II"
                     value={entryForm.courseOrProgram || ""}
                     onChange={(e) => setEntryForm({ ...entryForm, courseOrProgram: e.target.value })}
                   />
+                  <div className="course-suggestions-row">
+                    <span className="suggestions-label">Suggestions:</span>
+                    {[
+                      "BS Nursing",
+                      "BS Accountancy",
+                      "BS Information Technology",
+                      "Bachelor of Elementary Education",
+                      "Hospitality Management",
+                      "Automotive Servicing NC II",
+                      "Electrical Installation & Maintenance NC II",
+                      "Caregiving NC II",
+                      "Senior High - STEM / ABM / HUMSS / GAS"
+                    ].map(sample => (
+                      <button
+                        key={sample}
+                        type="button"
+                        className="suggestion-pill-btn"
+                        onClick={() => setEntryForm({ ...entryForm, courseOrProgram: sample })}
+                      >
+                        {sample}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="form-group">

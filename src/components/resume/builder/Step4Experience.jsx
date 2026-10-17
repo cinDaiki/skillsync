@@ -209,7 +209,7 @@ export default function Step4Experience({ data, onChange }) {
                     id="exp-title"
                     type="text"
                     className="form-input"
-                    placeholder="e.g. Junior Web Developer, Customer Service Representative, Freelance Graphic Artist"
+                    placeholder="e.g. Registered Nurse, Accounting Staff, Front Desk Associate, Electrician, Sales Associate"
                     value={entryForm.title || ""}
                     onChange={(e) => setEntryForm({ ...entryForm, title: e.target.value })}
                     required

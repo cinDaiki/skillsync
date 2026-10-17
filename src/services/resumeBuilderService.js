@@ -42,11 +42,14 @@ export const EDUCATION_STATUS_OPTIONS = [
 
 export const WORK_TYPE_OPTIONS = [
   "Employment",
-  "Internship",
-  "Freelance",
+  "Internship / OJT",
+  "Apprenticeship",
+  "Practicum / Clinical Training",
+  "Freelance / Self-employed",
   "Part-time",
-  "Volunteer",
-  "Informal Work",
+  "Volunteer / Community Service",
+  "Family Business / Informal Work",
+  "Seasonal / Contract Work",
   "Other"
 ];
 
@@ -453,7 +456,7 @@ export async function loadCanonicalResume(userId) {
  * 5. Generates embedding and updates resumes.resume_embedding.
  * 6. Executes server matching flow.
  */
-export async function saveCanonicalResume(userId, resumeData) {
+export async function saveCanonicalResume(userId, resumeData, options = {}) {
   if (!userId || !resumeData) return { success: false, error: "Missing userId or resumeData" };
 
   const currentSequence = ++_lastSaveSequence;
@@ -466,7 +469,7 @@ export async function saveCanonicalResume(userId, resumeData) {
   };
 
   try {
-    // 1. Primary Save: candidate_form_resumes
+    // 1. Primary Save: candidate_form_resumes (always persists full structured form data)
     try {
       await supabase.from("candidate_form_resumes").upsert({
         user_id: userId,
@@ -496,17 +499,22 @@ export async function saveCanonicalResume(userId, resumeData) {
       form_resume_updated_at: nowIso
     };
 
+    const hasUploadedFile = Boolean(existingResume?.file_url);
+    // Overwrite protection: do NOT overwrite active matching skills or profile unless finalized, explicitly activated, or no uploaded file exists
+    const shouldSyncToMatching = options.setActiveForMatching === true || options.isFinalize === true || !hasUploadedFile;
+
     if (existingResume?.id) {
-      // UPDATE existing row: DO NOT touch file_url, file_name, file_size!
+      const updatePayload = {
+        parsed_details: mergedParsedDetails
+      };
+      if (shouldSyncToMatching) {
+        updatePayload.extracted_skills = skillsCsv;
+      }
       await supabase
         .from("resumes")
-        .update({
-          extracted_skills: skillsCsv,
-          parsed_details: mergedParsedDetails
-        })
+        .update(updatePayload)
         .eq("applicant_id", userId);
     } else {
-      // INSERT new row without file upload (file_url: null)
       await supabase
         .from("resumes")
         .insert([{
@@ -521,85 +529,86 @@ export async function saveCanonicalResume(userId, resumeData) {
         }]);
     }
 
-    // 3. Project to public.profiles
-    const eduList = (preparedData.education?.entries || []).map(e => ({
-      school: e.institution,
-      degree: e.level,
-      field: e.courseOrProgram,
-      start_year: e.startYear,
-      end_year: e.endYear,
-      status: e.status
-    }));
+    // 3. Project to public.profiles and candidate_profiles only when syncing to matching
+    if (shouldSyncToMatching) {
+      const eduList = (preparedData.education?.entries || []).map(e => ({
+        school: e.institution,
+        degree: e.level,
+        field: e.courseOrProgram,
+        start_year: e.startYear,
+        end_year: e.endYear,
+        status: e.status
+      }));
 
-    const expList = (preparedData.experience?.entries || []).map(e => ({
-      company: e.organization,
-      position: e.title,
-      type: e.workType,
-      start_date: e.startDate,
-      end_date: e.endDate,
-      current: e.isCurrent,
-      description: e.responsibilities
-    }));
+      const expList = (preparedData.experience?.entries || []).map(e => ({
+        company: e.organization,
+        position: e.title,
+        type: e.workType,
+        start_date: e.startDate,
+        end_date: e.endDate,
+        current: e.isCurrent,
+        description: e.responsibilities
+      }));
 
-    const certList = (preparedData.projectsAndCredentials?.certifications || []).map(c => ({
-      name: c.name,
-      issuer: c.issuer,
-      date: c.issueDate,
-      credential_id: c.credentialId
-    }));
+      const certList = (preparedData.projectsAndCredentials?.certifications || []).map(c => ({
+        name: c.name,
+        issuer: c.issuer,
+        date: c.issueDate,
+        credential_id: c.credentialId
+      }));
 
-    await supabase.from("profiles").update({
-      full_name: preparedData.personalDetails?.fullName || null,
-      contact_number: preparedData.personalDetails?.phone || null,
-      address: preparedData.personalDetails?.city || null,
-      skills: skillsCsv,
-      education: eduList,
-      work_experience: expList,
-      certifications: certList,
-      updated_at: nowIso
-    }).eq("id", userId);
+      await supabase.from("profiles").update({
+        full_name: preparedData.personalDetails?.fullName || null,
+        contact_number: preparedData.personalDetails?.phone || null,
+        address: preparedData.personalDetails?.city || null,
+        skills: skillsCsv,
+        education: eduList,
+        work_experience: expList,
+        certifications: certList,
+        updated_at: nowIso
+      }).eq("id", userId);
 
-    // 4. Project to public.candidate_profiles (used by compute_and_save_job_match RPC)
-    const highestEdu = (preparedData.education?.entries || []).find(e => e.status === "Completed") ||
-                      (preparedData.education?.entries || [])[0] || {};
+      // 4. Project to public.candidate_profiles (used by compute_and_save_job_match RPC)
+      const highestEdu = (preparedData.education?.entries || []).find(e => e.status === "Completed") ||
+                        (preparedData.education?.entries || [])[0] || {};
 
-    let estimatedYears = 0;
-    if (preparedData.experience?.entries?.length > 0 && !preparedData.experience.noExperience) {
-      estimatedYears = Math.max(1, Math.round(preparedData.experience.entries.length * 1.5));
-    }
+      let estimatedYears = 0;
+      if (preparedData.experience?.entries?.length > 0 && !preparedData.experience.noExperience) {
+        estimatedYears = Math.max(1, Math.round(preparedData.experience.entries.length * 1.5));
+      }
 
-    await supabase.from("candidate_profiles").upsert({
-      user_id: userId,
-      course: highestEdu.courseOrProgram || null,
-      degree: highestEdu.level || null,
-      education_level: highestEdu.level || null,
-      skills: JSON.stringify(skillsArray),
-      certifications: JSON.stringify(certList),
-      years_experience: estimatedYears,
-      updated_at: nowIso
-    }, { onConflict: "user_id" });
+      await supabase.from("candidate_profiles").upsert({
+        user_id: userId,
+        course: highestEdu.courseOrProgram || null,
+        degree: highestEdu.level || null,
+        education_level: highestEdu.level || null,
+        skills: JSON.stringify(skillsArray),
+        certifications: JSON.stringify(certList),
+        years_experience: estimatedYears,
+        updated_at: nowIso
+      }, { onConflict: "user_id" });
 
-    // 5. Asynchronous: build canonical resume text, generate embedding, run server matching
-    ;(async () => {
-      try {
-        const canonicalText = buildCanonicalResumeText(preparedData);
-        if (canonicalText.trim()) {
-          const { embedding } = await generateAndStoreResumeEmbedding(userId, canonicalText);
-          if (embedding && Array.isArray(embedding)) {
-            await runSemanticMatchingForCandidate(userId, embedding);
+      // 5. Asynchronous: build canonical resume text, generate embedding, run server matching
+      ;(async () => {
+        try {
+          const canonicalText = buildCanonicalResumeText(preparedData);
+          if (canonicalText.trim()) {
+            const { embedding } = await generateAndStoreResumeEmbedding(userId, canonicalText);
+            if (embedding && Array.isArray(embedding)) {
+              await runSemanticMatchingForCandidate(userId, embedding);
+            } else {
+              await runMatchingForCandidate(userId);
+            }
           } else {
             await runMatchingForCandidate(userId);
           }
-        } else {
-          await runMatchingForCandidate(userId);
+        } catch (embErr) {
+          console.warn("[ResumeBuilder] Non-critical matching sync notice:", embErr?.message);
+          await runMatchingForCandidate(userId).catch(() => {});
         }
-      } catch (embErr) {
-        console.warn("[ResumeBuilder] Non-critical matching sync notice:", embErr?.message);
-        // Always attempt fallback rule-based matching
-        await runMatchingForCandidate(userId).catch(() => {});
-      }
-      syncApplicantSnapshot(userId).catch(() => {});
-    })();
+        syncApplicantSnapshot(userId).catch(() => {});
+      })();
+    }
 
     // Check if a newer save request has started
     if (currentSequence < _lastSaveSequence) {
@@ -612,3 +621,41 @@ export async function saveCanonicalResume(userId, resumeData) {
     return { success: false, error: err.message || "Failed to save resume" };
   }
 }
+
+/**
+ * Sets which resume source is actively used for job matching: 'builder' | 'upload'.
+ * Records choice in candidate_form_resumes and resumes.parsed_details.
+ */
+export async function setActiveResumeSource(userId, source) {
+  if (!userId || !["builder", "upload"].includes(source)) return { success: false };
+  try {
+    const { data: formRow } = await supabase
+      .from("candidate_form_resumes")
+      .select("resume_data")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (formRow?.resume_data) {
+      await supabase
+        .from("candidate_form_resumes")
+        .update({
+          resume_data: {
+            ...formRow.resume_data,
+            active_resume_source: source
+          }
+        })
+        .eq("user_id", userId);
+    }
+
+    if (source === "builder" && formRow?.resume_data) {
+      // Synchronize built resume data to matching engine
+      await saveCanonicalResume(userId, formRow.resume_data, { setActiveForMatching: true });
+    }
+
+    return { success: true, source };
+  } catch (err) {
+    console.warn("[ResumeBuilder] setActiveResumeSource notice:", err?.message);
+    return { success: false, error: err.message };
+  }
+}
+

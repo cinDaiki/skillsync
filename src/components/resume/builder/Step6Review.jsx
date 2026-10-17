@@ -1,24 +1,15 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { generateProfessionalSummary, calculateResumeReadiness } from "../../../services/resumeBuilderService";
 import { downloadDocxResume } from "../../../services/docxResumeGenerator";
-import RecommendedJobs from "../RecommendedJobs.jsx";
-import ErrorBoundary from "../../guards/ErrorBoundary.jsx";
 
 export default function Step6Review({
   data,
   onChange,
   onNavigateStep,
-  recommendedJobs = [],
-  loadingJobs = false,
-  matchingJobs = false,
-  verificationStatus = "Pending Verification",
-  applications = [],
-  onApplyJob,
-  applyingJobId,
-  onRefreshRecommendations,
-  refreshingJobs = false,
-  lastUpdatedText = ""
+  onFinalize
 }) {
+  const navigate = useNavigate();
   const readiness = calculateResumeReadiness(data);
   const [showInBrowserPreview, setShowInBrowserPreview] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -32,7 +23,7 @@ export default function Step6Review({
     });
   }
 
-  function handleAutoGenerateSummary() {
+  function handleCreateSummary() {
     const generated = generateProfessionalSummary(data);
     onChange({
       ...data,
@@ -53,6 +44,11 @@ export default function Step6Review({
     }
   }
 
+  function handleGoToJobs() {
+    if (onFinalize) onFinalize();
+    navigate("/candidate/jobs");
+  }
+
   // Section details
   const name = data?.personalDetails?.fullName?.trim();
   const eduCount = data?.education?.entries?.length || 0;
@@ -67,32 +63,32 @@ export default function Step6Review({
   const credentialsTotal = projCount + certCount + trainingCount + awardsCount;
 
   return (
-    <div className="builder-step-section review-screen">
+    <section className="builder-step-section review-screen" aria-labelledby="step6-heading">
       <div className="step-intro-card">
         <div className="step-intro-icon" aria-hidden="true">📋</div>
         <div className="step-intro-text">
-          <h3>Review Your Resume</h3>
+          <h3 id="step6-heading">Review Your Resume</h3>
           <p>
-            Verify your resume sections, customize your professional summary, and preview or download your
-            completed Microsoft Word resume.
+            Verify your information, edit your professional summary, and preview or download your editable Word resume.
           </p>
         </div>
       </div>
 
-      {/* Top Action Bar */}
-      <div className="review-action-banner">
-        <div className="banner-left">
-          <div className="banner-readiness-pill">
-            <span className="pill-check">✓</span>
-            <strong>{readiness.completedSections} of 6 Sections Complete</strong> ({readiness.percentage}%)
+      {/* Top Readiness & Actions Card */}
+      <div className="review-readiness-card">
+        <div className="readiness-card-left">
+          <div className="readiness-score-row">
+            <span className="readiness-score-title">Resume Readiness</span>
+            <span className="readiness-score-pct">{readiness.percentage}%</span>
           </div>
-          <span className="banner-subtext">
+          <p className="readiness-card-sub">
+            {readiness.completedSections} of 6 sections completed •{" "}
             {readiness.canFinalize
-              ? "Your resume has all required sections and is ready for download and job matching."
-              : "Please complete your Full Name and Education before finalizing."}
-          </span>
+              ? "All required details are complete."
+              : "Full Name and Education decision required to finalize."}
+          </p>
         </div>
-        <div className="banner-actions">
+        <div className="readiness-card-actions">
           <button
             type="button"
             className="builder-action-btn outline"
@@ -215,205 +211,178 @@ export default function Step6Review({
         </div>
       )}
 
-      {/* Professional Summary Editor */}
-      <div className="review-section-card summary-card">
-        <div className="review-card-header">
-          <div>
+      {/* Two-Column Grid: Summary on Left, Sections Checklist on Right */}
+      <div className="review-two-column-layout">
+        {/* Left Column: Professional Summary */}
+        <div className="review-column-card summary-editor-box">
+          <div className="column-card-header">
             <h4>Professional Summary</h4>
-            <p className="helper-text">
-              We've prepared a summary based on the information in your resume. Review and edit it before continuing.
-            </p>
+            <button
+              type="button"
+              className="builder-action-btn outline small"
+              onClick={handleCreateSummary}
+              title="Create a concise, truthful summary based on your entered education, skills, and experience"
+            >
+              Create Summary
+            </button>
           </div>
-          <button
-            type="button"
-            className="builder-action-btn outline small"
-            onClick={handleAutoGenerateSummary}
-            title="Generate summary based on your education, skills, and experience"
-          >
-            <span>✨</span> Suggest Summary
-          </button>
+          <p className="card-guidance-subtext">
+            Review and adjust your summary. It provides employers with a clear snapshot of your background.
+          </p>
+          <div className="summary-textarea-wrapper">
+            <textarea
+              className="form-textarea summary-text-input"
+              rows={6}
+              placeholder="Write or edit your professional summary..."
+              value={summary}
+              onChange={(e) => handleSummaryChange(e.target.value)}
+              aria-label="Professional summary"
+            />
+          </div>
         </div>
 
-        <div className="summary-textarea-wrap">
-          <textarea
-            className="form-textarea"
-            rows={4}
-            placeholder="Write or review your professional summary..."
-            value={summary}
-            onChange={(e) => handleSummaryChange(e.target.value)}
-          />
-          <span className="field-hint">
-            Tip: A factual 2-3 sentence overview highlighting your background and primary abilities.
-          </span>
-        </div>
-      </div>
+        {/* Right Column: Resume Sections Checklist */}
+        <div className="review-column-card sections-checklist-box">
+          <div className="column-card-header">
+            <h4>Resume Sections</h4>
+          </div>
+          <p className="card-guidance-subtext">
+            Click any section below to make quick edits before saving.
+          </p>
 
-      {/* Sections Checklist & Quick Edit Links */}
-      <div className="review-section-card checklist-card">
-        <h4 className="checklist-heading">Resume Sections Checklist</h4>
-
-        <div className="checklist-items-grid">
-          {/* 1. Personal Details */}
-          <div className="checklist-item-row">
-            <div className="checklist-status-col">
-              <span className={`checklist-icon ${name ? "complete" : "incomplete"}`}>
+          <ul className="review-checklist-list" role="list">
+            {/* 1. Personal Details */}
+            <li className="checklist-list-item">
+              <span className={`checklist-item-status ${name ? "checked" : "missing"}`} aria-hidden="true">
                 {name ? "✓" : "!"}
               </span>
-            </div>
-            <div className="checklist-info-col">
-              <strong>Personal Details</strong>
-              <p>
-                {name ? `${name} • ${data.personalDetails?.email || "No email"}` : "Full Name is required before finalizing."}
-              </p>
-            </div>
-            <div className="checklist-action-col">
+              <div className="checklist-item-body">
+                <span className="checklist-item-name">Personal Details</span>
+                <span className="checklist-item-meta">
+                  {name ? `${name} • ${data.personalDetails?.email || "No email"}` : "Full Name is required"}
+                </span>
+              </div>
               <button
                 type="button"
-                className="checklist-edit-btn"
+                className="checklist-item-edit-btn"
                 onClick={() => onNavigateStep(1)}
               >
-                Edit Personal Details
+                Edit
               </button>
-            </div>
-          </div>
+            </li>
 
-          {/* 2. Education & Training */}
-          <div className="checklist-item-row">
-            <div className="checklist-status-col">
-              <span className={`checklist-icon ${(eduCount > 0 || noEdu) ? "complete" : "incomplete"}`}>
+            {/* 2. Education */}
+            <li className="checklist-list-item">
+              <span className={`checklist-item-status ${(eduCount > 0 || noEdu) ? "checked" : "missing"}`} aria-hidden="true">
                 {(eduCount > 0 || noEdu) ? "✓" : "!"}
               </span>
-            </div>
-            <div className="checklist-info-col">
-              <strong>Education & Training</strong>
-              <p>
-                {noEdu
-                  ? "No formal education to report."
-                  : eduCount > 0
-                  ? `${eduCount} education/training ${eduCount === 1 ? "entry" : "entries"} recorded.`
-                  : "Please add an education entry or select 'No formal schooling'."}
-              </p>
-            </div>
-            <div className="checklist-action-col">
+              <div className="checklist-item-body">
+                <span className="checklist-item-name">Education</span>
+                <span className="checklist-item-meta">
+                  {noEdu
+                    ? "No formal schooling reported"
+                    : eduCount > 0
+                    ? `${eduCount} education/training ${eduCount === 1 ? "entry" : "entries"}`
+                    : "Add entry or select 'No formal schooling'"}
+                </span>
+              </div>
               <button
                 type="button"
-                className="checklist-edit-btn"
+                className="checklist-item-edit-btn"
                 onClick={() => onNavigateStep(2)}
               >
-                Edit Education
+                Edit
               </button>
-            </div>
-          </div>
+            </li>
 
-          {/* 3. Skills */}
-          <div className="checklist-item-row">
-            <div className="checklist-status-col">
-              <span className={`checklist-icon ${skillsCount > 0 ? "complete" : "optional"}`}>
-                {skillsCount > 0 ? "✓" : "–"}
+            {/* 3. Skills */}
+            <li className="checklist-list-item">
+              <span className={`checklist-item-status ${skillsCount > 0 ? "checked" : "neutral"}`} aria-hidden="true">
+                {skillsCount > 0 ? "✓" : "○"}
               </span>
-            </div>
-            <div className="checklist-info-col">
-              <strong>Skills</strong>
-              <p>
-                {skillsCount > 0
-                  ? `${skillsCount} skills added to your resume.`
-                  : "Optional: Add 3-10 skills to improve job matching."}
-              </p>
-            </div>
-            <div className="checklist-action-col">
+              <div className="checklist-item-body">
+                <span className="checklist-item-name">Skills</span>
+                <span className="checklist-item-meta">
+                  {skillsCount > 0 ? `${skillsCount} skills added` : "Optional: add 3-10 skills"}
+                </span>
+              </div>
               <button
                 type="button"
-                className="checklist-edit-btn"
+                className="checklist-item-edit-btn"
                 onClick={() => onNavigateStep(3)}
               >
-                Edit Skills
+                Edit
               </button>
-            </div>
-          </div>
+            </li>
 
-          {/* 4. Experience */}
-          <div className="checklist-item-row">
-            <div className="checklist-status-col">
-              <span className={`checklist-icon ${(expCount > 0 || noExp) ? "complete" : "optional"}`}>
-                {(expCount > 0 || noExp) ? "✓" : "–"}
+            {/* 4. Experience */}
+            <li className="checklist-list-item">
+              <span className={`checklist-item-status ${(expCount > 0 || noExp) ? "checked" : "neutral"}`} aria-hidden="true">
+                {(expCount > 0 || noExp) ? "✓" : "○"}
               </span>
-            </div>
-            <div className="checklist-info-col">
-              <strong>Experience</strong>
-              <p>
-                {noExp
-                  ? "No work experience yet (entry-level candidate)."
-                  : expCount > 0
-                  ? `${expCount} work experience ${expCount === 1 ? "entry" : "entries"} added.`
-                  : "Optional: Add jobs, internships, freelance, or volunteer work."}
-              </p>
-            </div>
-            <div className="checklist-action-col">
+              <div className="checklist-item-body">
+                <span className="checklist-item-name">Experience</span>
+                <span className="checklist-item-meta">
+                  {noExp
+                    ? "No work experience yet (entry-level)"
+                    : expCount > 0
+                    ? `${expCount} work experience ${expCount === 1 ? "entry" : "entries"}`
+                    : "Optional: jobs, internships, freelance"}
+                </span>
+              </div>
               <button
                 type="button"
-                className="checklist-edit-btn"
+                className="checklist-item-edit-btn"
                 onClick={() => onNavigateStep(4)}
               >
-                Edit Experience
+                Edit
               </button>
-            </div>
-          </div>
+            </li>
 
-          {/* 5. Projects & Credentials */}
-          <div className="checklist-item-row">
-            <div className="checklist-status-col">
-              <span className={`checklist-icon ${credentialsTotal > 0 ? "complete" : "optional"}`}>
-                {credentialsTotal > 0 ? "✓" : "–"}
+            {/* 5. Projects & Credentials */}
+            <li className="checklist-list-item">
+              <span className={`checklist-item-status ${credentialsTotal > 0 ? "checked" : "neutral"}`} aria-hidden="true">
+                {credentialsTotal > 0 ? "✓" : "○"}
               </span>
-            </div>
-            <div className="checklist-info-col">
-              <strong>Projects & Credentials</strong>
-              <p>
-                {credentialsTotal > 0
-                  ? `${projCount} projects, ${certCount} certs, ${trainingCount} trainings, ${awardsCount} awards.`
-                  : "Optional: Highlight projects, licenses, certifications, or awards."}
-              </p>
-            </div>
-            <div className="checklist-action-col">
+              <div className="checklist-item-body">
+                <span className="checklist-item-name">Extras & Credentials</span>
+                <span className="checklist-item-meta">
+                  {credentialsTotal > 0
+                    ? `${credentialsTotal} projects/credentials added`
+                    : "Optional: capstone, certifications, licenses"}
+                </span>
+              </div>
               <button
                 type="button"
-                className="checklist-edit-btn"
+                className="checklist-item-edit-btn"
                 onClick={() => onNavigateStep(5)}
               >
-                Edit Projects & Credentials
+                Edit
               </button>
-            </div>
-          </div>
+            </li>
+          </ul>
         </div>
       </div>
 
-      {/* Recommended Jobs — Matches available immediately from form data */}
-      <div className="review-recommended-jobs-section" style={{ marginTop: "32px" }}>
-        <div className="section-header-box">
-          <h3>Recommended Jobs Based on Your Resume</h3>
+      {/* Clean Completion Card pointing to Job Marketplace */}
+      <div className="review-completion-card">
+        <div className="completion-card-icon" aria-hidden="true">💼</div>
+        <div className="completion-card-content">
+          <h4>Your resume is ready</h4>
           <p>
-            Jobs matching your qualifications, skills, and background are evaluated automatically
-            from your structured resume.
+            Your resume information can now be used to find suitable opportunities across our job marketplace.
           </p>
         </div>
-
-        <ErrorBoundary>
-          <RecommendedJobs
-            jobs={recommendedJobs}
-            loading={loadingJobs}
-            matching={matchingJobs}
-            hasResume={true}
-            verificationStatus={verificationStatus}
-            candidate={{ skills: (data.skills || []).map(s => (typeof s === "string" ? s : s.name)) }}
-            applications={applications}
-            onApply={onApplyJob}
-            applyingJobId={applyingJobId}
-            onRefresh={onRefreshRecommendations}
-            refreshing={refreshingJobs}
-            lastUpdatedText={lastUpdatedText}
-          />
-        </ErrorBoundary>
+        <div className="completion-card-action">
+          <button
+            type="button"
+            className="builder-action-btn primary view-jobs-cta"
+            onClick={handleGoToJobs}
+          >
+            View Recommended Jobs →
+          </button>
+        </div>
       </div>
-    </div>
+    </section>
   );
 }

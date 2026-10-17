@@ -22,11 +22,12 @@ const sidebarLinks = {
   ],
 
   candidate: [
-    { label: "Dashboard",       icon: "⌂",  path: "/candidate/dashboard"   },
-    { label: "My Resume",       icon: "📄", path: "/candidate/resume"      },
-    { label: "Job Marketplace", icon: "💼", path: "/candidate/jobs"        },
-    { label: "My Applications", icon: "📋", path: "/candidate/applications"},
-    { label: "Profile",         icon: "👤", path: "/candidate/profile"     },
+    { label: "Dashboard",       icon: "⌂",  path: "/candidate/dashboard"      },
+    { label: "Resume Upload",   icon: "📄", path: "/candidate/resume"         },
+    { label: "Resume Builder",  icon: "📝", path: "/candidate/resume-builder" },
+    { label: "Job Marketplace", icon: "💼", path: "/candidate/jobs"           },
+    { label: "My Applications", icon: "📋", path: "/candidate/applications"   },
+    { label: "Profile",         icon: "👤", path: "/candidate/profile"        },
   ],
 
   employer: [
