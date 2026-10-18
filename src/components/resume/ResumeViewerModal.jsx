@@ -100,8 +100,8 @@ export default function ResumeViewerModal({
   const isScreeningContext = context === "screening" || context === "default";
   const showScreeningActions = isInitialScreening && isScreeningContext && !isArchiveMode && !isTerminal;
 
-  // Skills extraction
-  const candidateSkills = parseSkills(profile?.skills || snapshot?.skills);
+  // Skills extraction: submitted application-time snapshot skills take strict priority
+  const candidateSkills = parseSkills(snapshot?.skills || profile?.skills);
   const jobSkills = parseSkills(job?.required_skills);
 
   // Intersections
@@ -441,13 +441,13 @@ export default function ResumeViewerModal({
               <div style={{ marginBottom: "8px" }}>
                 <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Education</strong>
                 <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "#1e293b", fontWeight: "600" }}>
-                  {formatBackgroundText(profile?.education || snapshot?.education)}
+                  {formatBackgroundText(snapshot?.education || profile?.education)}
                 </p>
               </div>
               <div>
                 <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Experience</strong>
                 <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "#1e293b", fontWeight: "600" }}>
-                  {formatBackgroundText(profile?.work_experience || snapshot?.work_experience)}
+                  {formatBackgroundText(snapshot?.work_experience || profile?.work_experience)}
                 </p>
               </div>
             </div>

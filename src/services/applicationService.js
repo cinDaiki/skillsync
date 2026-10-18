@@ -380,8 +380,15 @@ export function enrichApplicationRecord(app) {
           verification_status: snapshot.verification_status || null,
         }
       : null;
-
-  const profiles = profileFromJoin || profileFromSnapshot;
+  // Application-time submitted qualifications must strictly take priority over subsequent live profile modifications
+  const profiles = {
+    ...(profileFromJoin || {}),
+    ...(profileFromSnapshot || {}),
+    skills: snapshot.skills || profileFromJoin?.skills || "",
+    education: snapshot.education || profileFromJoin?.education || null,
+    work_experience: snapshot.work_experience || profileFromJoin?.work_experience || null,
+    certifications: snapshot.certifications || profileFromJoin?.certifications || null,
+  };
 
   // IMPORTANT: Prioritize submitted resume snapshot captured at application time over current candidate upload
   const resumeFromSnapshot = snapshotResume?.file_url

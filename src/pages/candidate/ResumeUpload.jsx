@@ -1,38 +1,21 @@
-import { useEffect, useRef, useState, lazy, Suspense } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
-import { uploadResume, saveResumeRecord, getResume, getResumeViewUrl } from "../../services/api";
+import { uploadResume, getResume, getResumeViewUrl } from "../../services/api";
 import { syncApplicantSnapshot } from "../../services/applicationService";
 import { supabase } from "../../services/supabase";
 import { parseResumeFile } from "../../services/resumeParser";
-import { triggerSimulationNotification }          from "../../services/notificationService";
-import { runMatchingForCandidate }                 from "../../services/matchingEngine";
-import { generateAndStoreResumeEmbedding,
-         buildResumeTextForEmbedding }             from "../../services/ai/embeddingService";
-import { runSemanticMatchingForCandidate }         from "../../services/ai/semanticMatchingService";
-import RecommendedJobs                           from "../../components/resume/RecommendedJobs.jsx";
-import { applyForJobWithSnapshot, getJobApplicationEligibility } from "../../services/applicationService";
-import { fetchSemanticMatchesForCandidate, refreshCandidateRecommendations } from "../../services/ai/semanticMatchingService";
-import { useToast }                                from "../../contexts/ToastContext";
-import ErrorBoundary                               from "../../components/guards/ErrorBoundary.jsx";
-import { getCandidateSkillEvidence }               from "../../services/ai/jobFitEngine";
-import "./ResumeUpload.css";
-import ResumeTemplateSection                       from "../../components/resume/ResumeTemplateSection.jsx";
-import ResumeQualityCard                           from "../../components/resume/ResumeQualityCard.jsx";
-import { assessResumeQuality }                     from "../../services/parser/qualityAssessor.js";
+import { triggerSimulationNotification } from "../../services/notificationService";
+import { runMatchingForCandidate } from "../../services/matchingEngine";
+import { generateAndStoreResumeEmbedding, buildResumeTextForEmbedding } from "../../services/ai/embeddingService";
+import { runSemanticMatchingForCandidate } from "../../services/ai/semanticMatchingService";
+import { useToast } from "../../contexts/ToastContext";
+import SkillTagInput from "../../components/common/SkillTagInput.jsx";
+import ResumeTemplateSection from "../../components/resume/ResumeTemplateSection.jsx";
+import ResumeQualityCard from "../../components/resume/ResumeQualityCard.jsx";
+import { assessResumeQuality } from "../../services/parser/qualityAssessor.js";
 import { getActiveResumeSource, setActiveResumeSource } from "../../services/resumeBuilderService";
-
-// Lazy-loaded sub-components for Phase 6 modular UI
-const ResumeTabs = lazy(() => import("../../components/resume/ResumeTabs.jsx"));
-const AtsReport = lazy(() => import("../../components/resume/AtsReport.jsx"));
-const SkillDictionary = lazy(() => import("../../components/resume/SkillDictionary.jsx"));
-const ResumeMetadata = lazy(() => import("../../components/resume/ResumeMetadata.jsx"));
-
-const TABS_CONFIG = [
-  { id: 'jobs', label: 'Recommended Jobs', icon: '🎯' },
-  { id: 'ats', label: 'Resume Check', icon: '📋' },
-  { id: 'skills', label: 'Skills', icon: '🏷️' },
-  { id: 'meta', label: 'Parsed Metadata', icon: '📝' }
-];
+import "./ResumeUpload.css";
 
 export default function ResumeUpload() {
   const toast = useToast();
@@ -45,38 +28,8 @@ export default function ResumeUpload() {
   const [activeSource, setActiveSource] = useState("upload");
   const [isSwitchingSource, setIsSwitchingSource] = useState(false);
 
-  // Tab State
-  const [activeTab, setActiveTab] = useState('jobs');
-
-  // Recommended Jobs State (Phase 8)
-  const [recommendedJobs, setRecommendedJobs] = useState([]);
-  const [loadingJobs, setLoadingJobs] = useState(false);
-  const [matchingJobs, setMatchingJobs] = useState(false);
-  const [applications, setApplications] = useState([]);
-  const [applyingJobId, setApplyingJobId] = useState(null);
-  const [refreshingJobs, setRefreshingJobs] = useState(false);
-  const [lastUpdatedText, setLastUpdatedText] = useState("");
-  const [verificationStatus, setVerificationStatus] = useState("Pending Verification");
-
-  async function handleRefreshRecommendations() {
-    if (!userId) return;
-    setRefreshingJobs(true);
-    try {
-      const { matches, totalEvaluatedJobs } = await refreshCandidateRecommendations(userId);
-      setRecommendedJobs(matches || []);
-      setLastUpdatedText(`Updated just now · ${totalEvaluatedJobs} open jobs evaluated`);
-      toast.success("Job recommendations updated!");
-    } catch (err) {
-      console.error("Failed refreshing recommendations:", err);
-      toast.error("Failed to refresh recommendations. Please try again.");
-    } finally {
-      setRefreshingJobs(false);
-    }
-  }
-
-  // Skills editor state
+  // Extracted Skills editor state (strictly isolated to Uploaded Resume snapshot)
   const [extractedSkills, setExtractedSkills] = useState([]);
-  const [newSkillInput, setNewSkillInput] = useState("");
   const [savingSkills, setSavingSkills] = useState(false);
 
   // History state (saved in localStorage to simulate upload history)
@@ -113,7 +66,6 @@ export default function ResumeUpload() {
     setShowPreviewModal(false);
     setPreviewUrl("");
     setPreviewError("");
-    // Revoke blob URL if one was created
     if (previewBlobRef.current) {
       URL.revokeObjectURL(previewBlobRef.current);
       previewBlobRef.current = null;
@@ -173,8 +125,18 @@ export default function ResumeUpload() {
         }
         setResumeFile(data);
       }
-      const candidateSkills = getCandidateSkillEvidence(candProfRow, data);
-      setExtractedSkills(candidateSkills);
+
+      // SECTION 5 FIX: Isolate uploaded resume skills strictly from data (the uploaded resume snapshot).
+      // Never preload Builder-only skills from candidate_profiles into the Upload editor.
+      let uploadSkills = [];
+      if (data?.extracted_skills) {
+        uploadSkills = data.extracted_skills.split(',').map(s => s.trim()).filter(Boolean);
+      } else if (Array.isArray(data?.parsed_details?.skills)) {
+        uploadSkills = data.parsed_details.skills.map(s => String(s).trim()).filter(Boolean);
+      }
+      setExtractedSkills(uploadSkills);
+    } else {
+      setExtractedSkills([]);
     }
 
     // Load simulated upload history from localStorage
@@ -182,7 +144,6 @@ export default function ResumeUpload() {
     if (localHistory) {
       setUploadHistory(JSON.parse(localHistory));
     } else if (data) {
-      // Seed history with current resume
       const initialHistory = [{
         id: data.id || "current",
         file_name: data.file_name,
@@ -192,23 +153,6 @@ export default function ResumeUpload() {
       }];
       setUploadHistory(initialHistory);
       localStorage.setItem(`skillsync_resume_history_${user.id}`, JSON.stringify(initialHistory));
-    }
-
-    // Load Phase 8 Job Matches & Applications & Profile Verification Status
-    setLoadingJobs(true);
-    try {
-      const [matches, appsRes, profileRes] = await Promise.all([
-        fetchSemanticMatchesForCandidate(user.id),
-        supabase.from("applications").select("job_id").eq("applicant_id", user.id),
-        supabase.from("profiles").select("verification_status").eq("id", user.id).maybeSingle()
-      ]);
-      setRecommendedJobs(matches || []);
-      setApplications((appsRes?.data || []).map(a => a.job_id));
-      setVerificationStatus(profileRes?.data?.verification_status || "Pending Verification");
-    } catch (err) {
-      console.warn("Failed loading job recommendations:", err);
-    } finally {
-      setLoadingJobs(false);
     }
 
     syncApplicantSnapshot(user.id).catch(() => {});
@@ -273,8 +217,7 @@ export default function ResumeUpload() {
     // Client-side Skill & Score analysis
     const analysis = await parseResumeFile(file);
 
-    // Phase 2 Validation: Check for genuinely unreadable, empty, or corrupt documents.
-    // Do NOT block uploads solely for missing sections; provide actionable feedback instead.
+    // Validation: Check for genuinely unreadable, empty, or corrupt documents.
     if (analysis.qualityAssessment?.extractionQuality?.isUnreadable || !analysis.extractedText?.trim()) {
       setMessage("Upload Failed: No readable text could be extracted from this document. If this is an image-only scan or unsupported binary, please use our editable ATS Word template or export as standard text.");
       setLoading(false);
@@ -282,9 +225,7 @@ export default function ResumeUpload() {
       return;
     }
 
-    const tUploadStart = performance.now();
     const { data: fileUrl, error: uploadError } = await uploadResume(file, user.id);
-    const dUpload = performance.now() - tUploadStart;
 
     if (uploadError) {
       setMessage("Failed to upload resume. Please try again.");
@@ -292,7 +233,6 @@ export default function ResumeUpload() {
       return;
     }
 
-    const tDbOpsStart = performance.now();
     // Delete existing resume record before inserting new one
     const { error: delResumeErr } = await supabase.from("resumes").delete().eq("applicant_id", user.id);
     if (delResumeErr) {
@@ -339,19 +279,16 @@ export default function ResumeUpload() {
     setUploadHistory(updatedHistory);
     localStorage.setItem(`skillsync_resume_history_${user.id}`, JSON.stringify(updatedHistory));
 
-    // Sync detected skills to profiles table (BLOCKER 5: strict check)
+    // Sync detected skills to profiles table
     const { error: profErr } = await supabase.from("profiles").update({
       skills: analysis.skills.join(","),
     }).eq("id", user.id);
 
     if (profErr) {
       console.error("[ResumeUpload] Error updating profile skills:", profErr);
-      setMessage(`Resume uploaded but failed to update profile skills: ${profErr.message}`);
-      setLoading(false);
-      return;
     }
 
-    // BLOCKER 5: Persist ALL parsed resume data to candidate_profiles with strict error checking
+    // Persist parsed resume data to candidate_profiles
     const { error: candProfErr } = await supabase.from("candidate_profiles").upsert({
       user_id: user.id,
       course: analysis.details.course || null,
@@ -366,9 +303,6 @@ export default function ResumeUpload() {
 
     if (candProfErr) {
       console.error("[ResumeUpload] Error upserting candidate_profiles:", candProfErr);
-      setMessage(`Resume uploaded but failed to update candidate matching profile: ${candProfErr.message}`);
-      setLoading(false);
-      return;
     }
 
     // Trigger platform match notifications
@@ -377,10 +311,8 @@ export default function ResumeUpload() {
       score: analysis.score,
       skillsCount: analysis.skills.length
     });
-    const dDbOps = performance.now() - tDbOpsStart;
 
     // Reload from DB
-    const tReloadStart = performance.now();
     const { data: saved } = await getResume(user.id);
     if (saved) {
       setResumeFile(saved);
@@ -389,33 +321,18 @@ export default function ResumeUpload() {
         : [];
       setExtractedSkills(skillsList);
     }
-    const dReload = performance.now() - tReloadStart;
 
     syncApplicantSnapshot(user.id).catch(() => {});
 
-    console.log(`[Perf-UploadFlow] Upload Flow database and matching stages:
-      - Storage uploadResume(): ${dUpload.toFixed(2)}ms
-      - Supabase database upserts: ${dDbOps.toFixed(2)}ms
-      - DB Reload getResume(): ${dReload.toFixed(2)}ms`);
+    // Run rule-based matching engine
+    runMatchingForCandidate(user.id).catch(console.error);
 
-    // Run rule-based matching engine (existing)
-    const tRuleMatch = performance.now();
-    runMatchingForCandidate(user.id)
-      .then(() => {
-        console.log(`[Perf-UploadFlow] Rule-based matching complete in ${(performance.now() - tRuleMatch).toFixed(2)}ms`);
-      })
-      .catch(console.error);
-
-    // ── Semantic AI Embedding Pipeline (non-blocking) ────────────────────
-    // Generates a 384-dim embedding from resume text, stores it in resumes.resume_embedding
-    // and preserves it in parsed_details.upload_embedding for bidirectional restoration.
-    ;(async () => {
+    // Semantic AI Embedding Pipeline (non-blocking)
+    (async () => {
       try {
-        setMatchingJobs(true);
         const resumeText = buildResumeTextForEmbedding(analysis, analysis.extractedText || '');
         const { embedding, error: embErr } = await generateAndStoreResumeEmbedding(user.id, resumeText);
         if (!embErr && embedding) {
-          // BLOCKER 2 FIX: Preserve upload embedding and canonical text in parsed_details!
           await supabase.from("resumes").update({
             parsed_details: {
               ...parsedDetailsObj,
@@ -425,20 +342,13 @@ export default function ResumeUpload() {
           }).eq("applicant_id", user.id);
 
           await runSemanticMatchingForCandidate(user.id, embedding);
-          console.log('[Resume] Semantic AI matching complete.');
         } else {
-          console.warn('[Resume] Embedding generation failed — running rule-based fallback matching.', embErr?.message);
           await runMatchingForCandidate(user.id);
         }
-        const freshMatches = await fetchSemanticMatchesForCandidate(user.id);
-        setRecommendedJobs(freshMatches || []);
       } catch (aiErr) {
         console.warn('[Resume] AI pipeline error (non-critical):', aiErr.message);
-      } finally {
-        setMatchingJobs(false);
       }
-    })()
-    // ── End AI Pipeline ──────────────────────────────────────────────────
+    })();
 
     if (analysis.qualityAssessment?.extractionQuality?.isTextPoor) {
       setMessage("Resume uploaded. Note: Document contains very little extractable text. Review the extraction assessment below or consider using the ATS template.");
@@ -451,30 +361,6 @@ export default function ResumeUpload() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function handleApplyJob(job) {
-    if (!userId || applyingJobId) return;
-    setApplyingJobId(job.id);
-    try {
-      const elig = await getJobApplicationEligibility(job.id);
-      if (elig && !elig.eligible) {
-        if (toast) toast.error(`Your current match is ${elig.matchScore}%. This job requires ${elig.requiredMatch}%.`);
-        return;
-      }
-
-      const { error } = await applyForJobWithSnapshot(job.id, userId);
-      if (error) {
-        if (toast) toast.error(error.message || 'Failed to apply.');
-        return;
-      }
-      setApplications(prev => [...prev, job.id]);
-      if (toast) toast.success(`Applied to "${job.title}" successfully!`);
-    } catch (err) {
-      if (toast) toast.error('Unexpected error applying.');
-    } finally {
-      setApplyingJobId(null);
-    }
-  }
-
   async function handleDeleteResume() {
     const confirmDelete = window.confirm("Are you sure you want to remove your uploaded resume?");
     if (!confirmDelete) return;
@@ -482,7 +368,7 @@ export default function ResumeUpload() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // BLOCKER 4 FIX: Check if candidate has a builder resume before deleting matching data
+    // Check if candidate has a builder resume before deleting matching data
     const { data: formRow, error: formCheckErr } = await supabase
       .from("candidate_form_resumes")
       .select("resume_data")
@@ -545,22 +431,8 @@ export default function ResumeUpload() {
   }
 
   // Manage Extracted Skills Editor
-  async function handleAddSkillTag(e) {
-    e.preventDefault();
-    const trimmed = newSkillInput.trim();
-    if (!trimmed || extractedSkills.includes(trimmed)) return;
-
-    const updatedSkills = [...extractedSkills, trimmed];
+  async function handleSkillsChange(updatedSkills) {
     setExtractedSkills(updatedSkills);
-    setNewSkillInput("");
-
-    await saveSkillsToDb(updatedSkills);
-  }
-
-  async function handleRemoveSkillTag(skillToRemove) {
-    const updatedSkills = extractedSkills.filter(s => s !== skillToRemove);
-    setExtractedSkills(updatedSkills);
-
     await saveSkillsToDb(updatedSkills);
   }
 
@@ -582,7 +454,7 @@ export default function ResumeUpload() {
       return;
     }
 
-    // BLOCKER 3 FIX: Only update active matching projections if Upload is the active source!
+    // Only update active matching projections if Upload is the active source!
     if (activeSource === "upload") {
       const { error: profErr } = await supabase
         .from("profiles")
@@ -631,12 +503,6 @@ export default function ResumeUpload() {
     setSavingSkills(false);
   }
 
-  function getScoreRating(score) {
-    if (score >= 80) return { label: "Excellent Match Quality", class: "excellent" };
-    if (score >= 50) return { label: "Good Quality Profile", class: "good" };
-    return { label: "Needs Improvement", class: "poor" };
-  }
-
   function formatFileSize(size) {
     if (!size) return "Unknown size";
     return `${(size / 1024 / 1024).toFixed(2)} MB`;
@@ -652,9 +518,6 @@ export default function ResumeUpload() {
       minute: "2-digit"
     });
   }
-
-  const scoreInfo = resumeFile ? getScoreRating(resumeFile.resume_score || 50) : null;
-  const strokeDashoffset = resumeFile ? 200 - (200 * (resumeFile.resume_score || 0)) / 100 : 200;
 
   return (
     <DashboardLayout
@@ -723,21 +586,48 @@ export default function ResumeUpload() {
               <span>▤</span>
               <h3>No resume uploaded yet</h3>
               <p>
-                Upload your resume in PDF or Word format. SkillSync will automatically analyze the structure, extract skill tags, and compile your match percentage.
+                Upload your resume in PDF or Word format. SkillSync will automatically analyze the structure, extract skill tags, and compile your qualifications for the Job Marketplace.
               </p>
-              <button
-                className="panel-action"
-                type="button"
-                onClick={handleAddResume}
-                disabled={loading}
-                style={{ marginTop: "12px", marginBottom: "8px" }}
-              >
-                {loading ? "Parsing file..." : "Choose File"}
-              </button>
+              <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap", marginTop: "16px" }}>
+                <button
+                  className="panel-action"
+                  type="button"
+                  onClick={handleAddResume}
+                  disabled={loading}
+                >
+                  {loading ? "Parsing file..." : "Choose File"}
+                </button>
+                <Link
+                  to="/candidate/resume-builder"
+                  className="panel-action secondary"
+                  style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                >
+                  Build Resume Step-by-Step →
+                </Link>
+              </div>
             </div>
 
             {/* Standard Resume Templates & ATS Guide */}
             <ResumeTemplateSection />
+
+            {/* Empty Guidance CTA */}
+            <div className="resume-marketplace-cta-card empty-guidance" style={{ marginTop: "24px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "14px", padding: "20px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "14px" }}>
+              <div>
+                <h4 style={{ margin: 0, fontSize: "15px", fontWeight: 700, color: "#334155" }}>
+                  Ready to discover matching positions?
+                </h4>
+                <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
+                  Upload your resume above or create a resume using our Builder to unlock personalized job recommendations.
+                </p>
+              </div>
+              <Link
+                to="/candidate/jobs"
+                className="panel-action secondary"
+                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px" }}
+              >
+                Browse All Jobs →
+              </Link>
+            </div>
           </div>
         ) : (
           <div>
@@ -781,33 +671,61 @@ export default function ResumeUpload() {
               </div>
             </div>
 
-            {/* Phase 2: Resume Quality & Extraction Validation Assessment */}
+            {/* Resume Quality & Extraction Validation Assessment */}
             <ResumeQualityCard
               assessment={resumeFile.parsed_details?.qualityAssessment || null}
               onReupload={handleAddResume}
             />
 
+            {/* Extracted Skills & Manual Corrections (strictly isolated to Uploaded Resume snapshot) */}
+            <div className="resume-extracted-skills-card" style={{ marginTop: "24px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "16px", padding: "20px", boxShadow: "0 4px 12px rgba(0,0,0,0.03)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span>🏷️</span> Extracted Skills & Qualifications
+                  </h3>
+                  <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
+                    Skills parsed from your uploaded resume. You can add missing skills or remove inaccuracies.
+                  </p>
+                </div>
+                {savingSkills && (
+                  <span style={{ fontSize: "12px", color: "#0284c7", fontWeight: 600 }}>Saving skills...</span>
+                )}
+              </div>
+
+              <SkillTagInput
+                skills={extractedSkills}
+                onChange={handleSkillsChange}
+                placeholder="Type a skill and press Enter or comma..."
+              />
+
+              {activeSource === "builder" && (
+                <div style={{ marginTop: "14px", padding: "10px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", fontSize: "12px", color: "#166534" }}>
+                  ℹ️ <strong>Note:</strong> Your <strong>Built Resume</strong> is currently active for job matching. Edits saved here update your uploaded resume snapshot without altering your active Built Resume matching profile.
+                </div>
+              )}
+            </div>
+
             {/* Standard Resume Templates & ATS Guide for active resume holders */}
             <ResumeTemplateSection variant="compact" />
 
-            {/* Post-Upload Primary View: Recommended Jobs */}
-            <div className="resume-recommendations-wrapper" style={{ marginTop: "24px" }}>
-              <ErrorBoundary>
-                <RecommendedJobs
-                  jobs={recommendedJobs}
-                  loading={loadingJobs}
-                  matching={matchingJobs}
-                  hasResume={!!resumeFile}
-                  verificationStatus={verificationStatus}
-                  candidate={{ skills: extractedSkills }}
-                  applications={applications}
-                  onApply={handleApplyJob}
-                  applyingJobId={applyingJobId}
-                  onRefresh={handleRefreshRecommendations}
-                  refreshing={refreshingJobs}
-                  lastUpdatedText={lastUpdatedText}
-                />
-              </ErrorBoundary>
+            {/* Primary Navigation CTA to Central Job Marketplace */}
+            <div className="resume-marketplace-cta-card" style={{ marginTop: "24px", background: "linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)", border: "1px solid #bfdbfe", borderRadius: "16px", padding: "24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#1e293b" }}>
+                  Explore opportunities that match your resume
+                </h3>
+                <p style={{ margin: "6px 0 0", fontSize: "13px", color: "#475569" }}>
+                  Your active resume is used to identify jobs aligned with your qualifications and experience.
+                </p>
+              </div>
+              <Link
+                to="/candidate/jobs?view=recommended"
+                className="panel-action"
+                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: 700 }}
+              >
+                View Job Matches →
+              </Link>
             </div>
           </div>
         )}

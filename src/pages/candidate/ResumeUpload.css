@@ -2146,5 +2146,23 @@
   font-weight: 600;
 }
 
+/* ── Resume Extracted Skills & Job Marketplace CTA ── */
+.resume-extracted-skills-card {
+  transition: all 0.2s ease;
+}
 
+.resume-marketplace-cta-card {
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
 
+.resume-marketplace-cta-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(2, 132, 199, 0.1);
+}
+
+.resume-marketplace-cta-card.empty-guidance {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  box-shadow: none;
+}

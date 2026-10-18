@@ -20,6 +20,7 @@ export default function ResumeQualityCard({ assessment, onReupload }) {
   const extractionScore = extractionQuality.score ?? 80;
   const extractionRating = extractionQuality.rating || "GOOD";
   const isTextPoor = extractionQuality.isTextPoor || false;
+  const isUnreadable = extractionQuality.isUnreadable || false;
 
   const issues = feedback.issues || [];
   const warnings = feedback.warnings || [];
@@ -28,15 +29,19 @@ export default function ResumeQualityCard({ assessment, onReupload }) {
   const sectionStatus = sections.statusMap || {};
 
   return (
-    <div className={`resume-quality-card ${extractionRating.toLowerCase()}`} id="resume-quality-assessment">
+    <div className={`resume-quality-card ${isUnreadable ? "poor" : extractionRating.toLowerCase()}`} id="resume-quality-assessment">
       <div className="quality-card-header">
         <div className="quality-header-main">
           <div className="quality-badges-row">
-            <span className={`extraction-rating-badge ${extractionRating.toLowerCase()}`}>
-              {extractionRating === "EXCELLENT" && "✓ Excellent Extraction Quality"}
-              {extractionRating === "GOOD" && "✓ Good Extraction Quality"}
-              {extractionRating === "NEEDS_REVIEW" && "⚠️ Extraction Needs Review"}
-              {extractionRating === "POOR" && "❌ Low Extraction Quality"}
+            <span className={`extraction-rating-badge ${isUnreadable ? "poor" : extractionRating.toLowerCase()}`}>
+              {isUnreadable ? "❌ Text Extraction Failed" : (
+                <>
+                  {extractionRating === "EXCELLENT" && "✓ Excellent Extraction Quality"}
+                  {extractionRating === "GOOD" && "✓ Good Extraction Quality"}
+                  {extractionRating === "NEEDS_REVIEW" && "⚠️ Extraction Needs Review"}
+                  {extractionRating === "POOR" && "❌ Low Extraction Quality"}
+                </>
+              )}
               <span className="badge-score">({extractionScore}%)</span>
             </span>
             <span className="quality-meta-pill">
@@ -63,6 +68,21 @@ export default function ResumeQualityCard({ assessment, onReupload }) {
           {showAllDetails ? "Hide Full Details ▲" : "View Full Details ▼"}
         </button>
       </div>
+
+      {/* Prominent warning banner when extraction completely failed */}
+      {isUnreadable && (
+        <div className="extraction-failed-banner" style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "10px", padding: "14px 18px", margin: "14px 0", display: "flex", gap: "12px", alignItems: "flex-start" }}>
+          <span style={{ fontSize: "22px" }}>⚠️</span>
+          <div>
+            <strong style={{ color: "#991b1b", fontSize: "14px" }}>Text Extraction Failed (0%)</strong>
+            <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#b91c1c" }}>
+              No readable text could be extracted from this document (e.g. image-only scan, password-protected PDF, or unsupported binary).
+              Any qualifications or matching results in the system reflect existing profile records, not content verified from this uploaded file.
+              Please re-upload a readable text-based PDF or Word document.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Template Suggestion Alert when extraction is degraded */}
       {templateSuggestion.recommended && (
@@ -99,7 +119,9 @@ export default function ResumeQualityCard({ assessment, onReupload }) {
           <div className="check-content">
             <span className="check-label">Contact Information</span>
             <span className="check-val">
-              {fields.email && fields.phone
+              {isUnreadable
+                ? "Document unreadable — not extracted"
+                : fields.email && fields.phone
                 ? "Email & Phone verified"
                 : fields.email
                 ? "Email verified (No phone)"
@@ -116,7 +138,9 @@ export default function ResumeQualityCard({ assessment, onReupload }) {
           <div className="check-content">
             <span className="check-label">Work Experience</span>
             <span className="check-val">
-              {sectionStatus.EXPERIENCE
+              {isUnreadable
+                ? "Document unreadable — not extracted"
+                : sectionStatus.EXPERIENCE
                 ? fields.yearsOfExperience > 0
                   ? `${fields.yearsOfExperience}+ years stated`
                   : "Section found"
@@ -131,7 +155,13 @@ export default function ResumeQualityCard({ assessment, onReupload }) {
           <div className="check-content">
             <span className="check-label">Education</span>
             <span className="check-val">
-              {fields.degree || (sectionStatus.EDUCATION ? "Section found" : "Section not identified")}
+              {isUnreadable
+                ? (fields.degreeStored ? `Unextracted (Profile: ${fields.degreeStored})` : "Document unreadable — not extracted")
+                : (fields.degreeProvenance === 'extracted'
+                    ? fields.degree
+                    : fields.degreeProvenance === 'profile_stored'
+                    ? `Profile: ${fields.degreeStored} (Not in document)`
+                    : (sectionStatus.EDUCATION ? "Section found" : "Section not identified"))}
             </span>
           </div>
         </div>
@@ -142,7 +172,9 @@ export default function ResumeQualityCard({ assessment, onReupload }) {
           <div className="check-content">
             <span className="check-label">Core Skills</span>
             <span className="check-val">
-              {fields.groundedSkillsCount > 0
+              {isUnreadable
+                ? "Document unreadable — not extracted"
+                : fields.groundedSkillsCount > 0
                 ? `${fields.groundedSkillsCount} skills verified in text`
                 : "No recognized skills"}
             </span>

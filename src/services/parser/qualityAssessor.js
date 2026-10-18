@@ -106,67 +106,77 @@ export function assessResumeQuality({
     ACHIEVEMENTS: false
   };
 
-  // Check section detection flags
-  detectedSectionMap.CONTACT = !!(details.hasContact || pipelineSections.includes('CONTACT'));
-  detectedSectionMap.SUMMARY = !!(parsedPipeline?.summary || /summary|objective|profile|overview|about me|about/i.test(text));
-  detectedSectionMap.SKILLS = !!(skills.length > 0 || pipelineSections.includes('SKILLS') || /skills|technologies|competencies/i.test(text));
-  detectedSectionMap.EXPERIENCE = !!(
-    details.hasExperienceSection ||
-    pipelineSections.includes('EXPERIENCE') ||
-    (parsedPipeline?.experience && parsedPipeline.experience.length > 0)
-  );
-  detectedSectionMap.EDUCATION = !!(
-    details.hasEducationSection ||
-    pipelineSections.includes('EDUCATION') ||
-    (parsedPipeline?.education && parsedPipeline.education.length > 0)
-  );
-  detectedSectionMap.PROJECTS = !!(
-    pipelineSections.includes('PROJECTS') ||
-    (parsedPipeline?.projects && parsedPipeline.projects.length > 0) ||
-    /projects|portfolio|case studies/i.test(text)
-  );
-  detectedSectionMap.CERTIFICATIONS = !!(
-    details.hasCertificationsSection ||
-    pipelineSections.includes('CERTIFICATIONS') ||
-    (parsedPipeline?.certifications && parsedPipeline.certifications.length > 0)
-  );
-  detectedSectionMap.ACHIEVEMENTS = !!(
-    pipelineSections.includes('ACHIEVEMENTS') ||
-    /achievements|honors|awards|accomplishments/i.test(text)
-  );
+  // Only detect document sections if the document actually yielded readable text!
+  if (!isUnreadable && textLength > 0) {
+    detectedSectionMap.CONTACT = !!(details.hasContact || pipelineSections.includes('CONTACT'));
+    detectedSectionMap.SUMMARY = !!(parsedPipeline?.summary || /summary|objective|profile|overview|about me|about/i.test(text));
+    detectedSectionMap.SKILLS = !!(skills.length > 0 || pipelineSections.includes('SKILLS') || /skills|technologies|competencies/i.test(text));
+    detectedSectionMap.EXPERIENCE = !!(
+      details.hasExperienceSection ||
+      pipelineSections.includes('EXPERIENCE') ||
+      (parsedPipeline?.experience && parsedPipeline.experience.length > 0)
+    );
+    detectedSectionMap.EDUCATION = !!(
+      details.hasEducationSection ||
+      pipelineSections.includes('EDUCATION') ||
+      (parsedPipeline?.education && parsedPipeline.education.length > 0)
+    );
+    detectedSectionMap.PROJECTS = !!(
+      pipelineSections.includes('PROJECTS') ||
+      (parsedPipeline?.projects && parsedPipeline.projects.length > 0) ||
+      /projects|portfolio|case studies/i.test(text)
+    );
+    detectedSectionMap.CERTIFICATIONS = !!(
+      details.hasCertificationsSection ||
+      pipelineSections.includes('CERTIFICATIONS') ||
+      (parsedPipeline?.certifications && parsedPipeline.certifications.length > 0)
+    );
+    detectedSectionMap.ACHIEVEMENTS = !!(
+      pipelineSections.includes('ACHIEVEMENTS') ||
+      /achievements|honors|awards|accomplishments/i.test(text)
+    );
+  }
 
   // ── 3. Field Extraction & Content Depth Verification ───────────────────────
-  // Check whether content WITHIN identified sections was actually extracted.
+  // Differentiate qualifications extracted from document text vs. profile stored/default data.
+  const hasExtractedDegree = !isUnreadable && textLength > 0 && !!(details.degree || parsedPipeline?.education?.[0]?.degree?.normalized);
+  const profileStoredDegree = details.degree || parsedPipeline?.education?.[0]?.degree?.normalized || null;
+  const degreeProvenance = hasExtractedDegree
+    ? 'extracted'
+    : (profileStoredDegree ? 'profile_stored' : 'none');
+
   const fields = {
-    email: details.email || parsedPipeline?.contact?.email?.normalized || null,
-    phone: details.phone || parsedPipeline?.contact?.phone?.normalized || null,
-    linkedin: details.linkedin || parsedPipeline?.contact?.linkedin?.normalized || null,
-    github: details.github || parsedPipeline?.contact?.github?.normalized || null,
-    name: parsedPipeline?.contact?.name?.normalized || null,
-    degree: details.degree || parsedPipeline?.education?.[0]?.degree?.normalized || null,
-    course: details.course || parsedPipeline?.education?.[0]?.major?.normalized || null,
-    yearsOfExperience: details.yearsOfExperience || parsedPipeline?.totalExpYears || 0,
-    experienceEntriesCount: parsedPipeline?.experience?.length || (detectedSectionMap.EXPERIENCE ? 1 : 0),
-    educationEntriesCount: parsedPipeline?.education?.length || (details.degree ? 1 : 0),
+    email: !isUnreadable ? (details.email || parsedPipeline?.contact?.email?.normalized || null) : null,
+    phone: !isUnreadable ? (details.phone || parsedPipeline?.contact?.phone?.normalized || null) : null,
+    linkedin: !isUnreadable ? (details.linkedin || parsedPipeline?.contact?.linkedin?.normalized || null) : null,
+    github: !isUnreadable ? (details.github || parsedPipeline?.contact?.github?.normalized || null) : null,
+    name: !isUnreadable ? (parsedPipeline?.contact?.name?.normalized || null) : null,
+    degree: hasExtractedDegree ? profileStoredDegree : null,
+    degreeStored: profileStoredDegree,
+    degreeProvenance,
+    course: !isUnreadable ? (details.course || parsedPipeline?.education?.[0]?.major?.normalized || null) : null,
+    yearsOfExperience: !isUnreadable ? (details.yearsOfExperience || parsedPipeline?.totalExpYears || 0) : 0,
+    experienceEntriesCount: !isUnreadable ? (parsedPipeline?.experience?.length || (detectedSectionMap.EXPERIENCE ? 1 : 0)) : 0,
+    educationEntriesCount: !isUnreadable ? (parsedPipeline?.education?.length || (hasExtractedDegree ? 1 : 0)) : 0,
   };
 
   // Section-specific diagnostics
   const sectionFeedback = [];
 
   // Contact checks
-  if (fields.email && fields.phone) {
+  if (!isUnreadable && fields.email && fields.phone) {
     strengths.push('Contact coordinates fully verified (email and phone number extracted).');
-  } else if (fields.email) {
+  } else if (!isUnreadable && fields.email) {
     warnings.push({
       code: 'MISSING_PHONE',
       message: 'Email address verified, but no valid phone number was found.'
     });
-  } else if (fields.phone) {
+  } else if (!isUnreadable && fields.phone) {
     warnings.push({
       code: 'MISSING_EMAIL',
       message: 'Phone number verified, but no valid email address was found.'
     });
-  } else {
+  } else if (!isUnreadable) {
     issues.push({
       code: 'MISSING_CONTACT',
       severity: 'high',
@@ -175,7 +185,7 @@ export function assessResumeQuality({
   }
 
   // Experience checks
-  if (detectedSectionMap.EXPERIENCE) {
+  if (detectedSectionMap.EXPERIENCE && !isUnreadable) {
     if (fields.yearsOfExperience > 0) {
       strengths.push(`Work experience detected with estimated ${fields.yearsOfExperience}+ years of experience.`);
     } else {
@@ -189,35 +199,43 @@ export function assessResumeQuality({
     sectionFeedback.push({
       section: 'EXPERIENCE',
       status: 'missing',
-      message: 'Your work experience or employment history section could not be identified.'
+      message: isUnreadable
+        ? 'No work experience could be extracted because the document text was unreadable.'
+        : 'Your work experience or employment history section could not be identified.'
     });
-    warnings.push({
-      code: 'NO_EXPERIENCE_SECTION',
-      message: 'Work experience section not found. If you are an entry-level applicant, include internships, OJT, or capstone projects.'
-    });
+    if (!isUnreadable) {
+      warnings.push({
+        code: 'NO_EXPERIENCE_SECTION',
+        message: 'Work experience section not found. If you are an entry-level applicant, include internships, OJT, or capstone projects.'
+      });
+    }
   }
 
   // Education checks
-  if (detectedSectionMap.EDUCATION) {
-    if (fields.degree) {
-      strengths.push(`Education verified: ${fields.degree}${fields.course ? ` (${fields.course})` : ''}.`);
-    } else {
-      sectionFeedback.push({
-        section: 'EDUCATION',
-        status: 'partial',
-        message: 'Education section found, but a standard degree title (e.g. Bachelor of Science) could not be extracted.'
-      });
-    }
+  if (detectedSectionMap.EDUCATION && hasExtractedDegree && !isUnreadable) {
+    strengths.push(`Education verified: ${fields.degree}${fields.course ? ` (${fields.course})` : ''}.`);
+  } else if (detectedSectionMap.EDUCATION && !isUnreadable) {
+    sectionFeedback.push({
+      section: 'EDUCATION',
+      status: 'partial',
+      message: 'Education section found, but a standard degree title (e.g. Bachelor of Science) could not be extracted.'
+    });
   } else {
     sectionFeedback.push({
       section: 'EDUCATION',
       status: 'missing',
-      message: 'Your education section could not be identified.'
+      message: isUnreadable
+        ? 'No education could be extracted because the document text was unreadable.'
+        : (profileStoredDegree
+            ? `Education was not extracted from document text (Profile contains: ${profileStoredDegree}).`
+            : 'Your education section could not be identified.')
     });
-    warnings.push({
-      code: 'NO_EDUCATION_SECTION',
-      message: 'Education section not found. Ensure degrees and colleges use standard naming.'
-    });
+    if (!isUnreadable) {
+      warnings.push({
+        code: 'NO_EDUCATION_SECTION',
+        message: 'Education section not found in document text. Ensure degrees and colleges use standard naming.'
+      });
+    }
   }
 
   // Skills checks & Traceability Grounding
@@ -227,17 +245,17 @@ export function assessResumeQuality({
     fidelityRatio
   } = verifySkillTraceability(skills, text, parsedPipeline);
 
-  if (groundedSkills.length >= 8) {
+  if (!isUnreadable && groundedSkills.length >= 8) {
     strengths.push(`Extracted ${groundedSkills.length} verified technical skills traceable to your document text.`);
-  } else if (groundedSkills.length >= 3) {
+  } else if (!isUnreadable && groundedSkills.length >= 3) {
     strengths.push(`Extracted ${groundedSkills.length} technical skills from your document.`);
-  } else if (groundedSkills.length === 0) {
+  } else if (!isUnreadable && groundedSkills.length === 0) {
     issues.push({
       code: 'NO_SKILLS',
       severity: 'high',
       message: 'No technical or professional skills were recognized by the SkillSync dictionary.'
     });
-  } else {
+  } else if (!isUnreadable) {
     warnings.push({
       code: 'FEW_SKILLS',
       message: `Only ${groundedSkills.length} skills were recognized. Adding standard industry terms will increase job match quality.`
@@ -270,16 +288,19 @@ export function assessResumeQuality({
 
   // ── 5. Compute Resume Completeness Score ────────────────────────────────────
   // Resume Quality evaluates whether the document provides comprehensive information.
-  let completenessScore = 15; // base for submission
-  if (fields.email) completenessScore += 15;
-  if (fields.phone) completenessScore += 10;
-  if (detectedSectionMap.SUMMARY) completenessScore += 10;
-  if (detectedSectionMap.EXPERIENCE) completenessScore += 20;
-  if (detectedSectionMap.EDUCATION) completenessScore += 15;
-  if (groundedSkills.length >= 5) completenessScore += 15;
-  else if (groundedSkills.length > 0) completenessScore += 5;
+  let completenessScore = 0;
+  if (!isUnreadable) {
+    completenessScore = 15; // base for readable submission
+    if (fields.email) completenessScore += 15;
+    if (fields.phone) completenessScore += 10;
+    if (detectedSectionMap.SUMMARY) completenessScore += 10;
+    if (detectedSectionMap.EXPERIENCE) completenessScore += 20;
+    if (detectedSectionMap.EDUCATION) completenessScore += 15;
+    if (groundedSkills.length >= 5) completenessScore += 15;
+    else if (groundedSkills.length > 0) completenessScore += 5;
 
-  completenessScore = Math.min(100, completenessScore);
+    completenessScore = Math.min(100, completenessScore);
+  }
 
   // ── 6. Contextual Template Recommendation ──────────────────────────────────
   // Offer the Phase 1 template when appropriate (low extraction score, poor text, or missing core sections).
@@ -291,11 +312,11 @@ export function assessResumeQuality({
 
   let templateRecommendationReason = null;
   if (isUnreadable) {
-    templateRecommendationReason = 'No text could be extracted from your file. Download our ATS-friendly Word template to guarantee readability.';
+    templateRecommendationReason = 'No text could be extracted from your file. Using our single-column ATS Word template ensures standard text readability.';
   } else if (isTextPoor) {
     templateRecommendationReason = 'Your file contains very little extractable text. Using our standard single-column template will ensure full parsing.';
   } else if (extractionScore < 65) {
-    templateRecommendationReason = 'Key sections could not be identified cleanly. Our ATS template provides pre-formatted sections that parse with 100% accuracy.';
+    templateRecommendationReason = 'Key sections could not be identified cleanly. Our ATS template provides pre-formatted sections designed for parser compatibility.';
   }
 
   return {

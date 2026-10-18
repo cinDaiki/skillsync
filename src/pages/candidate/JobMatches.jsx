@@ -377,8 +377,17 @@ export default function JobMatches() {
 
   // Mode-aware sort:
   // Recommended mode: sorted by match_score DESC, secondary newest (created_at DESC)
-  // All Jobs mode: newest first (created_at DESC)
-  const sortedJobs = [...jobs].sort((a, b) => {
+  // Mode-aware list & sort:
+  // Recommended mode: ONLY jobs with a valid calculated match record, sorted by match_score DESC, secondary newest (created_at DESC)
+  // All Jobs mode: all verified open positions, sorted newest first (created_at DESC)
+  const candidateJobs = marketplaceMode === "recommended"
+    ? jobs.filter(job => {
+        const match = matchesMap.get(job.id);
+        return match && typeof match.match_score === "number" && match.match_score >= 0;
+      })
+    : jobs;
+
+  const sortedJobs = [...candidateJobs].sort((a, b) => {
     if (marketplaceMode === "recommended") {
       const matchA = matchesMap.get(a.id);
       const matchB = matchesMap.get(b.id);
@@ -582,9 +591,27 @@ export default function JobMatches() {
 
         {filteredJobs.length === 0 ? (
           <div className="empty-state">
-            <span>◎</span>
-            <h3>No jobs found</h3>
-            <p>There are currently no active job openings matching your search criteria. Please check back later.</p>
+            <span>{marketplaceMode === "recommended" ? "🎯" : "◎"}</span>
+            <h3>{marketplaceMode === "recommended" ? "No recommendations calculated yet" : "No jobs found"}</h3>
+            <p>
+              {marketplaceMode === "recommended"
+                ? "No matching jobs were found for your current active resume qualifications. You can explore all open positions or update your resume."
+                : "There are currently no active job openings matching your search criteria. Please check back later."}
+            </p>
+            {marketplaceMode === "recommended" && (
+              <div style={{ display: "flex", gap: "10px", justifyContent: "center", marginTop: "14px" }}>
+                <button
+                  type="button"
+                  className="panel-action secondary"
+                  onClick={() => handleModeChange("all")}
+                >
+                  View All Open Jobs
+                </button>
+                <Link to="/candidate/resume" className="panel-action" style={{ textDecoration: "none" }}>
+                  Update Resume →
+                </Link>
+              </div>
+            )}
           </div>
         ) : (
           <div>
@@ -630,7 +657,7 @@ export default function JobMatches() {
                             <div className="rec-job-score-badge uncomputed" style={{ minWidth: "105px", boxSizing: "border-box", background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b" }}>
                               <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB MATCH</span>
                               <span className="rec-job-score-num" style={{ fontSize: "14px", margin: "2px 0" }}>N/A</span>
-                              <span className="rec-job-score-label">Not Available</span>
+                              <span className="rec-job-score-label">Not Evaluated</span>
                             </div>
                           );
                         }

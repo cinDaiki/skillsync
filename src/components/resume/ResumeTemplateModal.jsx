@@ -15,7 +15,7 @@ export default function ResumeTemplateModal({ isOpen, onClose }) {
               <span>📝</span> SkillSync Resume Template & ATS Guide
             </h3>
             <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#64748b" }}>
-              Standardized formatting instructions to maximize parser accuracy and candidate job-fit scores.
+              Standardized formatting instructions to support accurate text parsing and qualification representation.
             </p>
           </div>
           <button className="preview-modal-close" onClick={onClose} aria-label="Close modal">×</button>
@@ -42,7 +42,7 @@ export default function ResumeTemplateModal({ isOpen, onClose }) {
             className={`template-tab-btn ${activeTab === "ats" ? "active" : ""}`}
             onClick={() => setActiveTab("ats")}
           >
-            🤖 ATS Scanner Checklist
+            🤖 ATS Formatting Checklist
           </button>
         </div>
 
@@ -161,6 +161,9 @@ export default function ResumeTemplateModal({ isOpen, onClose }) {
 
           {activeTab === "sample" && (
             <div className="template-sample-preview">
+              <div style={{ padding: "12px 16px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", marginBottom: "16px", fontSize: "13px", color: "#475569" }}>
+                <strong>Completed Sample Resume:</strong> A fictional example demonstrating a well-structured resume with clearly organized qualifications.
+              </div>
               <div className="sample-resume-sheet">
                 <div className="sample-header">
                   <h3>ALEX RIVERA</h3>
@@ -246,8 +249,8 @@ export default function ResumeTemplateModal({ isOpen, onClose }) {
 
           {activeTab === "ats" && (
             <div className="template-ats-checklist">
-              <h4>SkillSync ATS Optimization Rules</h4>
-              <p>Follow these 6 golden rules to ensure your resume scores in the top tier on SkillSync and partner employer portals:</p>
+              <h4>SkillSync Resume Formatting Guidelines</h4>
+              <p>Follow these 6 formatting best practices to ensure your qualifications are accurately extracted by SkillSync and partner employer portals:</p>
 
               <div className="ats-rule-grid">
                 <div className="ats-rule-card pass">

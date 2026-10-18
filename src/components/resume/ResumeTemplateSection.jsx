@@ -13,8 +13,8 @@ export default function ResumeTemplateSection({ variant = "standard" }) {
           </div>
           <h3>Download Standard Resume Templates</h3>
           <p>
-            Start with our verified, single-column Microsoft Word templates engineered for accurate parser extraction,
-            ATS compliance, and high match scores on SkillSync.
+            Start with our verified, single-column Microsoft Word templates engineered for accurate parser extraction
+            and structured qualification matching on SkillSync.
           </p>
         </div>
         <button
@@ -56,15 +56,15 @@ export default function ResumeTemplateSection({ variant = "standard" }) {
         <div className="template-card">
           <div className="template-card-icon-wrap sample">
             <span className="template-icon">👤</span>
-            <span className="template-format-pill">100% SCORE</span>
+            <span className="template-format-pill">SAMPLE</span>
           </div>
           <div className="template-card-content">
-            <h4>Completed Fictional Sample</h4>
+            <h4>Completed Sample Resume</h4>
             <p>
-              Full engineering resume for <em>Alex Rivera</em> (Senior Full Stack Engineer) demonstrating how to format skill categories, quantified metrics, and credentials.
+              A fictional example demonstrating a well-structured resume with clearly organized qualifications.
             </p>
             <div className="template-card-meta">
-              <span>Verified 100% ATS Score • 24 KB</span>
+              <span>Structured Example • 24 KB</span>
             </div>
             <a
               href="/templates/SkillSync_Completed_Sample_Resume.docx"
@@ -89,7 +89,7 @@ export default function ResumeTemplateSection({ variant = "standard" }) {
               Section-by-section filling instructions, skill keyword recommendations, and step-by-step guidance on uploading to SkillSync.
             </p>
             <div className="template-card-meta">
-              <span>ATS Formatting Checklist • Text Guide</span>
+              <span>Formatting Checklist • Text Guide</span>
             </div>
             <div className="template-btn-row">
               <button
@@ -115,13 +115,13 @@ export default function ResumeTemplateSection({ variant = "standard" }) {
 
       <div className="template-features-bar">
         <div className="feature-item">
-          <span className="check">✓</span> 100% Compatible with Word, Google Docs & LibreOffice
+          <span className="check">✓</span> Compatible with Word, Google Docs & LibreOffice
         </div>
         <div className="feature-item">
           <span className="check">✓</span> Standardized Heading Aliases for Parser Accuracy
         </div>
         <div className="feature-item">
-          <span className="check">✓</span> Optimized for SkillSync Job-Fit Matching Engine
+          <span className="check">✓</span> Optimized for SkillSync Qualification Matching Engine
         </div>
       </div>
 

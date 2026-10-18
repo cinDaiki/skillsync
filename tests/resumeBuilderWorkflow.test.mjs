@@ -44,6 +44,8 @@ import {
 } from '../src/services/docxResumeGenerator.js';
 import { parseResumeFile } from '../src/services/resumeParser.js';
 import { calculateJobFit, getCandidateSkillEvidence } from '../src/services/ai/jobFitEngine.js';
+import { assessResumeQuality } from '../src/services/parser/qualityAssessor.js';
+import { enrichApplicationRecord } from '../src/services/applicationService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -696,7 +698,10 @@ async function runTestSuite() {
   const uploadJsx = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pages', 'candidate', 'ResumeUpload.jsx'), 'utf8');
   assert(uploadJsx.includes('Resume Upload'), 'ResumeUpload page title is "Resume Upload"');
   assert(uploadJsx.includes('ResumeTemplateSection'), 'ResumeUpload renders ResumeTemplateSection');
-  assert(uploadJsx.includes('RecommendedJobs'), 'ResumeUpload renders RecommendedJobs for uploaded documents');
+  assert(!uploadJsx.includes('<RecommendedJobs'), 'ResumeUpload no longer embeds RecommendedJobs widget (single central marketplace)');
+  assert(uploadJsx.includes('Explore opportunities that match your resume'), 'ResumeUpload displays consolidated marketplace CTA title');
+  assert(uploadJsx.includes('/candidate/jobs?view=recommended'), 'ResumeUpload links directly to Job Marketplace recommended view');
+  assert(uploadJsx.includes('SkillTagInput'), 'ResumeUpload renders editable extracted skills tags');
 
   const sidebarJsx = fs.readFileSync(path.join(ROOT_DIR, 'src', 'components', 'layout', 'Sidebar.jsx'), 'utf8');
   assert(sidebarJsx.includes('/candidate/resume'), 'Sidebar includes /candidate/resume link');
@@ -784,10 +789,9 @@ async function runTestSuite() {
   assert(uploadSourceUi.includes("active_resume_source: 'upload'"), 'ResumeUpload tags uploaded matching data with active_resume_source');
 
   // Verify candidate-facing AI terminology removal
-  assert(uploadSourceUi.includes("label: 'Resume Check'"), 'ResumeUpload uses friendly "Resume Check" instead of "ATS Scan Report"');
-  assert(uploadSourceUi.includes("label: 'Skills'"), 'ResumeUpload uses friendly "Skills" instead of "AI Skill Dictionary"');
-  assert(!uploadSourceUi.includes("ATS Scan Report"), 'No residual "ATS Scan Report" in ResumeUpload tabs');
-  assert(!uploadSourceUi.includes("AI Skill Dictionary"), 'No residual "AI Skill Dictionary" in ResumeUpload tabs');
+  assert(!uploadSourceUi.includes("ATS Scan Report"), 'No residual "ATS Scan Report" in ResumeUpload');
+  assert(!uploadSourceUi.includes("AI Skill Dictionary"), 'No residual "AI Skill Dictionary" in ResumeUpload');
+  assert(uploadSourceUi.includes("Extracted Skills & Qualifications"), 'ResumeUpload clearly labels extracted skills section');
 
   const recommendedJobsJsx = fs.readFileSync(path.join(ROOT_DIR, 'src', 'components', 'resume', 'RecommendedJobs.jsx'), 'utf8');
   assert(recommendedJobsJsx.includes("Comparing your qualifications with available job opportunities."),
@@ -1505,6 +1509,186 @@ async function runTestSuite() {
     'Step 4: Job 2 snapshot remains strictly preserved as "upload"');
   assert(job2Application.applicant_snapshot.resume.file_name === 'gabriel_trades.pdf',
     'Step 4: Job 2 snapshot historical resume reference remains intact');
+
+  // ── Test 27: Extraction Truthfulness & Zero-Percent Text vs Profile-Stored Data ───────────
+  console.log('\n[Test 27] Extraction Truthfulness & Zero-Percent Text vs Profile-Stored Data');
+
+  // 1. Unreadable document (textLength === 0): truthfulness guarantees
+  const emptyTextReport = assessResumeQuality({
+    rawText: '',
+    details: {
+      degree: 'BS Information Technology',
+      hasEducationSection: true,
+      hasExperienceSection: true
+    },
+    skills: ['JavaScript', 'React', 'Node.js']
+  });
+
+  assert(emptyTextReport.extractionQuality.isUnreadable === true, 'Empty text marks resume as isUnreadable');
+  assert(emptyTextReport.extractionQuality.score === 0, 'Empty text yields 0 text quality score');
+  assert(emptyTextReport.feedback.issues.some(i => i.code === 'EMPTY_TEXT' && i.severity === 'critical'),
+    'Reports EMPTY_TEXT critical issue for zero-length document');
+  assert(emptyTextReport.sections.statusMap.EDUCATION === false,
+    'Zero false positives: Education section is false when document is unreadable');
+  assert(emptyTextReport.sections.statusMap.EXPERIENCE === false,
+    'Zero false positives: Experience section is false when document is unreadable');
+  assert(emptyTextReport.sections.statusMap.SKILLS === false,
+    'Zero false positives: Skills section is false when document is unreadable');
+  assert(emptyTextReport.sections.statusMap.CONTACT === false,
+    'Zero false positives: Contact section is false when document is unreadable');
+  assert(emptyTextReport.fields.degreeProvenance === 'profile_stored',
+    'Degree provenance is accurately flagged as "profile_stored"');
+  assert(emptyTextReport.fields.degree === null,
+    'Extracted degree is null when document text is unreadable (never fabricated)');
+  assert(emptyTextReport.fields.degreeStored === 'BS Information Technology',
+    'Profile-stored degree preserved in degreeStored field');
+  assert(!emptyTextReport.feedback.strengths.some(s => s.toLowerCase().includes('education credentials verified')),
+    'Does not claim verified education when document text is empty');
+
+  // 2. Readable document: real text extraction guarantees
+  const readableReport = assessResumeQuality({
+    rawText: 'Maria Santos\nmaria@example.com\n+639123456789\nBS Information Technology\nSkills: React, JavaScript, Node.js\nWork Experience: Web Developer at Tech PH (2022-2024)',
+    details: {
+      degree: 'BS Information Technology',
+      email: 'maria@example.com',
+      phone: '+639123456789',
+      hasEducationSection: true,
+      hasExperienceSection: true
+    },
+    skills: ['React', 'JavaScript', 'Node.js']
+  });
+
+  assert(readableReport.extractionQuality.isUnreadable === false, 'Readable text is not marked unreadable');
+  assert(readableReport.fields.degreeProvenance === 'extracted', 'Degree provenance is "extracted"');
+  assert(readableReport.fields.degree === 'BS Information Technology', 'Extracted degree matches document');
+  assert(readableReport.sections.statusMap.EDUCATION === true, 'Education section detected');
+  assert(readableReport.sections.statusMap.SKILLS === true, 'Skills section detected');
+
+  // 3. UI component contract verification for ResumeQualityCard
+  const qualityCardJsx = fs.readFileSync(path.join(ROOT_DIR, 'src', 'components', 'resume', 'ResumeQualityCard.jsx'), 'utf8');
+  assert(qualityCardJsx.includes('Text Extraction Failed (0%)'),
+    'ResumeQualityCard displays prominent "Text Extraction Failed (0%)" alert');
+  assert(qualityCardJsx.includes('existing profile records') || qualityCardJsx.includes('Unextracted (Profile:'),
+    'ResumeQualityCard indicates when credentials originate from profile rather than document text');
+
+  // ── Test 28: Single Central Job Marketplace — Recommended vs All Jobs Filtering & Formatting ───────────
+  console.log('\n[Test 28] Single Central Job Marketplace — Recommended vs All Jobs Filtering & Formatting');
+
+  // 1. Code contracts in JobMatches.jsx
+  const jobMatchesJsx = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pages', 'candidate', 'JobMatches.jsx'), 'utf8');
+  assert(jobMatchesJsx.includes('marketplaceMode === "recommended"'),
+    'JobMatches.jsx implements marketplaceMode === "recommended" toggle');
+  assert(jobMatchesJsx.includes('typeof match.match_score === "number" && match.match_score >= 0'),
+    'JobMatches.jsx recommended filter requires valid calculated match_score >= 0');
+  assert(jobMatchesJsx.includes('rec-job-score-badge uncomputed') && jobMatchesJsx.includes('Not Evaluated'),
+    'JobMatches.jsx labels unscored jobs with uncomputed badge and "Not Evaluated"');
+  assert(jobMatchesJsx.includes('No matching jobs were found for your current active resume qualifications'),
+    'JobMatches.jsx displays tailored empty state for Recommended mode');
+
+  // 2. Functional simulation of Recommended vs All Jobs filtering and ordering
+  const sampleJobs = [
+    { id: 'job-1', title: 'Senior Backend Engineer', created_at: '2026-03-01T10:00:00Z' },
+    { id: 'job-2', title: 'Data Analyst', created_at: '2026-03-05T10:00:00Z' },
+    { id: 'job-3', title: 'Unscored Niche Specialist', created_at: '2026-03-10T10:00:00Z' },
+    { id: 'job-4', title: 'Junior Frontend Developer', created_at: '2026-03-08T10:00:00Z' }
+  ];
+  const simulatedMatchesMap = new Map([
+    ['job-1', { match_score: 92 }],
+    ['job-2', { match_score: 78 }],
+    ['job-4', { match_score: 78 }]
+    // job-3 has no match record
+  ]);
+
+  // Recommended mode: filter then sort by match_score DESC, created_at DESC
+  const recommendedCandidateJobs = sampleJobs.filter(job => {
+    const match = simulatedMatchesMap.get(job.id);
+    return match && typeof match.match_score === 'number' && match.match_score >= 0;
+  });
+  const recommendedSortedJobs = [...recommendedCandidateJobs].sort((a, b) => {
+    const matchA = simulatedMatchesMap.get(a.id);
+    const matchB = simulatedMatchesMap.get(b.id);
+    const scoreA = typeof matchA?.match_score === 'number' ? matchA.match_score : -1;
+    const scoreB = typeof matchB?.match_score === 'number' ? matchB.match_score : -1;
+    if (scoreB !== scoreA) return scoreB - scoreA;
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+  });
+
+  assert(recommendedSortedJobs.length === 3, 'Recommended mode excludes unscored jobs (3 of 4 jobs shown)');
+  assert(!recommendedSortedJobs.some(j => j.id === 'job-3'), 'Unscored job-3 strictly excluded from recommended view');
+  assert(recommendedSortedJobs[0].id === 'job-1', '1st in recommended: highest score (92%)');
+  assert(recommendedSortedJobs[1].id === 'job-4', '2nd in recommended: job-4 (78%, newer date Mar 8 vs Mar 5)');
+  assert(recommendedSortedJobs[2].id === 'job-2', '3rd in recommended: job-2 (78%, older date Mar 5)');
+
+  // All Jobs mode: all jobs included, sorted newest first
+  const allSortedJobs = [...sampleJobs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  assert(allSortedJobs.length === 4, 'All Jobs mode includes all 4 jobs');
+  assert(allSortedJobs[0].id === 'job-3', '1st in All Jobs: newest posting (Mar 10)');
+  const job3Match = simulatedMatchesMap.get('job-3');
+  const job3Badge = typeof job3Match?.match_score === 'number' ? `${job3Match.match_score}%` : 'JOB MATCH: N/A - Not Evaluated';
+  assert(job3Badge === 'JOB MATCH: N/A - Not Evaluated', 'Unscored job displays "JOB MATCH: N/A - Not Evaluated"');
+
+  // ── Test 29: Application-Time Snapshot Priority Over Live Mutated Profile ───────────
+  console.log('\n[Test 29] Application-Time Snapshot Priority Over Live Mutated Profile');
+
+  // 1. Code contracts in applicationService.js and ResumeViewerModal.jsx
+  const appServiceSrc = fs.readFileSync(path.join(ROOT_DIR, 'src', 'services', 'applicationService.js'), 'utf8');
+  assert(appServiceSrc.includes('skills: snapshot.skills || profileFromJoin?.skills || ""'),
+    'enrichApplicationRecord prioritizes snapshot.skills over live profile skills');
+  assert(appServiceSrc.includes('education: snapshot.education || profileFromJoin?.education || null'),
+    'enrichApplicationRecord prioritizes snapshot.education over live profile education');
+  assert(appServiceSrc.includes('work_experience: snapshot.work_experience || profileFromJoin?.work_experience || null'),
+    'enrichApplicationRecord prioritizes snapshot.work_experience over live profile work_experience');
+
+  const viewerModalSrc = fs.readFileSync(path.join(ROOT_DIR, 'src', 'components', 'resume', 'ResumeViewerModal.jsx'), 'utf8');
+  assert(viewerModalSrc.includes('parseSkills(snapshot?.skills || profile?.skills)'),
+    'ResumeViewerModal extracts candidate skills prioritizing snapshot');
+
+  // 2. Functional verification with enrichApplicationRecord
+  const submittedApplication = {
+    id: 'app-frozen-777',
+    job_id: 'job-acc-101',
+    applicant_id: 'cand-user-555',
+    status: 'applied',
+    applicant_snapshot: {
+      full_name: 'Elena Santos',
+      email: 'elena.santos@email.ph',
+      contact_number: '+639171234567',
+      resume_source: 'builder',
+      skills: 'Accounting, Bookkeeping, Financial Reporting, QuickBooks',
+      education: [{ degree: 'BS Accountancy', school: 'Ateneo de Davao University', year: '2023' }],
+      work_experience: [{ title: 'Junior Accountant', organization: 'Audit Partners PH', duration: '1 year' }],
+      certifications: [{ name: 'Certified Bookkeeper (CB)' }],
+      built_resume: {
+        personalDetails: { fullName: 'Elena Santos', email: 'elena.santos@email.ph' },
+        skills: [{ name: 'Accounting' }, { name: 'Bookkeeping' }, { name: 'Financial Reporting' }, { name: 'QuickBooks' }]
+      }
+    },
+    profiles: {
+      // Live candidate profile has mutated months later
+      full_name: 'Elena Santos-Tan',
+      email: 'elena.tan@techinnovations.ph',
+      contact_number: '+639189998888',
+      skills: 'Python, Machine Learning, TensorFlow, AWS, React, PostgreSQL',
+      education: [{ degree: 'MS Computer Science', school: 'UP Diliman', year: '2026' }],
+      work_experience: [{ title: 'AI Research Engineer', organization: 'AI Labs PH', duration: '2 years' }],
+      certifications: [{ name: 'AWS Certified Solutions Architect' }]
+    }
+  };
+
+  const enriched = enrichApplicationRecord(submittedApplication);
+
+  assert(enriched.profiles.skills === 'Accounting, Bookkeeping, Financial Reporting, QuickBooks',
+    'Snapshot Priority: Enriched application displays submitted Accounting skills, NOT mutated live Python skills');
+  assert(!enriched.profiles.skills.includes('Python'),
+    'Strict Snapshot Isolation: Mutated Python skill not present in historical application view');
+  assert(enriched.profiles.education[0].degree === 'BS Accountancy',
+    'Snapshot Priority: Enriched application displays submitted BS Accountancy, NOT mutated MS Computer Science');
+  assert(enriched.profiles.work_experience[0].title === 'Junior Accountant',
+    'Snapshot Priority: Enriched application displays submitted Junior Accountant role, NOT mutated AI Research Engineer role');
+  assert(enriched.resume_source === 'builder',
+    'Snapshot resume_source correctly identifies builder submission');
+  assert(enriched.built_resume !== null,
+    'built_resume snapshot cleanly attached for employer viewing and DOCX export');
 
   console.log(`\n🎉 ALL ${passedTests}/${totalTests} RESUME BUILDER TESTS PASSED!`);
 }

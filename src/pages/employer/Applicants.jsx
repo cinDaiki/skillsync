@@ -607,11 +607,13 @@ export default function Applicants() {
     })
     .sort((a, b) => {
       if (sortByAI) {
-        const aiA = semanticScores[a.id] ?? calculateAlignment(a).score;
-        const aiB = semanticScores[b.id] ?? calculateAlignment(b).score;
-        return aiB - aiA;
+        const scoreA = calculateAlignment(a).score ?? -1;
+        const scoreB = calculateAlignment(b).score ?? -1;
+        if (scoreB !== scoreA) {
+          return scoreB - scoreA;
+        }
       }
-      return 0;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
 
   const todayCount = upcomingInterviews.filter(inv => {
@@ -1564,9 +1566,10 @@ export default function Applicants() {
       {/* AI Candidate Report Modal */}
       {aiReportApp && (() => {
         const alignment = calculateAlignment(aiReportApp);
-        const aiScore = semanticScores[aiReportApp.id] ?? alignment.score;
+        const matchScore = alignment.score;
+        const semanticSim = semanticScores[aiReportApp.id] ?? null;
         const rec = generateCandidateRecommendation(
-          aiScore,
+          matchScore,
           alignment.matched,
           alignment.missing,
           aiReportApp.displayName || "This candidate"
@@ -1574,8 +1577,8 @@ export default function Applicants() {
         return (
           <AIMatchReport
             job={aiReportApp.jobs}
-            matchScore={aiScore}
-            semanticScore={aiScore}
+            matchScore={matchScore}
+            semanticScore={semanticSim}
             matchedSkills={alignment.matched}
             missingSkills={alignment.missing}
             recommendation={rec}
