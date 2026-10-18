@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 import AIMatchReport from "../../components/ai/AIMatchReport";
+import ApplicantFitInsights from "../../components/employer/ApplicantFitInsights.jsx";
 import { fetchEmployerApplicants, fetchEmployerApplicantById, updateApplicationStage } from "../../services/applicationService";
 import {
   sendInterviewInvitation,
@@ -20,7 +21,6 @@ import { useModal } from "../../contexts/ModalContext";
 import { supabase } from "../../services/supabase";
 import { cosineSimilarity, fetchResumeEmbeddings, fetchJobEmbedding } from "../../services/ai/vectorSearchService";
 import { generateCandidateRecommendation, getMatchTier } from "../../services/ai/recommendationService";
-import { calculateJobFit } from "../../services/ai/jobFitEngine";
 import {
   isScreeningStatus,
   isActiveApplicant,
@@ -100,9 +100,9 @@ export default function Applicants() {
   // Recruiter Evaluation Modal State
   const [evalModalApp, setEvalModalApp] = useState(null);
   const [evalNotes, setEvalNotes] = useState("");
-  const [evalTechRating, setEvalTechRating] = useState(5);
-  const [evalCommRating, setEvalCommRating] = useState(5);
-  const [evalRecommendation, setEvalRecommendation] = useState("Hire");
+  const [evalTechRating, setEvalTechRating] = useState(null);
+  const [evalCommRating, setEvalCommRating] = useState(null);
+  const [evalRecommendation, setEvalRecommendation] = useState("Consider");
   const [submittingEval, setSubmittingEval] = useState(false);
 
   // Final Hiring Decision Modal State
@@ -219,11 +219,11 @@ export default function Applicants() {
         missing,
         breakdown: {
           requiredSkillsScore: jm.skills_score ?? Math.round(jm.match_score),
-          educationCompatibility: jm.education_score ?? 100,
-          experienceCompatibility: jm.experience_score ?? 100,
-          credentialsScore: jm.credentials_score ?? 100,
-          transferableSkillsScore: jm.transferable_skills_score ?? 100,
-          semanticRelevance: jm.semantic_score ?? 100
+          educationCompatibility: jm.education_score ?? null,
+          experienceCompatibility: jm.experience_score ?? null,
+          credentialsScore: jm.credentials_score ?? null,
+          transferableSkillsScore: jm.transferable_skills_score ?? null,
+          semanticRelevance: jm.semantic_score ?? null
         },
         isAuthoritative: true
       };
@@ -240,29 +240,19 @@ export default function Applicants() {
       };
     }
 
-    // 2. Client fallback calculation if authoritative match record not found
-    const jobObj = app.jobs || {};
-    const candObj = {
-      skills: app.profiles?.skills,
-      course: app.candidate_profiles?.course,
-      degree: app.candidate_profiles?.degree,
-      years_experience: app.candidate_profiles?.years_experience,
-      certifications: app.candidate_profiles?.certifications
-    };
-    const semScore = semanticScores[app.id] ? semanticScores[app.id] / 100 : 0.70;
-    const fitResult = calculateJobFit(candObj, jobObj, semScore);
-
+    // No invented percentage when the authoritative match is unavailable.
     return {
-      score: fitResult.jobFitScore,
-      tier: fitResult.tier,
-      matched: fitResult.matchedSkills,
-      missing: fitResult.missingSkills,
-      breakdown: fitResult.breakdown,
+      score: null,
+      tier: "Not Evaluated",
+      matched: [],
+      missing: [],
+      breakdown: null,
       isAuthoritative: false
     };
   }
 
   function getMatchTierLocal(score) {
+    if (typeof score !== "number" || !Number.isFinite(score)) return "Unscored";
     if (score >= 80) return "High";
     if (score >= 40) return "Medium";
     return "Basic";
@@ -474,9 +464,9 @@ export default function Applicants() {
   function openEvalModal(app) {
     setEvalModalApp(app);
     setEvalNotes("");
-    setEvalTechRating(5);
-    setEvalCommRating(5);
-    setEvalRecommendation("Hire");
+    setEvalTechRating(null);
+    setEvalCommRating(null);
+    setEvalRecommendation("Consider");
   }
 
   function closeEvalModal() {
@@ -486,6 +476,11 @@ export default function Applicants() {
   async function handleSaveEvaluationSubmit(e) {
     e.preventDefault();
     if (!evalModalApp) return;
+
+    if (evalTechRating == null || evalCommRating == null) {
+      toast.error("Please rate role-specific skills and job-related communication before saving.");
+      return;
+    }
 
     setSubmittingEval(true);
     const { data: { session } } = await supabase.auth.getSession();
@@ -947,7 +942,7 @@ export default function Applicants() {
 
                     <div className="rac-header-right">
                       <span className={`rac-match-badge ${tier.toLowerCase()}`}>
-                        🎯 {alignment.score}% Job Match
+                        {typeof alignment.score === "number" ? `🎯 ${alignment.score}% Job Match` : "🎯 Not Evaluated"}
                       </span>
                     </div>
                   </div>
@@ -1224,7 +1219,7 @@ export default function Applicants() {
                       <span className="job-meta-chip" style={{ fontSize: "11px" }}>No Resume Submitted</span>
                     )}
 
-                    {semanticScores[app.id] !== undefined && (
+                    {typeof alignment.score === "number" && (
                       <button
                         type="button"
                         className="rac-ai-report-btn"
@@ -1438,6 +1433,9 @@ export default function Applicants() {
                 🔒 <strong>Strictly Private:</strong> Evaluation scores and notes are internal recruiter records and are NEVER shown to candidates.
               </p>
 
+              <ApplicantFitInsights applicant={evalModalApp} recruiterRoleRating={evalTechRating} />
+              <p className="fit-insights-disclaimer">Rate evidence from the interview or a work sample. Do not rate personality, similarity to the team, or protected personal traits.</p>
+
               <div className="form-group">
                 <label>Role-Specific Fit (1–5 Stars)</label>
                 <div className="star-rating-selector">
@@ -1451,12 +1449,12 @@ export default function Applicants() {
                       ★
                     </button>
                   ))}
-                  <span className="rating-label">{evalTechRating} / 5</span>
+                  <span className="rating-label">{evalTechRating == null ? "Not rated" : `${evalTechRating == null ? "Not rated" : `${evalTechRating == null ? "Not rated" : `${evalTechRating} / 5`}`}`}</span>
                 </div>
               </div>
 
               <div className="form-group">
-                <label>Communication & Culture Fit Rating (1–5 Stars)</label>
+                <label>Job-related Communication & Collaboration (1–5 Stars)</label>
                 <div className="star-rating-selector">
                   {[1, 2, 3, 4, 5].map(star => (
                     <button
@@ -1468,7 +1466,7 @@ export default function Applicants() {
                       ★
                     </button>
                   ))}
-                  <span className="rating-label">{evalCommRating} / 5</span>
+                  <span className="rating-label">{evalCommRating == null ? "Not rated" : `${evalCommRating == null ? "Not rated" : `${evalCommRating == null ? "Not rated" : `${evalCommRating} / 5`}`}`}</span>
                 </div>
               </div>
 

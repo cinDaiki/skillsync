@@ -1361,7 +1361,7 @@ async function runTestSuite() {
   const applicantsJsx = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pages', 'employer', 'Applicants.jsx'), 'utf8');
   assert(applicantsJsx.includes('const jm = app.job_match') && applicantsJsx.includes('jm.match_score'),
     'Applicants.jsx calculateAlignment prioritizes authoritative app.job_match.match_score');
-  assert(applicantsJsx.includes('🎯 {alignment.score}% Job Match'),
+  assert(applicantsJsx.includes('🎯 ${alignment.score}% Job Match') || applicantsJsx.includes('🎯 {alignment.score}% Job Match'),
     'Applicants.jsx displays authoritative percentage as 🎯 {alignment.score}% Job Match');
 
   // Functional simulation of Parity
