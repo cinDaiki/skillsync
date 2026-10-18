@@ -30,59 +30,40 @@ export default function ResumeQualityCard({ assessment, onReupload }) {
 
   return (
     <div className={`resume-quality-card ${isUnreadable ? "poor" : extractionRating.toLowerCase()}`} id="resume-quality-assessment">
-      <div className="quality-card-header">
-        <div className="quality-header-main">
-          <div className="quality-badges-row">
-            <span className={`extraction-rating-badge ${isUnreadable ? "poor" : extractionRating.toLowerCase()}`}>
-              {isUnreadable ? "❌ Text Extraction Failed" : (
-                <>
-                  {extractionRating === "EXCELLENT" && "✓ Excellent Extraction Quality"}
-                  {extractionRating === "GOOD" && "✓ Good Extraction Quality"}
-                  {extractionRating === "NEEDS_REVIEW" && "⚠️ Extraction Needs Review"}
-                  {extractionRating === "POOR" && "❌ Low Extraction Quality"}
-                </>
-              )}
-              <span className="badge-score">({extractionScore}%)</span>
-            </span>
-            <span className="quality-meta-pill">
-              {extractionQuality.wordCount || 0} words extracted
-            </span>
-            {isTextPoor && (
-              <span className="quality-warning-pill">
-                ⚠️ Low Text Volume
-              </span>
-            )}
+      <div className="resume-check-overview">
+        <div className="resume-check-main">
+          <span className={`resume-check-symbol ${isUnreadable ? 'is-error' : extractionRating === 'GOOD' || extractionRating === 'EXCELLENT' ? 'is-success' : 'is-warning'}`} aria-hidden="true">
+            {isUnreadable ? '!' : extractionRating === 'GOOD' || extractionRating === 'EXCELLENT' ? '✓' : 'i'}
+          </span>
+          <div>
+            <h3>{isUnreadable ? "We couldn't read this file" : extractionRating === 'GOOD' || extractionRating === 'EXCELLENT' ? 'Your resume was read' : 'Your resume needs a quick review'}</h3>
+            <p>{isUnreadable
+              ? 'Try replacing it with a text-based PDF or Word file.'
+              : 'Check the information SkillSync found before using this upload for matching.'}</p>
           </div>
-          <h3>Resume Quality & Extraction Assessment</h3>
-          <p>
-            Evaluates whether SkillSync successfully extracted your qualifications, identifies missing sections,
-            and validates skill provenance without fabricating credentials.
-          </p>
         </div>
-        <button
-          type="button"
-          className="quality-toggle-btn"
-          onClick={() => setShowAllDetails(prev => !prev)}
-          aria-expanded={showAllDetails}
-        >
-          {showAllDetails ? "Hide Full Details ▲" : "View Full Details ▼"}
+        <button type="button" className="resume-guided-text-button"
+          onClick={() => setShowAllDetails(value => !value)} aria-expanded={showAllDetails}
+          aria-controls="resume-guided-quality-details">
+          {showAllDetails ? 'Hide details ↑' : 'View details ↓'}
         </button>
       </div>
-
-      {/* Prominent warning banner when extraction completely failed */}
       {isUnreadable && (
-        <div className="extraction-failed-banner" style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "10px", padding: "14px 18px", margin: "14px 0", display: "flex", gap: "12px", alignItems: "flex-start" }}>
-          <span style={{ fontSize: "22px" }}>⚠️</span>
-          <div>
-            <strong style={{ color: "#991b1b", fontSize: "14px" }}>Text Extraction Failed (0%)</strong>
-            <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#b91c1c" }}>
-              No readable text could be extracted from this document (e.g. image-only scan, password-protected PDF, or unsupported binary).
-              Any qualifications or matching results in the system reflect existing profile records, not content verified from this uploaded file.
-              Please re-upload a readable text-based PDF or Word document.
-            </p>
-          </div>
+        <div className="resume-check-advice" role="status">
+          <p><strong>What this means:</strong> No readable text was found. Previously saved profile details may still support job matches, but they were not verified from this file.</p>
+          <button type="button" className="resume-guided-text-button" onClick={onReupload}>Replace file →</button>
         </div>
       )}
+      {showAllDetails && (
+        <div id="resume-guided-quality-details" className="resume-guided-quality-details">
+          <div className="resume-check-technical">
+            <span className={`extraction-rating-badge ${isUnreadable ? 'poor' : extractionRating.toLowerCase()}`}>
+              {isUnreadable ? '❌ Text Extraction Failed (0%)' : `Extraction Quality: ${extractionRating} (${extractionScore}%)`}
+            </span>
+            <span className="quality-meta-pill">{extractionQuality.wordCount || 0} words found</span>
+          </div>
+          <h4>Resume Quality &amp; Extraction Assessment</h4>
+          <p className="resume-check-technical-copy">These details describe document readability, not hiring probability.</p>
 
       {/* Template Suggestion Alert when extraction is degraded */}
       {templateSuggestion.recommended && (
@@ -245,6 +226,9 @@ export default function ResumeQualityCard({ assessment, onReupload }) {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
         </div>
       )}
 

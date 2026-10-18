@@ -27,6 +27,9 @@ export default function ResumeUpload() {
   const [hasBuiltResume, setHasBuiltResume] = useState(false);
   const [activeSource, setActiveSource] = useState("upload");
   const [isSwitchingSource, setIsSwitchingSource] = useState(false);
+  const [showQuickGuide, setShowQuickGuide] = useState(false);
+  const [showSkillsEditor, setShowSkillsEditor] = useState(false);
+  const [showResources, setShowResources] = useState(false);
 
   // Extracted Skills editor state (strictly isolated to Uploaded Resume snapshot)
   const [extractedSkills, setExtractedSkills] = useState([]);
@@ -303,6 +306,9 @@ export default function ResumeUpload() {
 
     if (candProfErr) {
       console.error("[ResumeUpload] Error upserting candidate_profiles:", candProfErr);
+    } else {
+      // A successful new upload is the active source according to the saved DB projection.
+      setActiveSource('upload');
     }
 
     // Trigger platform match notifications
@@ -519,216 +525,188 @@ export default function ResumeUpload() {
     });
   }
 
+  const extractionQuality = resumeFile?.parsed_details?.qualityAssessment?.extractionQuality;
+  const unreadableUpload = Boolean(extractionQuality?.isUnreadable ||
+    (extractionQuality?.score === 0 && extractionQuality?.wordCount === 0));
+  const canViewRecommended = activeSource === 'builder'
+    ? hasBuiltResume
+    : Boolean(resumeFile?.file_url && !unreadableUpload);
+  const hasAnyResume = Boolean(resumeFile?.file_url || hasBuiltResume);
+
   return (
     <DashboardLayout
       role="candidate"
-      title="Resume Upload"
-      subtitle="Already have a resume? Upload it here to review your information and use it for job matching."
+      title="My Resume"
+      subtitle="Resume Upload: Choose a resume, review your details, then find jobs that fit."
     >
-      <section className="dashboard-panel">
-        <div className="panel-header">
+      <section className="dashboard-panel resume-guided-panel">
+        <div className="resume-guided-intro">
           <div>
-            <h2>Resume Upload</h2>
-            <p>Already have a resume? Upload it here to review your information and use it for job matching.</p>
+            <p className="resume-guided-eyebrow">YOUR NEXT CAREER STEP · RESUME UPLOAD</p>
+            <p className="resume-guided-intro-text">A simple path from your resume to matching jobs.</p>
           </div>
-          <button className="panel-action" type="button" onClick={handleAddResume} disabled={loading}>
-            {loading ? "Processing..." : "Upload New Resume"}
-          </button>
+          <div className="resume-guided-header-actions">
+            <button type="button" className="resume-guided-help-btn"
+              aria-controls="resume-guided-help-content" aria-expanded={showQuickGuide}
+              onClick={() => setShowQuickGuide(value => !value)}>
+              ? How it works
+            </button>
+            <button type="button" className="panel-action" onClick={handleAddResume} disabled={loading}>
+              {loading ? 'Reading file…' : resumeFile ? 'Replace Resume' : 'Upload Resume'}
+            </button>
+          </div>
         </div>
 
-        {/* Bidirectional Active Resume Source Selector */}
-        {hasBuiltResume && (
-          <div className="active-source-selector-bar" role="region" aria-label="Resume used for job matching" style={{ margin: "16px 0 20px" }}>
-            <div className="source-selector-content">
-              <span className="source-selector-heading">Resume used for job matching:</span>
-              <div className="source-selector-options">
-                <label className={`source-radio-pill ${activeSource === "upload" ? "selected" : ""}`}>
-                  <input
-                    type="radio"
-                    name="upload_active_source"
-                    value="upload"
-                    checked={activeSource === "upload"}
-                    onChange={() => handleSwitchSource("upload")}
-                    disabled={isSwitchingSource}
-                  />
-                  <span className="source-pill-text">📄 Uploaded Resume</span>
-                </label>
-                <label className={`source-radio-pill ${activeSource === "builder" ? "selected" : ""}`}>
-                  <input
-                    type="radio"
-                    name="upload_active_source"
-                    value="builder"
-                    checked={activeSource === "builder"}
-                    onChange={() => handleSwitchSource("builder")}
-                    disabled={isSwitchingSource}
-                  />
-                  <span className="source-pill-text">📝 Built Resume</span>
-                </label>
-              </div>
-            </div>
-            {isSwitchingSource && <span className="source-switching-spinner">Switching active matching source...</span>}
+        <ol className="resume-guided-progress" aria-label="Resume setup steps">
+          <li className={hasAnyResume ? 'done' : 'current'}><span className="resume-step-count">{hasAnyResume ? '✓' : '1'}</span> Add resume</li>
+          <li className={canViewRecommended ? 'done' : hasAnyResume ? 'current' : 'upcoming'}><span className="resume-step-count">{canViewRecommended ? '✓' : '2'}</span> Check details</li>
+          <li className={canViewRecommended ? 'current' : 'upcoming'}><span className="resume-step-count">3</span> Find jobs</li>
+        </ol>
+        {showQuickGuide && (
+          <div id="resume-guided-help-content" className="resume-guided-guide">
+            <h3>How SkillSync works</h3>
+            <ol>
+              <li><strong>Add a resume.</strong> Upload a PDF/Word file or create one in Resume Builder.</li>
+              <li><strong>Check your details.</strong> Review what SkillSync read, and fix missing information.</li>
+              <li><strong>Find jobs.</strong> Recommended Jobs uses your active resume; you can switch sources later.</li>
+            </ol>
           </div>
         )}
 
-        {message && <div className="profile-message">{message}</div>}
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.doc,.docx"
-          onChange={handleFileChange}
-          hidden
-        />
+        {hasBuiltResume && (
+          <div className="resume-guided-source active-source-selector-bar" role="region" aria-label="Active resume for matching">
+            <div>
+              <h3>Resume used for job matching</h3>
+              <p>{activeSource === 'builder' ? 'Built Resume' : 'Uploaded Resume'} is currently active.</p>
+            </div>
+            <div className="source-selector-options" role="radiogroup" aria-label="Choose active resume source">
+              <label className={`source-radio-pill ${activeSource === 'upload' ? 'selected' : ''}`}>
+                <input type="radio" name="upload_active_source" value="upload" checked={activeSource === 'upload'}
+                  onChange={() => handleSwitchSource('upload')} disabled={isSwitchingSource || !resumeFile?.file_url} />
+                <span>📄 Uploaded</span>
+              </label>
+              <label className={`source-radio-pill ${activeSource === 'builder' ? 'selected' : ''}`}>
+                <input type="radio" name="upload_active_source" value="builder" checked={activeSource === 'builder'}
+                  onChange={() => handleSwitchSource('builder')} disabled={isSwitchingSource} />
+                <span>📝 Built</span>
+              </label>
+            </div>
+            {isSwitchingSource && <span className="source-switching-spinner" role="status">Switching resume…</span>}
+          </div>
+        )}
+        {message && <div className="profile-message" role="status">{message}</div>}
+        <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx"
+          onChange={handleFileChange} hidden aria-label="Choose a resume file" />
 
         {!resumeFile ? (
-          <div>
-            <div className="empty-state">
-              <span>▤</span>
-              <h3>No resume uploaded yet</h3>
-              <p>
-                Upload your resume in PDF or Word format. SkillSync will automatically analyze the structure, extract skill tags, and compile your qualifications for the Job Marketplace.
-              </p>
-              <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap", marginTop: "16px" }}>
-                <button
-                  className="panel-action"
-                  type="button"
-                  onClick={handleAddResume}
-                  disabled={loading}
-                >
-                  {loading ? "Parsing file..." : "Choose File"}
+          <div className="resume-guided-empty">
+            <div className="resume-guided-empty-icon" aria-hidden="true">▤</div>
+            <div>
+              <h2>{hasBuiltResume ? 'Your Built Resume is ready' : 'Choose how to get started'}</h2>
+              <p>{hasBuiltResume
+                ? 'You can find jobs with your Built Resume, or upload an additional document.'
+                : 'Upload a file you already have, or create a resume step by step.'}</p>
+              <div className="resume-guided-action-row">
+                <button type="button" className="panel-action" onClick={handleAddResume} disabled={loading}>
+                  {loading ? 'Processing…' : 'Upload a resume'}
                 </button>
-                <Link
-                  to="/candidate/resume-builder"
-                  className="panel-action secondary"
-                  style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px" }}
-                >
-                  Build Resume Step-by-Step →
+                <Link className="resume-guided-outline-link" to="/candidate/resume-builder">
+                  {hasBuiltResume ? 'Edit Built Resume →' : 'Build a resume →'}
                 </Link>
               </div>
-            </div>
-
-            {/* Standard Resume Templates & ATS Guide */}
-            <ResumeTemplateSection />
-
-            {/* Empty Guidance CTA */}
-            <div className="resume-marketplace-cta-card empty-guidance" style={{ marginTop: "24px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "14px", padding: "20px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "14px" }}>
-              <div>
-                <h4 style={{ margin: 0, fontSize: "15px", fontWeight: 700, color: "#334155" }}>
-                  Ready to discover matching positions?
-                </h4>
-                <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
-                  Upload your resume above or create a resume using our Builder to unlock personalized job recommendations.
-                </p>
-              </div>
-              <Link
-                to="/candidate/jobs"
-                className="panel-action secondary"
-                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px" }}
-              >
-                Browse All Jobs →
-              </Link>
+              <p className="resume-guided-small">PDF, DOC or DOCX · You can change the active resume later.</p>
             </div>
           </div>
         ) : (
-          <div>
-            {/* Active Resume Information Banner */}
-            <div className="resume-file-card">
-              <div className="resume-file-icon">📄</div>
-              <div className="resume-file-info">
-                <h3>{resumeFile.file_name || "Resume.pdf"}</h3>
-                <p>
-                  {formatFileSize(resumeFile.file_size)} • Uploaded{" "}
-                  {formatUploadDate(resumeFile.created_at)}
-                </p>
+          <div className="resume-guided-uploaded">
+            <div className="resume-guided-file">
+              <div className="resume-guided-file-icon" aria-hidden="true">📄</div>
+              <div className="resume-guided-file-info">
+                <h2>{resumeFile.file_name || 'Uploaded resume'}</h2>
+                <p>{formatFileSize(resumeFile.file_size)} · {formatUploadDate(resumeFile.created_at)}</p>
+                <span className="resume-guided-file-status">Saved · {activeSource === 'upload' ? 'Active' : 'Not active for matching'}</span>
               </div>
-              <div className="resume-file-actions">
+              <div className="resume-guided-file-actions">
                 {resumeFile.file_url && (
                   <>
-                    <button
-                      type="button"
-                      className="resume-view-btn"
-                      onClick={openPreview}
-                    >
-                      Quick Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDownloadResume}
-                      className="resume-view-btn secondary"
-                      style={{ display: "inline-grid", placeItems: "center" }}
-                    >
-                      Download
-                    </button>
+                    <button type="button" className="resume-guided-outline-btn" onClick={openPreview}>Preview</button>
+                    <button type="button" className="resume-guided-outline-btn" onClick={handleDownloadResume}>Download</button>
                   </>
                 )}
-                <button
-                  className="resume-delete-btn"
-                  type="button"
-                  onClick={handleDeleteResume}
-                >
-                  Delete File
-                </button>
+                <button type="button" className="resume-guided-outline-btn" onClick={handleAddResume} disabled={loading}>Replace</button>
+                <details className="resume-guided-more">
+                  <summary>More</summary>
+                  <button type="button" className="resume-guided-delete" onClick={handleDeleteResume}>Delete File</button>
+                </details>
               </div>
             </div>
 
-            {/* Resume Quality & Extraction Validation Assessment */}
-            <ResumeQualityCard
-              assessment={resumeFile.parsed_details?.qualityAssessment || null}
-              onReupload={handleAddResume}
-            />
+            <ResumeQualityCard assessment={resumeFile.parsed_details?.qualityAssessment || null} onReupload={handleAddResume} />
 
-            {/* Extracted Skills & Manual Corrections (strictly isolated to Uploaded Resume snapshot) */}
-            <div className="resume-extracted-skills-card" style={{ marginTop: "24px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "16px", padding: "20px", boxShadow: "0 4px 12px rgba(0,0,0,0.03)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+            <div className="resume-extracted-skills-card resume-guided-skills">
+              <div className="resume-guided-skills-head">
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span>🏷️</span> Extracted Skills & Qualifications
-                  </h3>
-                  <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
-                    Skills parsed from your uploaded resume. You can add missing skills or remove inaccuracies.
-                  </p>
+                  <h3>Review uploaded skills</h3>
+                  <p>Extracted Skills & Qualifications · {extractedSkills.length} saved skill{extractedSkills.length === 1 ? '' : 's'} · Edit only if needed.</p>
                 </div>
-                {savingSkills && (
-                  <span style={{ fontSize: "12px", color: "#0284c7", fontWeight: 600 }}>Saving skills...</span>
-                )}
+                <button type="button" className="resume-guided-text-button"
+                  onClick={() => setShowSkillsEditor(value => !value)}
+                  aria-expanded={showSkillsEditor} aria-controls="resume-guided-skills-editor">
+                  {showSkillsEditor ? 'Done ↑' : 'Edit skills ↓'}
+                </button>
               </div>
-
-              <SkillTagInput
-                skills={extractedSkills}
-                onChange={handleSkillsChange}
-                placeholder="Type a skill and press Enter or comma..."
-              />
-
-              {activeSource === "builder" && (
-                <div style={{ marginTop: "14px", padding: "10px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", fontSize: "12px", color: "#166534" }}>
-                  ℹ️ <strong>Note:</strong> Your <strong>Built Resume</strong> is currently active for job matching. Edits saved here update your uploaded resume snapshot without altering your active Built Resume matching profile.
+              {showSkillsEditor && (
+                <div id="resume-guided-skills-editor" className="resume-guided-skills-body">
+                  {unreadableUpload && (
+                    <p className="resume-guided-source-note">This file could not be read. Saved skills are not verified extraction results.</p>
+                  )}
+                  <SkillTagInput skills={extractedSkills} onChange={handleSkillsChange}
+                    placeholder="Add a skill and press Enter or comma" />
+                  {savingSkills && <p className="resume-guided-small" role="status">Saving skills…</p>}
+                  {activeSource === 'builder' && (
+                    <p className="resume-guided-source-note">Your Built Resume is active. Edits to these uploaded skills will not change your active matching qualifications.</p>
+                  )}
                 </div>
               )}
             </div>
-
-            {/* Standard Resume Templates & ATS Guide for active resume holders */}
-            <ResumeTemplateSection variant="compact" />
-
-            {/* Primary Navigation CTA to Central Job Marketplace */}
-            <div className="resume-marketplace-cta-card" style={{ marginTop: "24px", background: "linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)", border: "1px solid #bfdbfe", borderRadius: "16px", padding: "24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "#1e293b" }}>
-                  Explore opportunities that match your resume
-                </h3>
-                <p style={{ margin: "6px 0 0", fontSize: "13px", color: "#475569" }}>
-                  Your active resume is used to identify jobs aligned with your qualifications and experience.
-                </p>
-              </div>
-              <Link
-                to="/candidate/jobs?view=recommended"
-                className="panel-action"
-                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: 700 }}
-              >
-                View Job Matches →
-              </Link>
-            </div>
           </div>
         )}
+
+        <div className="resume-guided-next">
+          <div>
+            <p className="resume-guided-eyebrow">NEXT STEP</p>
+            <h3>{canViewRecommended ? 'Ready to find matching jobs?' : 'Get your resume ready'}</h3>
+            <p>{canViewRecommended
+              ? `Explore opportunities that match your resume. Recommendations will use your active ${activeSource === 'builder' ? 'Built' : 'Uploaded'} Resume.`
+              : hasBuiltResume
+              ? 'Activate your Built Resume to get personalized recommendations.'
+              : unreadableUpload
+              ? 'Replace this unreadable file, or use Resume Builder.'
+              : 'Upload a readable resume or create one to receive recommendations.'}</p>
+          </div>
+          <div className="resume-guided-next-actions">
+            {canViewRecommended ? (
+              <Link className="resume-guided-primary" to="/candidate/jobs?view=recommended">View My Job Matches →</Link>
+            ) : unreadableUpload ? (
+              <button type="button" className="resume-guided-primary" onClick={handleAddResume}>Replace Resume →</button>
+            ) : hasBuiltResume ? (
+              <Link className="resume-guided-primary" to="/candidate/resume-builder">Open Resume Builder →</Link>
+            ) : (
+              <button type="button" className="resume-guided-primary" onClick={handleAddResume}>Upload Resume →</button>
+            )}
+            {!canViewRecommended && <Link className="resume-guided-secondary" to="/candidate/jobs?view=all">Browse All Jobs</Link>}
+          </div>
+        </div>
+
+        <div className="resume-guided-resources">
+          <button type="button" className="resume-guided-resources-trigger"
+            aria-expanded={showResources} aria-controls="resume-guided-resources-body"
+            onClick={() => setShowResources(value => !value)}>
+            <span><strong>Need help with your resume?</strong><small>Free template, sample and writing guide</small></span>
+            <span aria-hidden="true">{showResources ? 'Hide ↑' : 'Show resources ↓'}</span>
+          </button>
+          {showResources && <div id="resume-guided-resources-body" className="resume-guided-resources-body"><ResumeTemplateSection variant="compact" /></div>}
+        </div>
       </section>
 
       {/* PDF Quick Preview Modal Overlay */}
