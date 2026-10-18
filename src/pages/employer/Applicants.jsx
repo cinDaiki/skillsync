@@ -202,6 +202,45 @@ export default function Applicants() {
   }
 
   function calculateAlignment(app) {
+    // 1. Authoritative match priority: check app.job_match or app.match_score
+    const jm = app.job_match;
+    if (jm && typeof jm.match_score === "number") {
+      const matched = Array.isArray(jm.matching_skills)
+        ? jm.matching_skills
+        : (jm.matching_skills ? (typeof jm.matching_skills === "string" ? JSON.parse(jm.matching_skills) : []) : []);
+      const missing = Array.isArray(jm.missing_skills)
+        ? jm.missing_skills
+        : (jm.missing_skills ? (typeof jm.missing_skills === "string" ? JSON.parse(jm.missing_skills) : []) : []);
+
+      return {
+        score: jm.match_score,
+        tier: jm.match_status || getMatchTierLocal(jm.match_score),
+        matched,
+        missing,
+        breakdown: {
+          requiredSkillsScore: jm.skills_score ?? Math.round(jm.match_score),
+          educationCompatibility: jm.education_score ?? 100,
+          experienceCompatibility: jm.experience_score ?? 100,
+          credentialsScore: jm.credentials_score ?? 100,
+          transferableSkillsScore: jm.transferable_skills_score ?? 100,
+          semanticRelevance: jm.semantic_score ?? 100
+        },
+        isAuthoritative: true
+      };
+    }
+
+    if (typeof app.match_score === "number") {
+      return {
+        score: app.match_score,
+        tier: getMatchTierLocal(app.match_score),
+        matched: [],
+        missing: [],
+        breakdown: null,
+        isAuthoritative: true
+      };
+    }
+
+    // 2. Client fallback calculation if authoritative match record not found
     const jobObj = app.jobs || {};
     const candObj = {
       skills: app.profiles?.skills,
@@ -218,7 +257,8 @@ export default function Applicants() {
       tier: fitResult.tier,
       matched: fitResult.matchedSkills,
       missing: fitResult.missingSkills,
-      breakdown: fitResult.breakdown
+      breakdown: fitResult.breakdown,
+      isAuthoritative: false
     };
   }
 
@@ -904,13 +944,8 @@ export default function Applicants() {
                     </div>
 
                     <div className="rac-header-right">
-                      {aiScore !== undefined && (
-                        <span className="rac-ai-score-pill">
-                          🤖 {aiScore}% AI
-                        </span>
-                      )}
                       <span className={`rac-match-badge ${tier.toLowerCase()}`}>
-                        🧠 {alignment.score}% Match
+                        🎯 {alignment.score}% Job Match
                       </span>
                     </div>
                   </div>
@@ -930,8 +965,8 @@ export default function Applicants() {
                       <strong>{formatUploadDate(app.created_at)}</strong>
                     </div>
                     <div className="rac-info-item">
-                      <span>Resume Score</span>
-                      <strong>{app.resume?.resume_score || "N/A"}</strong>
+                      <span>Resume Source</span>
+                      <strong>{app.applicant_snapshot?.resume_source === "builder" || app.built_resume ? "📝 Built Resume" : "📄 Uploaded"}</strong>
                     </div>
                   </div>
 
@@ -1166,16 +1201,25 @@ export default function Applicants() {
                       📝 Recruiter Notes {expandedNotes[app.id] ? "▲" : "▼"}
                     </button>
 
-                    {app.resume?.file_url ? (
+                    {app.applicant_snapshot?.resume_source === "builder" || app.applicant_snapshot?.built_resume || app.built_resume ? (
+                      <button
+                        type="button"
+                        className="rac-resume-btn"
+                        onClick={() => openResumeViewer(app)}
+                        style={{ background: "#f0fdf4", color: "#166534", borderColor: "#bbf7d0" }}
+                      >
+                        📝 View Built Resume
+                      </button>
+                    ) : app.resume?.file_url ? (
                       <button
                         type="button"
                         className="rac-resume-btn"
                         onClick={() => openResumeViewer(app)}
                       >
-                        📄 View PDF Resume
+                        📄 View Uploaded Resume
                       </button>
                     ) : (
-                      <span className="job-meta-chip" style={{ fontSize: "11px" }}>No Resume Uploaded</span>
+                      <span className="job-meta-chip" style={{ fontSize: "11px" }}>No Resume Submitted</span>
                     )}
 
                     {semanticScores[app.id] !== undefined && (
@@ -1393,7 +1437,7 @@ export default function Applicants() {
               </p>
 
               <div className="form-group">
-                <label>Technical Skill Rating (1–5 Stars)</label>
+                <label>Role-Specific Fit (1–5 Stars)</label>
                 <div className="star-rating-selector">
                   {[1, 2, 3, 4, 5].map(star => (
                     <button
@@ -1440,7 +1484,7 @@ export default function Applicants() {
                 <label>Private Recruiter Screening Notes</label>
                 <textarea
                   rows="4"
-                  placeholder="Record interview observations, live coding results, soft skills feedback..."
+                  placeholder="Record interview observations, assessment results, role-specific competency, soft skills feedback..."
                   value={evalNotes}
                   onChange={e => setEvalNotes(e.target.value)}
                 />

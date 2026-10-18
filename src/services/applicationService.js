@@ -61,34 +61,89 @@ export function resolveApplicantIdentity(app) {
 }
 
 export async function buildApplicantSnapshot(userId) {
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, email, contact_number, skills, education, work_experience, certifications, verification_status")
-    .eq("id", userId)
-    .maybeSingle();
+  const [
+    { data: profile },
+    { data: candProf },
+    { data: formResume },
+    { data: resume }
+  ] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name, email, contact_number, skills, education, work_experience, certifications, verification_status")
+      .eq("id", userId)
+      .maybeSingle(),
+    supabase
+      .from("candidate_profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase
+      .from("candidate_form_resumes")
+      .select("resume_data, updated_at")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    getResume(userId)
+  ]);
 
   const { data: { session } } = await supabase.auth.getSession();
   const authEmail = session?.user?.id === userId ? session.user.email || "" : "";
 
-  const { data: resume } = await getResume(userId);
+  const activeSource = candProf?.active_resume_source || (formResume?.resume_data && !resume?.file_url ? "builder" : "upload");
+  const isBuilder = activeSource === "builder";
+
+  // Deep clone candidate builder data so future edits do NOT mutate historical snapshot
+  const builtResumeSnapshot = isBuilder && formResume?.resume_data
+    ? JSON.parse(JSON.stringify(formResume.resume_data))
+    : null;
+
+  const uploadedResumeSnapshot = (!isBuilder && resume?.file_url)
+    ? {
+        file_url: resume.file_url,
+        file_name: resume.file_name || resume.name || "Resume",
+        file_size: resume.file_size || null,
+        created_at: resume.created_at || null,
+      }
+    : null;
+
+  // Active-source qualifications snapshot
+  const activeSkills = isBuilder
+    ? (builtResumeSnapshot?.skills
+        ? builtResumeSnapshot.skills.map(s => (typeof s === "string" ? s : s?.name)).filter(Boolean).join(", ")
+        : (Array.isArray(candProf?.skills) ? candProf.skills.join(", ") : (candProf?.skills || profile?.skills || "")))
+    : (profile?.skills || "");
+
+  const activeEducation = isBuilder
+    ? (builtResumeSnapshot?.education?.entries || candProf?.degree || profile?.education || null)
+    : (profile?.education || candProf?.degree || null);
+
+  const activeExperience = isBuilder
+    ? (builtResumeSnapshot?.experience?.entries || profile?.work_experience || null)
+    : (profile?.work_experience || null);
+
+  const activeCertifications = isBuilder
+    ? (builtResumeSnapshot?.projectsAndCredentials?.certifications || candProf?.certifications || profile?.certifications || null)
+    : (candProf?.certifications || profile?.certifications || null);
 
   return {
-    full_name: profile?.full_name?.trim() || "",
-    email: profile?.email?.trim() || authEmail,
-    contact_number: profile?.contact_number || "",
-    skills: profile?.skills || "",
-    education: profile?.education || null,
-    work_experience: profile?.work_experience || null,
-    certifications: profile?.certifications || null,
+    full_name: builtResumeSnapshot?.personalDetails?.fullName?.trim() || profile?.full_name?.trim() || "",
+    email: builtResumeSnapshot?.personalDetails?.email?.trim() || profile?.email?.trim() || authEmail,
+    contact_number: builtResumeSnapshot?.personalDetails?.phone || profile?.contact_number || "",
+    skills: activeSkills,
+    education: activeEducation,
+    work_experience: activeExperience,
+    certifications: activeCertifications,
     verification_status: profile?.verification_status || null,
-    resume: resume?.file_url
-      ? {
-          file_url: resume.file_url,
-          file_name: resume.file_name || resume.name || "Resume",
-          file_size: resume.file_size || null,
-          created_at: resume.created_at || null,
-        }
-      : null,
+    resume_source: isBuilder ? "builder" : "upload",
+    built_resume: builtResumeSnapshot,
+    resume: uploadedResumeSnapshot,
+    candidate_profiles: candProf ? {
+      active_resume_source: activeSource,
+      degree: candProf.degree || null,
+      course: candProf.course || null,
+      years_experience: candProf.years_experience || null,
+      certifications: candProf.certifications || null,
+      skills: candProf.skills || null
+    } : null
   };
 }
 
@@ -98,15 +153,24 @@ export async function syncApplicantSnapshot(userId) {
   }
 
   try {
-    const snapshot = await buildApplicantSnapshot(userId);
     const { data: apps } = await supabase
       .from("applications")
-      .select("id")
+      .select("id, applicant_snapshot")
       .eq("applicant_id", userId);
 
     if (!apps?.length) return { error: null };
 
+    const snapshot = await buildApplicantSnapshot(userId);
+
     for (const app of apps) {
+      const existingSnap = parseSnapshot(app.applicant_snapshot);
+      // STRICT FROZEN RESUME PRESERVATION:
+      // If the application already has a frozen submitted resume (built_resume or resume),
+      // DO NOT overwrite the submitted resume data!
+      if (existingSnap?.resume_source || existingSnap?.built_resume || existingSnap?.resume) {
+        continue;
+      }
+
       const { error } = await withTimeout(
         supabase
           .from("applications")
@@ -299,6 +363,8 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
 export function enrichApplicationRecord(app) {
   const snapshot = parseSnapshot(app?.applicant_snapshot);
   const snapshotResume = snapshot.resume || null;
+  const snapshotBuiltResume = snapshot.built_resume || null;
+  const resumeSource = snapshot.resume_source || (snapshotBuiltResume ? "builder" : (snapshotResume?.file_url || app.resume?.file_url ? "upload" : null));
 
   const profileFromJoin = app.profiles || null;
   const profileFromSnapshot =
@@ -344,6 +410,12 @@ export function enrichApplicationRecord(app) {
 
   return {
     ...app,
+    applicant_snapshot: snapshot,
+    resume_source: resumeSource,
+    built_resume: snapshotBuiltResume,
+    candidate_profiles: app.candidate_profiles || snapshot.candidate_profiles || null,
+    job_match: app.job_match || null,
+    match_score: app.job_match?.match_score ?? app.match_score ?? null,
     profiles: {
       ...(profiles || {}),
       full_name: identity.displayName,
@@ -378,35 +450,63 @@ export async function fetchEmployerApplicants(employerId) {
         const applicantIds = [...new Set(apps.map((a) => a.applicant_id).filter(Boolean))];
         let profileMap = {};
         let resumeMap = {};
+        let candidateProfileMap = {};
+        let jobMatchMap = {};
 
         if (applicantIds.length > 0) {
-          const { data: profilesData } = await supabase
-            .from("profiles")
-            .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
-            .in("id", applicantIds);
+          const [
+            { data: profilesData },
+            { data: resumesData },
+            { data: candProfilesData },
+            { data: jobMatchesData }
+          ] = await Promise.all([
+            supabase
+              .from("profiles")
+              .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
+              .in("id", applicantIds),
+            supabase
+              .from("resumes")
+              .select("*")
+              .in("applicant_id", applicantIds),
+            supabase
+              .from("candidate_profiles")
+              .select("*")
+              .in("user_id", applicantIds),
+            supabase
+              .from("job_matches")
+              .select("*")
+              .in("user_id", applicantIds)
+              .in("job_id", jobIds)
+          ]);
+
           (profilesData || []).forEach((p) => {
             profileMap[p.id] = p;
           });
-
-          const { data: resumesData } = await supabase
-            .from("resumes")
-            .select("*")
-            .in("applicant_id", applicantIds);
           (resumesData || []).forEach((r) => {
             resumeMap[r.applicant_id] = r;
+          });
+          (candProfilesData || []).forEach((cp) => {
+            candidateProfileMap[cp.user_id] = cp;
+          });
+          (jobMatchesData || []).forEach((jm) => {
+            jobMatchMap[`${jm.user_id}_${jm.job_id}`] = jm;
           });
         }
 
         return {
-          data: apps.map((app) =>
-            enrichApplicationRecord({
+          data: apps.map((app) => {
+            const jm = jobMatchMap[`${app.applicant_id}_${app.job_id}`] || null;
+            return enrichApplicationRecord({
               ...app,
               jobs: jobMap[app.job_id] || null,
               profiles: profileMap[app.applicant_id] || null,
               resume: resumeMap[app.applicant_id] || null,
               applicant_email: profileMap[app.applicant_id]?.email || null,
-            })
-          ),
+              candidate_profiles: candidateProfileMap[app.applicant_id] || null,
+              job_match: jm,
+              match_score: jm?.match_score ?? app.match_score ?? null
+            });
+          }),
           error: null,
         };
       }
@@ -500,27 +600,51 @@ export async function fetchEmployerApplicantById(applicationId, employerId = nul
 
     let profile = null;
     let resume = null;
+    let candProf = null;
+    let jobMatch = null;
 
     if (appData.applicant_id) {
-      const { data: profData } = await supabase
-        .from("profiles")
-        .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
-        .eq("id", appData.applicant_id)
-        .maybeSingle();
+      const [
+        { data: profData },
+        { data: resumeData },
+        { data: candProfData },
+        { data: jobMatchData }
+      ] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
+          .eq("id", appData.applicant_id)
+          .maybeSingle(),
+        supabase
+          .from("resumes")
+          .select("*")
+          .eq("applicant_id", appData.applicant_id)
+          .maybeSingle(),
+        supabase
+          .from("candidate_profiles")
+          .select("*")
+          .eq("user_id", appData.applicant_id)
+          .maybeSingle(),
+        supabase
+          .from("job_matches")
+          .select("*")
+          .eq("user_id", appData.applicant_id)
+          .eq("job_id", appData.job_id)
+          .maybeSingle()
+      ]);
       profile = profData;
-
-      const { data: resumeData } = await supabase
-        .from("resumes")
-        .select("*")
-        .eq("applicant_id", appData.applicant_id)
-        .maybeSingle();
       resume = resumeData;
+      candProf = candProfData;
+      jobMatch = jobMatchData;
     }
 
     const enriched = enrichApplicationRecord({
       ...appData,
       profiles: profile,
       resume: resume,
+      candidate_profiles: candProf,
+      job_match: jobMatch,
+      match_score: jobMatch?.match_score ?? appData.match_score ?? null,
       applicant_email: profile?.email || null,
     });
 

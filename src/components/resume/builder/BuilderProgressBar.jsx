@@ -24,15 +24,17 @@ export default function BuilderProgressBar({
     <nav className="builder-progress-container" aria-label="Resume Builder Steps">
       {/* Top Readiness & Autosave Header */}
       <div className="builder-progress-header">
-        <div className="builder-readiness-block">
-          <div className="readiness-label-row">
-            <span className="readiness-title">Resume Readiness</span>
-            <span className="readiness-percentage">{pct}%</span>
+        {currentStep !== 6 && (
+          <div className="builder-readiness-block">
+            <div className="readiness-label-row">
+              <span className="readiness-title">Resume Readiness</span>
+              <span className="readiness-percentage">{pct}%</span>
+            </div>
+            <div className="readiness-track" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+              <div className="readiness-fill" style={{ width: `${pct}%` }} />
+            </div>
           </div>
-          <div className="readiness-track" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-            <div className="readiness-fill" style={{ width: `${pct}%` }} />
-          </div>
-        </div>
+        )}
 
         <div className="builder-header-autosave" aria-live="polite">
           <span className={`autosave-dot ${saveStatus}`} aria-hidden="true" />

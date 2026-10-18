@@ -44,9 +44,24 @@ export default function Step6Review({
     }
   }
 
-  function handleGoToJobs() {
-    if (onFinalize) onFinalize();
-    navigate("/candidate/jobs");
+  const [navigatingToJobs, setNavigatingToJobs] = useState(false);
+
+  async function handleGoToJobs() {
+    if (navigatingToJobs) return;
+    setNavigatingToJobs(true);
+    try {
+      const result = onFinalize
+        ? await onFinalize()
+        : { success: true };
+
+      if (result?.success) {
+        navigate("/candidate/jobs?view=recommended");
+      }
+    } catch (err) {
+      console.error("Failed to finalize resume before navigating:", err);
+    } finally {
+      setNavigatingToJobs(false);
+    }
   }
 
   // Section details
@@ -74,37 +89,14 @@ export default function Step6Review({
         </div>
       </div>
 
-      {/* Top Readiness & Actions Card */}
-      <div className="review-readiness-card">
-        <div className="readiness-card-left">
-          <div className="readiness-score-row">
-            <span className="readiness-score-title">Resume Readiness</span>
-            <span className="readiness-score-pct">{readiness.percentage}%</span>
-          </div>
-          <p className="readiness-card-sub">
-            {readiness.completedSections} of 6 sections completed •{" "}
-            {readiness.canFinalize
-              ? "All required details are complete."
-              : "Full Name and Education decision required to finalize."}
-          </p>
+      {/* Prominent Single Resume Readiness Presentation */}
+      <div className="review-prominent-readiness" role="region" aria-label="Resume Readiness">
+        <div className="readiness-prominent-title">Resume Readiness {readiness.percentage}%</div>
+        <div className="readiness-prominent-track" role="progressbar" aria-valuenow={readiness.percentage} aria-valuemin={0} aria-valuemax={100}>
+          <div className="readiness-prominent-fill" style={{ width: `${readiness.percentage}%` }} />
         </div>
-        <div className="readiness-card-actions">
-          <button
-            type="button"
-            className="builder-action-btn outline"
-            onClick={() => setShowInBrowserPreview(!showInBrowserPreview)}
-          >
-            {showInBrowserPreview ? "Hide Preview" : "Preview Resume"}
-          </button>
-          <button
-            type="button"
-            className="builder-action-btn primary download-resume-btn"
-            onClick={handleDownloadWord}
-            disabled={downloading || !name}
-            title={!name ? "Please provide your full name before downloading" : "Download editable Word resume (.docx)"}
-          >
-            <span>⬇️</span> {downloading ? "Preparing..." : "Download Word Resume"}
-          </button>
+        <div className="readiness-prominent-sub">
+          {readiness.completedSections} of 6 sections completed
         </div>
       </div>
 
@@ -366,20 +358,33 @@ export default function Step6Review({
 
       {/* Clean Completion Card pointing to Job Marketplace */}
       <div className="review-completion-card">
-        <div className="completion-card-icon" aria-hidden="true">💼</div>
-        <div className="completion-card-content">
-          <h4>Your resume is ready</h4>
-          <p>
-            Your resume information can now be used to find suitable opportunities across our job marketplace.
-          </p>
+        <div className="completion-card-header">
+          <h4>✓ Your resume is ready</h4>
         </div>
-        <div className="completion-card-action">
+        <div className="completion-card-actions">
+          <button
+            type="button"
+            className="builder-action-btn outline"
+            onClick={() => setShowInBrowserPreview(!showInBrowserPreview)}
+          >
+            {showInBrowserPreview ? "Hide Preview" : "Preview Resume"}
+          </button>
+          <button
+            type="button"
+            className="builder-action-btn outline download-resume-btn"
+            onClick={handleDownloadWord}
+            disabled={downloading || !name}
+            title={!name ? "Please provide your full name before downloading" : "Download editable Word resume (.docx)"}
+          >
+            {downloading ? "Preparing..." : "Download Word Resume"}
+          </button>
           <button
             type="button"
             className="builder-action-btn primary view-jobs-cta"
             onClick={handleGoToJobs}
+            disabled={navigatingToJobs}
           >
-            View Recommended Jobs →
+            {navigatingToJobs ? "Preparing your job matches..." : "View Job Matches →"}
           </button>
         </div>
       </div>

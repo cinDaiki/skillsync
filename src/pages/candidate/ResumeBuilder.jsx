@@ -137,13 +137,14 @@ export default function ResumeBuilder() {
       if (res?.success) {
         setActiveSource("builder");
         if (toast?.addToast) {
-          toast.addToast("Resume finalized and active for job matching!", "success");
+          toast.addToast("Built Resume is now active for job matching!", "success");
         }
       } else {
         if (toast?.addToast) {
           toast.addToast(res?.error || "Failed to finalize resume. Please try again.", "error");
         }
       }
+      return res;
     } finally {
       setIsFinalizing(false);
     }
@@ -236,6 +237,11 @@ export default function ResumeBuilder() {
                 </label>
               </div>
             </div>
+            <p className="source-selector-subtext">
+              {activeSource === "builder"
+                ? "Your Built Resume is currently used for job recommendations."
+                : "Your Uploaded Resume is currently used for job recommendations."}
+            </p>
             {isSwitchingSource && <span className="source-switching-spinner">Switching active matching source...</span>}
           </div>
         )}
@@ -340,11 +346,15 @@ export default function ResumeBuilder() {
             ) : (
               <button
                 type="button"
-                className="builder-action-btn primary next-btn finish-btn"
+                className={`builder-action-btn primary next-btn finish-btn ${activeSource === "builder" ? "active-source-btn" : ""}`}
                 onClick={handleFinalize}
                 disabled={isFinalizing}
               >
-                {isFinalizing ? "Finalizing & Saving..." : "Save & Complete Resume ✓"}
+                {isFinalizing
+                  ? "Activating Built Resume..."
+                  : activeSource === "builder"
+                  ? "✓ Built Resume Active"
+                  : "Use Built Resume"}
               </button>
             )}
           </div>

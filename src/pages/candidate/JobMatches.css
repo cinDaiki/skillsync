@@ -1,5 +1,39 @@
 /* Job Matches Page CSS */
 
+/* Top-Level Marketplace Mode Selector */
+.marketplace-mode-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.marketplace-mode-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.marketplace-mode-tab:hover {
+  border-color: #58158f;
+  color: #58158f;
+}
+
+.marketplace-mode-tab.active {
+  background: #58158f;
+  border-color: #58158f;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(88, 21, 143, 0.2);
+}
+
 .matches-controls-row {
   display: flex;
   flex-wrap: wrap;
