@@ -11,6 +11,10 @@ const percent = x => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x 
 
 /** No client-estimated, semantic-only, or fabricated fallback percentages. */
 export function readAuthoritativeJobMatch(application) {
+  const snap = application?.applicant_snapshot;
+  if (snap?.application_time_match_source === 'job_matches' && percent(snap.application_time_match_score)) {
+    return { score: snap.application_time_match_score, source: 'application_snapshot', available: true };
+  }
   const record = application?.job_match;
   if (record && percent(record.match_score)) {
     return { score: record.match_score, source: 'job_matches', available: true };

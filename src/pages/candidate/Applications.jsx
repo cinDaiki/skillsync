@@ -15,6 +15,7 @@ import {
 import { fetchSuspendedEmployerIds } from "../../services/jobAvailability";
 import { withdrawJobApplication } from "../../services/applicationService";
 import "./Applications.css";
+import ConnectedStatusStrip from "../../components/alignment/ConnectedStatusStrip.jsx";
 
 function formatDate(dateString) {
   if (!dateString) return "No date";
@@ -231,6 +232,7 @@ export default function Applications() {
       subtitle="Track recruitment pipelines, confirm interview invitations, and monitor hiring decisions."
     >
       <section className="dashboard-panel applications-page">
+        <div className="cr-page-toolbar"><span>Application progress is shared with the employer.</span><button type="button" onClick={loadApplications}>Refresh status</button></div>
         {/* ── CLEAN HEADER & FILTER TABS ────────────────────────────────── */}
         <div className="applications-page-header">
           <div className="panel-header">
@@ -348,30 +350,12 @@ export default function Applications() {
                     <span>Applied {formatDate(app.created_at)}</span>
                   </div>
 
-                  {/* Compact 5-Stage Progress Track */}
-                  <div className="application-timeline-track">
-                    <div
-                      className="application-timeline-progress"
-                      style={{ width: stageInfo.percent }}
-                    />
-                    {stageInfo.steps.map((step, idx) => {
-                      const stepNum = idx + 1;
-                      const isCompleted = step.state === "completed";
-                      const isActive = step.state === "active";
-
-                      return (
-                        <div
-                          key={step.id}
-                          className={`timeline-step ${isCompleted ? "completed" : ""} ${isActive ? "active" : ""}`}
-                        >
-                          <div className="timeline-step-circle">
-                            {isCompleted ? "✓" : isActive ? "●" : stepNum}
-                          </div>
-                          <span className="timeline-step-label">{step.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {/* The same recorded application/interview status is shown to both roles. */}
+                  <ConnectedStatusStrip status={app.status} interviewStatus={invStatus} audience="candidate" />
+                  {app.applicant_snapshot?.application_time_match_source === 'job_matches' &&
+                    typeof app.applicant_snapshot.application_time_match_score === 'number' && (
+                    <p className="cr-application-score">Job Match when you applied: <strong>{Math.round(app.applicant_snapshot.application_time_match_score)}%</strong> · This saved result does not change if you edit your resume.</p>
+                  )}
 
                   {/* Action Indicator (if candidate action required) */}
                   {stageInfo.actionIndicator && (

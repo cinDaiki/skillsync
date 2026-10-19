@@ -101,7 +101,7 @@ export default function ResumeViewerModal({
   const showScreeningActions = isInitialScreening && isScreeningContext && !isArchiveMode && !isTerminal;
 
   // Skills extraction: submitted application-time snapshot skills take strict priority
-  const candidateSkills = parseSkills(snapshot?.skills || profile?.skills);
+  const candidateSkills = parseSkills(snapshot && Object.prototype.hasOwnProperty.call(snapshot, "skills") ? snapshot.skills : profile?.skills);
   const jobSkills = parseSkills(job?.required_skills);
 
   // Intersections

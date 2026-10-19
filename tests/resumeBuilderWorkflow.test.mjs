@@ -1632,15 +1632,19 @@ async function runTestSuite() {
 
   // 1. Code contracts in applicationService.js and ResumeViewerModal.jsx
   const appServiceSrc = fs.readFileSync(path.join(ROOT_DIR, 'src', 'services', 'applicationService.js'), 'utf8');
-  assert(appServiceSrc.includes('skills: snapshot.skills || profileFromJoin?.skills || ""'),
+  assert(appServiceSrc.includes('skills: snapshot.skills || profileFromJoin?.skills || ""') ||
+         appServiceSrc.includes('Object.prototype.hasOwnProperty.call(snapshot, "skills")'),
     'enrichApplicationRecord prioritizes snapshot.skills over live profile skills');
-  assert(appServiceSrc.includes('education: snapshot.education || profileFromJoin?.education || null'),
+  assert(appServiceSrc.includes('education: snapshot.education || profileFromJoin?.education || null') ||
+         appServiceSrc.includes('Object.prototype.hasOwnProperty.call(snapshot, "education")'),
     'enrichApplicationRecord prioritizes snapshot.education over live profile education');
-  assert(appServiceSrc.includes('work_experience: snapshot.work_experience || profileFromJoin?.work_experience || null'),
+  assert(appServiceSrc.includes('work_experience: snapshot.work_experience || profileFromJoin?.work_experience || null') ||
+         appServiceSrc.includes('Object.prototype.hasOwnProperty.call(snapshot, "work_experience")'),
     'enrichApplicationRecord prioritizes snapshot.work_experience over live profile work_experience');
 
   const viewerModalSrc = fs.readFileSync(path.join(ROOT_DIR, 'src', 'components', 'resume', 'ResumeViewerModal.jsx'), 'utf8');
-  assert(viewerModalSrc.includes('parseSkills(snapshot?.skills || profile?.skills)'),
+  assert(viewerModalSrc.includes('parseSkills(snapshot?.skills || profile?.skills)') ||
+         viewerModalSrc.includes('Object.prototype.hasOwnProperty.call(snapshot, "skills")'),
     'ResumeViewerModal extracts candidate skills prioritizing snapshot');
 
   // 2. Functional verification with enrichApplicationRecord

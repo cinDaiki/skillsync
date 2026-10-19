@@ -1,0 +1,52 @@
+/* SkillSync | Connected Recruitment. Native palette, flat surfaces, restrained typography. */
+.cr-card,.cr-applicant-summary{--cr-ink:#201333;--cr-muted:#69637b;--cr-accent:#58158f;--cr-border:#e7e1ef;--cr-surface:#fbf9fe;font-family:inherit;color:var(--cr-ink)}
+.cr-card{margin:16px 0 24px;border:1px solid var(--cr-border);border-radius:16px;background:#fff;padding:22px 24px;box-shadow:0 3px 14px rgba(44,25,68,.035)}
+.cr-card-heading,.cr-applicant-summary-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
+.cr-eyebrow{font-size:10px;font-weight:800;letter-spacing:.09em;color:#6f418f}
+.cr-card h2{font-size:19px!important;line-height:1.25;margin:6px 0!important;color:#1e1b4b;font-weight:800}
+.cr-card p,.cr-applicant-summary p{font-size:12.5px;line-height:1.5;color:var(--cr-muted);margin:5px 0}
+.cr-button{border-radius:9px;border:1px solid #e3dcea;padding:9px 13px;font-weight:700;font-size:12px;font-family:inherit;cursor:pointer;min-width:max-content}
+.cr-button-primary{background:#58158f;color:#fff;border-color:#58158f}
+.cr-button-primary:hover{background:#451072}.cr-button-secondary{background:#fff;color:#58158f}.cr-button-secondary:hover{background:#f8f3ff}
+.cr-button:disabled{opacity:.55;cursor:not-allowed}
+.cr-preference-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}
+.cr-preference-summary>div{padding:12px 14px;border:1px solid #eee9f3;border-radius:11px;background:var(--cr-surface)}
+.cr-preference-summary>div span,.cr-fact-row span{display:block;color:#747080;font-size:11px;margin-bottom:7px}
+.cr-preference-summary strong,.cr-fact-row strong{font-size:13px;font-weight:800;color:#2b1746}
+.cr-preference-summary>p{grid-column:1/-1}
+.cr-muted{color:#757080!important;font-size:11.5px!important}
+.cr-preference-form{margin-top:18px;border-top:1px solid #eee9f3;padding-top:18px}
+.cr-preference-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.cr-field{display:grid;gap:7px;min-width:0}.cr-field>span{font-size:12px;color:#332440;font-weight:700}
+.cr-field select{min-width:0;width:100%;border:1px solid #d9cee8;border-radius:9px;padding:10px 11px;font:inherit;font-size:13px;background:#fff;color:#2c1742}
+.cr-field select:focus-visible,.cr-button:focus-visible,.cr-text-button:focus-visible{outline:2px solid #8351bd;outline-offset:2px}
+.cr-consent{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:10px;background:#f9f5fe;margin-top:16px;font-size:12px;line-height:1.55;color:#372847}
+.cr-consent input{margin-top:3px;accent-color:#58158f}
+.cr-inline-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:15px}
+.cr-message{padding:9px 12px!important;border-radius:8px;margin:12px 0!important}.cr-warning{background:#fff7ed;color:#92400e!important}.cr-success{background:#ecfdf3;color:#166534!important}
+.cr-alignment-mini{margin:14px 0 4px;border-left:3px solid #c8b5d9;background:#faf8fd;padding:9px 12px;border-radius:0 9px 9px 0}
+.cr-alignment-mini.cr-aligned{border-left-color:#2f9469;background:#f3fbf7}
+.cr-alignment-mini.cr-needs_discussion{border-left-color:#b88432;background:#fffbf2}
+.cr-alignment-meta{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.cr-alignment-meta span{font-size:9.5px;font-weight:800;letter-spacing:.07em;color:#756780}
+.cr-alignment-meta strong{font-size:11.5px;color:#433052}
+.cr-alignment-mini p{margin:4px 0 0;color:#736d78;font-size:11px}
+.cr-applicant-summary{background:#fbf9fd;border:1px solid #eae3ef;border-radius:12px;padding:13px 15px;margin:12px 0}
+.cr-applicant-summary h4{font-size:13px;margin:4px 0 0;font-weight:800}
+.cr-text-button{border:0;background:none;padding:5px;color:#58158f;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap}
+.cr-fact-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:13px}
+.cr-fact-row>div{padding:10px;background:#fff;border:1px solid #eee9f3;border-radius:9px;min-width:0}
+.cr-fact-row span{margin-bottom:4px}.cr-fact-row strong{overflow-wrap:anywhere}
+.cr-review-alert{border-left:3px solid #b97d26;padding:9px 11px;margin-top:10px;background:#fff9ed;font-size:11.5px;line-height:1.5;color:#784b12;border-radius:0 6px 6px 0}
+.cr-applicant-details{border-top:1px solid #e9e0f1;margin-top:14px;padding-top:12px}
+.cr-status-strip{margin:12px 0;background:#faf8fe;border:1px solid #ece7f4;border-radius:11px;padding:11px 13px}
+.cr-status-top{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:#43235d;gap:8px}.cr-status-top span{font-size:10px;color:#757080}
+.cr-status-dots{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin:9px 0}.cr-status-dots>span{height:4px;border-radius:8px;background:#e7e1ef}.cr-status-dots>span.reached{background:#6b269e}
+.cr-status-strip p{margin:0;font-size:11px;color:#777080}
+@media(max-width:760px){.cr-card{padding:17px}.cr-preference-summary,.cr-preference-grid,.cr-fact-row{grid-template-columns:1fr}.cr-card-heading{flex-wrap:wrap}.cr-alignment-meta{align-items:flex-start;flex-wrap:wrap}}
+.cr-application-score{font-size:11.5px;color:#686174;padding:0 4px;margin:4px 0 10px}
+.cr-application-score strong{color:#58158f;font-weight:800}
+.cr-page-toolbar{display:flex;gap:14px;justify-content:space-between;align-items:center;flex-wrap:wrap;border-bottom:1px solid #eee8f3;margin:0 0 18px;padding:0 0 14px;color:#69637b;font-size:12px}
+.cr-page-toolbar button{border:1px solid #dcd1e9;border-radius:8px;padding:7px 11px;background:#fff;color:#58158f;font-size:11.5px;font-family:inherit;font-weight:800;cursor:pointer}
+.cr-page-toolbar button:hover{background:#f8f2ff}
+.cr-page-toolbar button:focus-visible{outline:2px solid #8351bd;outline-offset:2px}

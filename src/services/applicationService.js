@@ -384,10 +384,10 @@ export function enrichApplicationRecord(app) {
   const profiles = {
     ...(profileFromJoin || {}),
     ...(profileFromSnapshot || {}),
-    skills: snapshot.skills || profileFromJoin?.skills || "",
-    education: snapshot.education || profileFromJoin?.education || null,
-    work_experience: snapshot.work_experience || profileFromJoin?.work_experience || null,
-    certifications: snapshot.certifications || profileFromJoin?.certifications || null,
+    skills: Object.prototype.hasOwnProperty.call(snapshot, "skills") ? snapshot.skills : (profileFromJoin?.skills ?? ""),
+    education: Object.prototype.hasOwnProperty.call(snapshot, "education") ? snapshot.education : (profileFromJoin?.education ?? null),
+    work_experience: Object.prototype.hasOwnProperty.call(snapshot, "work_experience") ? snapshot.work_experience : (profileFromJoin?.work_experience ?? null),
+    certifications: Object.prototype.hasOwnProperty.call(snapshot, "certifications") ? snapshot.certifications : (profileFromJoin?.certifications ?? null),
   };
 
   // IMPORTANT: Prioritize submitted resume snapshot captured at application time over current candidate upload
@@ -439,7 +439,7 @@ export async function fetchEmployerApplicants(employerId) {
   try {
     const { data: jobs, error: jobsError } = await supabase
       .from("jobs")
-      .select("id, title, employment_type, location, required_skills")
+      .select("id, title, employment_type, location, required_skills, work_setup, work_schedule, travel_requirement")
       .eq("employer_id", employerId);
 
     if (!jobsError && jobs && jobs.length > 0) {

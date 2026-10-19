@@ -1,4 +1,5 @@
-import { qualificationTier, readAuthoritativeJobMatch, reviewSignal, workplaceAlignment } from '../../services/evaluation/hrFitValidation.js';
+import { qualificationTier, readAuthoritativeJobMatch, reviewSignal } from '../../services/evaluation/hrFitValidation.js';
+import { compareWorkPreferences } from '../../services/alignment/workAlignment.js';
 
 /** Informational only; HR evaluation and applicant scoring remain fully independent. */
 export default function ApplicantFitInsights({ applicant, recruiterRoleRating = null }) {
@@ -7,7 +8,10 @@ export default function ApplicantFitInsights({ applicant, recruiterRoleRating = 
   const signal = reviewSignal(match.score, recruiterRoleRating);
   // No inference from residence, education, name, resume prose, or personality.
   // Optional explicit preference records may be passed by a future consented workflow.
-  const workplace = workplaceAlignment();
+  const workplace = compareWorkPreferences(
+    applicant?.applicant_snapshot?.shared_work_preferences,
+    applicant?.applicant_snapshot?.job_alignment_requirements || applicant?.jobs
+  );
 
   return (
     <section className="fit-insights" aria-labelledby="fit-insights-heading">

@@ -15,6 +15,8 @@ import { isEmployerSuspended, fetchSuspendedEmployerIds, filterAvailableJobs } f
 import { getCareerRelevanceTier, getCareerRelevanceEvidenceBullets, getCategoryLabel, getSubcategoryLabel, getAllCategories } from "../../services/careerRelevanceService";
 import CareerRelevanceBadge from "../../components/candidate/CareerRelevanceBadge";
 import "./JobMatches.css";
+import WorkAlignmentMini from "../../components/alignment/WorkAlignmentMini.jsx";
+import { getCandidateWorkPreferences } from "../../services/alignment/workPreferencesService.js";
 
 function formatPostedDate(dateStr) {
   if (!dateStr) return "Recently posted";
@@ -79,6 +81,15 @@ export default function JobMatches() {
   const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
 
   const [userId, setUserId] = useState(null);
+  const [workPreferences, setWorkPreferences] = useState(null);
+  useEffect(() => {
+    if (!userId) return;
+    let mounted = true;
+    getCandidateWorkPreferences(userId).then(({ data }) => {
+      if (mounted) setWorkPreferences(data || null);
+    });
+    return () => { mounted = false; };
+  }, [userId]);
 
   // Detail Modal
   const [selectedJob, setSelectedJob] = useState(null);
@@ -686,6 +697,8 @@ export default function JobMatches() {
                   </div>
 
                   <p className="job-description-excerpt">{job.description || "No job description provided."}</p>
+
+                  <WorkAlignmentMini preferences={workPreferences} job={job} />
 
                   {/* Required Skills Tags */}
                   <div className="job-skills-list">

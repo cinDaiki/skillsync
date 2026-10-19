@@ -321,10 +321,10 @@ export default function HiringRecords() {
         const jobTitle = app.job_title || app.jobs?.title || "Position";
         const empType = app.jobs?.employment_type || "Full-time";
 
-        const educationData = app.profiles?.education || app.applicant_snapshot?.education;
-        const experienceData = app.profiles?.work_experience || app.applicant_snapshot?.work_experience;
-        const skillsData = app.profiles?.skills || app.applicant_snapshot?.skills;
-        const certsData = app.profiles?.certifications;
+        const educationData = app.applicant_snapshot && Object.prototype.hasOwnProperty.call(app.applicant_snapshot, "education") ? app.applicant_snapshot.education : app.profiles?.education;
+        const experienceData = app.applicant_snapshot && Object.prototype.hasOwnProperty.call(app.applicant_snapshot, "work_experience") ? app.applicant_snapshot.work_experience : app.profiles?.work_experience;
+        const skillsData = app.applicant_snapshot && Object.prototype.hasOwnProperty.call(app.applicant_snapshot, "skills") ? app.applicant_snapshot.skills : app.profiles?.skills;
+        const certsData = app.applicant_snapshot && Object.prototype.hasOwnProperty.call(app.applicant_snapshot, "certifications") ? app.applicant_snapshot.certifications : app.profiles?.certifications;
 
         const evalNotes = ev?.evaluation_notes || app.recruiter_notes;
         const recommendation = ev?.overall_recommendation;

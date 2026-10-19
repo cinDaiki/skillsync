@@ -3,6 +3,7 @@ import DashboardLayout from "../../components/layout/DashboardLayout";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 import AIMatchReport from "../../components/ai/AIMatchReport";
 import ApplicantFitInsights from "../../components/employer/ApplicantFitInsights.jsx";
+import ApplicantAlignmentSummary from "../../components/alignment/ApplicantAlignmentSummary.jsx";
 import { fetchEmployerApplicants, fetchEmployerApplicantById, updateApplicationStage } from "../../services/applicationService";
 import {
   sendInterviewInvitation,
@@ -71,6 +72,7 @@ export default function Applicants() {
 
   // Interview state: { [applicationId]: activeInterviewRecord }
   const [interviewsMap, setInterviewsMap] = useState({});
+  const [evaluationsMap, setEvaluationsMap] = useState({});
   const [upcomingInterviews, setUpcomingInterviews] = useState([]);
   const [showUpcomingList, setShowUpcomingList] = useState(true);
   const [highlightedAppId, setHighlightedAppId] = useState(null);
@@ -169,6 +171,18 @@ export default function Applicants() {
     });
     setInterviewsMap(map);
 
+    // Existing private HR evaluations belong to the employer and are protected by RLS.
+    const { data: evaluationsData, error: evaluationError } = await supabase.from('interview_evaluations')
+      .select('*')
+      .eq('employer_id', employerId);
+    if (evaluationError) console.warn('[Applicants] Unable to read saved HR evaluations:', evaluationError.message);
+    const savedRatings = {};
+    (evaluationsData || []).forEach(ev => {
+      const applicationId = ev.application_id || (interviewsData || []).find(inv => inv.id === ev.interview_id)?.application_id;
+      if (applicationId) savedRatings[applicationId] = ev;
+    });
+    setEvaluationsMap(savedRatings);
+
     const { data: upcoming } = await fetchUpcomingInterviews(employerId);
     setUpcomingInterviews(upcoming || []);
   }
@@ -202,6 +216,12 @@ export default function Applicants() {
   }
 
   function calculateAlignment(app) {
+    // New applications display server-frozen application-time scores, never later profile scores.
+    const frozen = app?.applicant_snapshot?.application_time_match_score;
+    if (app?.applicant_snapshot?.application_time_match_source === 'job_matches' &&
+        typeof frozen === 'number' && Number.isFinite(frozen) && frozen >= 0 && frozen <= 100) {
+      return { score: frozen, tier: getMatchTierLocal(frozen), matched: [], missing: [], breakdown: null, isAuthoritative: true, applicationTime: true };
+    }
     // 1. Authoritative match priority: check app.job_match or app.match_score
     const jm = app.job_match;
     if (jm && typeof jm.match_score === "number") {
@@ -508,6 +528,7 @@ export default function Applicants() {
     } else {
       toast.success("🔒 Private recruiter evaluation saved successfully!");
       closeEvalModal();
+      await loadInterviews(session?.user?.id);
     }
   }
 
@@ -623,6 +644,7 @@ export default function Applicants() {
       subtitle="Verify candidate skills alignment, manage interview invitations, and progress hiring decisions."
     >
       <section className="dashboard-panel">
+        <div className="cr-page-toolbar"><span>Applications, interviews, and saved HR assessments.</span><button type="button" onClick={loadApplicants}>Refresh desk</button></div>
         <div className="panel-header emp-desk-header">
           <div className="panel-header-content">
             <h2>Review Applications & Interview Pipelines</h2>
@@ -947,6 +969,8 @@ export default function Applicants() {
                     </div>
                   </div>
 
+                  <ApplicantAlignmentSummary applicant={app} interview={activeInv} evaluation={evaluationsMap[app.id]} />
+
                   {/* Info Snapshot Grid */}
                   <div className="rac-info-grid">
                     <div className="rac-info-item">
@@ -1225,7 +1249,7 @@ export default function Applicants() {
                         className="rac-ai-report-btn"
                         onClick={() => setAiReportApp(app)}
                       >
-                        🤖 View AI Match Report
+                        View Match Breakdown
                       </button>
                     )}
                   </div>
