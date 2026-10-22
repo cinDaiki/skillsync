@@ -1,3 +1,4 @@
+import JobMatchScore from "../alignment/JobMatchScore.jsx";
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -72,6 +73,7 @@ export default function ImproveMatchModal({
   const navigate = useNavigate();
   const [eligibility, setEligibility] = useState(initialEligibility);
   const [breakdown, setBreakdown] = useState(null);
+  const [matchCalculation, setMatchCalculation] = useState(null);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [catalog, setCatalog] = useState([]);
@@ -91,6 +93,7 @@ export default function ImproveMatchModal({
   async function loadBreakdownAndRecommendations() {
     setLoadingBreakdown(true);
     setRecalculateFeedback(null);
+    setMatchCalculation(null);
     try {
       const [breakdownRes, fullCatalog] = await Promise.all([
         getAuthoritativeJobMatchBreakdown(job.id),
@@ -103,6 +106,9 @@ export default function ImproveMatchModal({
 
       if (breakdownRes && !breakdownRes.error) {
         setBreakdown(breakdownRes.breakdown);
+        setMatchCalculation(breakdownRes.matchCalculation);
+        setEligibility(prev => ({ ...prev, matchScore: breakdownRes.matchScore, matchingSkills: breakdownRes.matchingSkills, missingSkills: breakdownRes.missingSkills }));
+        if (onEligibilityUpdate) onEligibilityUpdate({ ...initialEligibility, matchScore: breakdownRes.matchScore, matchingSkills: breakdownRes.matchingSkills, missingSkills: breakdownRes.missingSkills, matchCalculation: breakdownRes.matchCalculation });
         const missing = breakdownRes.missingSkills || [];
         if (missing.length > 0) {
           const recs = matchMicrocredentialsForMissingSkills(missing, fullCatalog);
@@ -127,6 +133,7 @@ export default function ImproveMatchModal({
       if (result.success) {
         setEligibility(result.eligibility);
         setBreakdown(result.breakdown);
+        setMatchCalculation(result.matchCalculation);
         if (onEligibilityUpdate) {
           onEligibilityUpdate(result.eligibility);
         }
@@ -196,9 +203,8 @@ export default function ImproveMatchModal({
   const matchingSkills = eligibility?.matchingSkills || [];
   const missingSkills = eligibility?.missingSkills || [];
 
-  const requiredSkillsScore = breakdown?.requiredSkillsScore ?? 0;
-  const educationScore = breakdown?.educationCompatibility ?? 0;
-  const experienceScore = breakdown?.experienceCompatibility ?? 0;
+  const educationScore = breakdown?.educationCompatibility ?? null;
+  const experienceScore = breakdown?.experienceCompatibility ?? null;
 
   return (
     <div
@@ -302,7 +308,7 @@ export default function ImproveMatchModal({
                 </strong>
               </div>
               <p style={{ margin: "0 0 12px 0", fontSize: "13px", color: "#9f1239", lineHeight: "1.5" }}>
-                This employer has configured a minimum threshold of <strong>{requiredMatch}%</strong> compatibility.
+                This employer has configured a minimum of <strong>{requiredMatch} out of 100 points</strong> compatibility.
                 Review the key factors below to see what you need to improve before applying.
               </p>
               
@@ -319,12 +325,12 @@ export default function ImproveMatchModal({
                 }}
               >
                 <div>
-                  <div style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>Your Match</div>
+                  <div style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>Job Match Score</div>
                   <div style={{ fontSize: "20px", fontWeight: "800", color: "#e11d48" }}>{matchScore}%</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>Required Match</div>
-                  <div style={{ fontSize: "20px", fontWeight: "800", color: "#1e293b" }}>{requiredMatch}%</div>
+                  <div style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>Minimum points</div>
+                  <div style={{ fontSize: "20px", fontWeight: "800", color: "#1e293b" }}>{requiredMatch}/100</div>
                 </div>
                 <div>
                   <div style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>Difference</div>
@@ -346,7 +352,7 @@ export default function ImproveMatchModal({
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span style={{ fontSize: "18px" }}>🎉</span>
                 <strong style={{ fontSize: "15px", color: "#166534" }}>
-                  Requirement Met! Your match score ({matchScore}%) satisfies this employer's requirement ({requiredMatch}%).
+                  Requirement Met! Your match score ({matchScore}%) satisfies this employer's requirement ({requiredMatch} out of 100 points).
                 </strong>
               </div>
               <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#15803d" }}>
@@ -388,88 +394,7 @@ export default function ImproveMatchModal({
             </div>
           )}
 
-          {/* ── STEP 7 & 8: Key Match Factors (3 Candidate-Facing Factors Only) ── */}
-          <div style={{ background: "#f8fafc", padding: "18px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
-            <div style={{ marginBottom: "14px" }}>
-              <h4 style={{ margin: 0, fontSize: "15px", fontWeight: "800", color: "#1e1b4b" }}>
-                📊 Key Match Factors
-              </h4>
-            </div>
-
-            {loadingBreakdown ? (
-              <div style={{ padding: "20px", textAlign: "center", color: "#64748b", fontSize: "13px" }}>
-                Loading key match factors...
-              </div>
-            ) : breakdown ? (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                  gap: "14px",
-                }}
-              >
-                {/* 1. Required Skills */}
-                <div style={{ background: "#ffffff", padding: "14px", borderRadius: "10px", border: "1px solid #cbd5e1" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", marginBottom: "8px" }}>
-                    <span style={{ fontWeight: "700", color: "#334155" }}>🎯 Required Skills</span>
-                    <strong style={{ fontSize: "15px", color: requiredSkillsScore >= 80 ? "#166534" : "#ea580c" }}>
-                      {requiredSkillsScore}%
-                    </strong>
-                  </div>
-                  <div style={{ height: "6px", background: "#e2e8f0", borderRadius: "4px", overflow: "hidden" }}>
-                    <div
-                      style={{
-                        width: `${Math.min(100, Math.max(0, requiredSkillsScore))}%`,
-                        height: "100%",
-                        background: requiredSkillsScore >= 80 ? "#10b981" : "#f59e0b",
-                        transition: "width 0.3s ease",
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* 2. Education */}
-                <div style={{ background: "#ffffff", padding: "14px", borderRadius: "10px", border: "1px solid #cbd5e1" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", marginBottom: "8px" }}>
-                    <span style={{ fontWeight: "700", color: "#334155" }}>🎓 Education</span>
-                    <strong style={{ fontSize: "15px", color: educationScore >= 80 ? "#166534" : "#ea580c" }}>
-                      {educationScore}%
-                    </strong>
-                  </div>
-                  <div style={{ height: "6px", background: "#e2e8f0", borderRadius: "4px", overflow: "hidden" }}>
-                    <div
-                      style={{
-                        width: `${Math.min(100, Math.max(0, educationScore))}%`,
-                        height: "100%",
-                        background: educationScore >= 80 ? "#10b981" : "#f59e0b",
-                        transition: "width 0.3s ease",
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* 3. Experience */}
-                <div style={{ background: "#ffffff", padding: "14px", borderRadius: "10px", border: "1px solid #cbd5e1" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", marginBottom: "8px" }}>
-                    <span style={{ fontWeight: "700", color: "#334155" }}>💼 Experience</span>
-                    <strong style={{ fontSize: "15px", color: experienceScore >= 80 ? "#166534" : "#ea580c" }}>
-                      {experienceScore}%
-                    </strong>
-                  </div>
-                  <div style={{ height: "6px", background: "#e2e8f0", borderRadius: "4px", overflow: "hidden" }}>
-                    <div
-                      style={{
-                        width: `${Math.min(100, Math.max(0, experienceScore))}%`,
-                        height: "100%",
-                        background: experienceScore >= 80 ? "#10b981" : "#f59e0b",
-                        transition: "width 0.3s ease",
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
+          {loadingBreakdown ? <p>Loading calculation evidence…</p> : <JobMatchScore score={eligibility?.matchScore} calculation={matchCalculation} showScore={false} />}
 
           {/* ── STEP 9: Matched & Missing Required Skills ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -803,7 +728,7 @@ export default function ImproveMatchModal({
               )}
 
               {/* ── STEP 16: Experience Recommendation ── */}
-              {experienceScore < 80 && (
+              {typeof experienceScore === "number" && experienceScore < 80 && (
                 <div
                   style={{
                     background: "#ffffff",
@@ -818,7 +743,7 @@ export default function ImproveMatchModal({
                 >
                   <div>
                     <div style={{ fontSize: "13px", fontWeight: "700", color: "#0f172a" }}>
-                      💼 Experience Compatibility ({experienceScore}%)
+                      💼 Experience to review
                     </div>
                     <div style={{ fontSize: "12px", color: "#475569", marginTop: "3px" }}>
                       Make sure your SkillSync profile contains your complete and accurate work history and years of experience.
@@ -848,7 +773,7 @@ export default function ImproveMatchModal({
               )}
 
               {/* ── STEP 17: Education Recommendation (Suppressed if 100%) ── */}
-              {educationScore < 100 && (
+              {typeof educationScore === "number" && educationScore < 100 && (
                 <div
                   style={{
                     background: "#ffffff",
@@ -863,7 +788,7 @@ export default function ImproveMatchModal({
                 >
                   <div>
                     <div style={{ fontSize: "13px", fontWeight: "700", color: "#0f172a" }}>
-                      🎓 Education Compatibility ({educationScore}%)
+                      🎓 Education to review
                     </div>
                     <div style={{ fontSize: "12px", color: "#475569", marginTop: "3px" }}>
                       Review your education information and ensure your profile is complete.

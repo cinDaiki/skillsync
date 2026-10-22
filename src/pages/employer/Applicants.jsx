@@ -1,3 +1,4 @@
+import { readJobMatchEvidence } from "../../services/jobMatchEvidence.js";
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
@@ -216,58 +217,16 @@ export default function Applicants() {
   }
 
   function calculateAlignment(app) {
-    // New applications display server-frozen application-time scores, never later profile scores.
-    const frozen = app?.applicant_snapshot?.application_time_match_score;
-    if (app?.applicant_snapshot?.application_time_match_source === 'job_matches' &&
-        typeof frozen === 'number' && Number.isFinite(frozen) && frozen >= 0 && frozen <= 100) {
-      return { score: frozen, tier: getMatchTierLocal(frozen), matched: [], missing: [], breakdown: null, isAuthoritative: true, applicationTime: true };
-    }
-    // 1. Authoritative match priority: check app.job_match or app.match_score
-    const jm = app.job_match;
-    if (jm && typeof jm.match_score === "number") {
-      const matched = Array.isArray(jm.matching_skills)
-        ? jm.matching_skills
-        : (jm.matching_skills ? (typeof jm.matching_skills === "string" ? JSON.parse(jm.matching_skills) : []) : []);
-      const missing = Array.isArray(jm.missing_skills)
-        ? jm.missing_skills
-        : (jm.missing_skills ? (typeof jm.missing_skills === "string" ? JSON.parse(jm.missing_skills) : []) : []);
-
-      return {
-        score: jm.match_score,
-        tier: jm.match_status || getMatchTierLocal(jm.match_score),
-        matched,
-        missing,
-        breakdown: {
-          requiredSkillsScore: jm.skills_score ?? Math.round(jm.match_score),
-          educationCompatibility: jm.education_score ?? null,
-          experienceCompatibility: jm.experience_score ?? null,
-          credentialsScore: jm.credentials_score ?? null,
-          transferableSkillsScore: jm.transferable_skills_score ?? null,
-          semanticRelevance: jm.semantic_score ?? null
-        },
-        isAuthoritative: true
-      };
-    }
-
-    if (typeof app.match_score === "number") {
-      return {
-        score: app.match_score,
-        tier: getMatchTierLocal(app.match_score),
-        matched: [],
-        missing: [],
-        breakdown: null,
-        isAuthoritative: true
-      };
-    }
-
-    // No invented percentage when the authoritative match is unavailable.
+    const match = readJobMatchEvidence(app);
+    const c = match.calculation;
+    const record = match.historical ? c : app.job_match;
+    const strings = x => Array.isArray(x) ? x : [];
     return {
-      score: null,
-      tier: "Not Evaluated",
-      matched: [],
-      missing: [],
-      breakdown: null,
-      isAuthoritative: false
+      score: match.score,
+      tier: getMatchTierLocal(match.score),
+      matched: strings(record?.matching_skills), missing: strings(record?.missing_skills),
+      breakdown: c?.breakdown || null, calculation: c,
+      isAuthoritative: match.score !== null, applicationTime: match.historical,
     };
   }
 
@@ -964,7 +923,7 @@ export default function Applicants() {
 
                     <div className="rac-header-right">
                       <span className={`rac-match-badge ${tier.toLowerCase()}`}>
-                        {typeof alignment.score === "number" ? `🎯 ${alignment.score}% Job Match` : "🎯 Not Evaluated"}
+                        {typeof alignment.score === "number" ? `🎯 ${alignment.score}% Job Match Score` : "🎯 Not Evaluated"}
                       </span>
                     </div>
                   </div>
@@ -1600,6 +1559,8 @@ export default function Applicants() {
           <AIMatchReport
             job={aiReportApp.jobs}
             matchScore={matchScore}
+            matchCalculation={alignment.calculation}
+            historical={alignment.applicationTime}
             semanticScore={semanticSim}
             matchedSkills={alignment.matched}
             missingSkills={alignment.missing}

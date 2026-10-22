@@ -1,3 +1,4 @@
+import JobMatchScore from "../../components/alignment/JobMatchScore.jsx";
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import CandidateInterviewModal from "../../components/candidate/CandidateInterviewModal";
@@ -108,8 +109,17 @@ export default function Applications() {
       });
     }
 
+    // Legacy applications may lack a frozen score. Both roles then show the same
+    // latest authoritative match, explicitly labelled as a current result.
+    let matchesByJob = {};
+    if (jobIds.length) {
+      const { data: matchRows } = await supabase.from("job_matches").select("*")
+        .eq("user_id", user.id).in("job_id", jobIds);
+      matchesByJob = Object.fromEntries((matchRows || []).map(row => [row.job_id, row]));
+    }
     const enriched = dedupedApps.map((app) => ({
       ...app,
+      job_match: matchesByJob[app.job_id] || null,
       jobs: jobMap[app.job_id] || null,
       isEmployerSuspended: Boolean(jobMap[app.job_id]?.is_employer_suspended),
     }));
@@ -314,6 +324,7 @@ export default function Applications() {
                       <span>Decided {formatDate(app.updated_at || app.created_at)}</span>
                     </div>
 
+                    <JobMatchScore application={app} />
                     <p className="app-card-outcome-text">{stageInfo.statusMessage}</p>
 
                     <div className="app-card-footer">
@@ -352,10 +363,7 @@ export default function Applications() {
 
                   {/* The same recorded application/interview status is shown to both roles. */}
                   <ConnectedStatusStrip status={app.status} interviewStatus={invStatus} audience="candidate" />
-                  {app.applicant_snapshot?.application_time_match_source === 'job_matches' &&
-                    typeof app.applicant_snapshot.application_time_match_score === 'number' && (
-                    <p className="cr-application-score">Job Match when you applied: <strong>{Math.round(app.applicant_snapshot.application_time_match_score)}%</strong> · This saved result does not change if you edit your resume.</p>
-                  )}
+                  <JobMatchScore application={app} />
 
                   {/* Action Indicator (if candidate action required) */}
                   {stageInfo.actionIndicator && (

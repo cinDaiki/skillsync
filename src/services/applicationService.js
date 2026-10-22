@@ -1,3 +1,4 @@
+import { readJobMatchEvidence } from "./jobMatchEvidence.js";
 import { supabase } from "./supabase.js";
 import { getResume } from "./api.js";
 import { isEmployerSuspended, fetchSuspendedEmployerIds } from "./jobAvailability.js";
@@ -422,7 +423,7 @@ export function enrichApplicationRecord(app) {
     built_resume: snapshotBuiltResume,
     candidate_profiles: app.candidate_profiles || snapshot.candidate_profiles || null,
     job_match: app.job_match || null,
-    match_score: app.job_match?.match_score ?? app.match_score ?? null,
+    match_score: readJobMatchEvidence(app).score,
     profiles: {
       ...(profiles || {}),
       full_name: identity.displayName,
@@ -537,7 +538,7 @@ export async function fetchEmployerApplicants(employerId) {
           status: row.status,
           created_at: row.created_at,
           updated_at: row.updated_at || null,
-          match_score: row.match_score || null,
+          match_score: row.match_score ?? null,
           recruiter_notes: row.recruiter_notes || null,
           reject_reason: row.reject_reason || null,
           applicant_snapshot: row.applicant_snapshot,
@@ -775,26 +776,22 @@ export async function getJobApplicationEligibility(jobId) {
 
     // Also attempt to resolve authoritative component scores from job_matches
     let breakdown = null;
+    let matchCalculation = null;
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: matchRow } = await supabase
           .from("job_matches")
-          .select("skills_score, education_score, experience_score, semantic_score, matched_certs, matching_skills, missing_skills")
+          .select("*")
           .eq("user_id", user.id)
           .eq("job_id", jobId)
           .maybeSingle();
 
         if (matchRow) {
-          const certCount = Array.isArray(matchRow.matched_certs) ? matchRow.matched_certs.length : 0;
-          breakdown = {
-            requiredSkillsScore: matchRow.skills_score ?? 0,
-            transferableSkillsScore: 100, // Normalized default when not stored separately
-            educationCompatibility: matchRow.education_score ?? 0,
-            experienceCompatibility: matchRow.experience_score ?? 0,
-            semanticRelevance: matchRow.semantic_score ?? 0,
-            credentialsScore: certCount > 0 ? 100 : 50,
-          };
+          if (matchRow.match_score === matchScore) {
+            matchCalculation = matchRow.match_calculation || null;
+            breakdown = matchCalculation?.breakdown || null;
+          }
         }
       }
     } catch (_) {
@@ -811,6 +808,7 @@ export async function getJobApplicationEligibility(jobId) {
       matchingSkills: Array.isArray(data.matching_skills) ? data.matching_skills : [],
       missingSkills: Array.isArray(data.missing_skills) ? data.missing_skills : [],
       matchStatus: data.match_status || "Skills Gap",
+      matchCalculation,
       breakdown,
       error: null
     };
@@ -868,15 +866,9 @@ export async function getAuthoritativeJobMatchBreakdown(jobId) {
     if (!compErr && compResult?.breakdown) {
       return {
         matchScore: compResult.match_score ?? 0,
+        matchCalculation: compResult.match_calculation || null,
         matchStatus: compResult.match_status || "Skills Gap",
-        breakdown: {
-          requiredSkillsScore: compResult.breakdown.requiredSkillsScore ?? 0,
-          transferableSkillsScore: compResult.breakdown.transferableSkillsScore ?? 0,
-          educationCompatibility: compResult.breakdown.educationCompatibility ?? 0,
-          experienceCompatibility: compResult.breakdown.experienceCompatibility ?? 0,
-          semanticRelevance: compResult.breakdown.semanticRelevance ?? 0,
-          credentialsScore: compResult.breakdown.credentialsScore ?? 50,
-        },
+        breakdown: compResult.breakdown,
         matchingSkills: Array.isArray(compResult.matching_skills) ? compResult.matching_skills : [],
         missingSkills: Array.isArray(compResult.missing_skills) ? compResult.missing_skills : [],
         matchedCerts: Array.isArray(compResult.matched_certs) ? compResult.matched_certs : [],
@@ -895,18 +887,11 @@ export async function getAuthoritativeJobMatchBreakdown(jobId) {
     if (rowErr) return { error: rowErr };
     if (!row) return { error: new Error("No match record found") };
 
-    const certCount = Array.isArray(row.matched_certs) ? row.matched_certs.length : 0;
     return {
       matchScore: row.match_score ?? 0,
       matchStatus: row.match_status || "Skills Gap",
-      breakdown: {
-        requiredSkillsScore: row.skills_score ?? 0,
-        transferableSkillsScore: 100,
-        educationCompatibility: row.education_score ?? 0,
-        experienceCompatibility: row.experience_score ?? 0,
-        semanticRelevance: row.semantic_score ?? 0,
-        credentialsScore: certCount > 0 ? 100 : 50,
-      },
+      matchCalculation: row.match_calculation || null,
+      breakdown: row.match_calculation?.breakdown || null,
       matchingSkills: Array.isArray(row.matching_skills) ? row.matching_skills : [],
       missingSkills: Array.isArray(row.missing_skills) ? row.missing_skills : [],
       matchedCerts: Array.isArray(row.matched_certs) ? row.matched_certs : [],
@@ -959,6 +944,7 @@ export async function recalculateAuthoritativeMatch(jobId) {
       eligibility,
       breakdown,
       matchResult,
+      matchCalculation: matchResult?.match_calculation || null,
       error: null
     };
   } catch (err) {

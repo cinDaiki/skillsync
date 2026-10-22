@@ -21,7 +21,7 @@ import './AIJobMatches.css'
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 function MatchScoreBadge({ score, matchStatus }) {
-  const isUncomputed = score === null || score === undefined || 
+  const isUncomputed = score === null || score === undefined ||
     (Number(score) === 0 && (matchStatus === 'Recommended' || matchStatus === 'Uncategorized' || matchStatus === 'Pending' || matchStatus === 'Uncomputed' || !matchStatus));
 
   if (isUncomputed) {
@@ -343,11 +343,11 @@ export default function AIJobMatches() {
                     return (
                       <div className="ai-job-card-footer">
                         <div className="ai-job-mini-scores">
-                          <span>Semantic: <strong>{job.semanticScore}%</strong></span>
-                          <span>Skills: <strong>{job.skillsScore}%</strong></span>
-                          <span>Career Relevance: <strong>{(job.career_relevance_score !== null && job.career_relevance_score !== undefined) ? `${job.career_relevance_score}%` : "N/A"}</strong></span>
+
+
+
                           <span style={{ color: isEligible ? "#15803d" : "#be123c", fontWeight: "600" }}>
-                            Req: <strong>{threshold}%</strong>
+                            Minimum: <strong>{threshold}/100 points</strong>
                           </span>
                         </div>
                         <div className="ai-job-card-actions">
@@ -383,6 +383,7 @@ export default function AIJobMatches() {
         <AIMatchReport
           job={reportJob}
           matchScore={reportJob.matchScore}
+          matchCalculation={reportJob.matchCalculation}
           semanticScore={reportJob.semanticScore}
           careerRelevanceScore={reportJob.career_relevance_score ?? reportJob.careerRelevanceScore}
           careerRelevanceBreakdown={reportJob.career_relevance_breakdown ?? reportJob.careerRelevanceBreakdown}
@@ -395,9 +396,9 @@ export default function AIJobMatches() {
           onApply={() => handleApply(reportJob)}
           applied={applications.includes(reportJob.id)}
           mode="candidate"
-          onMatchUpdated={(jobId, newScore) => {
-            setMatches(prev => prev.map(j => j.id === jobId ? { ...j, matchScore: newScore } : j));
-            setReportJob(prev => prev && prev.id === jobId ? { ...prev, matchScore: newScore } : prev);
+          onMatchUpdated={(jobId, newScore, matchCalculation) => {
+            setMatches(prev => prev.map(j => j.id === jobId ? { ...j, matchScore: newScore, matchCalculation } : j));
+            setReportJob(prev => prev && prev.id === jobId ? { ...prev, matchScore: newScore, matchCalculation } : prev);
           }}
         />
       )}

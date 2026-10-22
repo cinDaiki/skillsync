@@ -1,3 +1,4 @@
+import JobMatchScore from "../../components/alignment/JobMatchScore.jsx";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
@@ -217,7 +218,7 @@ export default function JobMatches() {
       // 4. Fetch authoritative job_matches for candidate (including Phase 4C Career Relevance)
       const { data: matchesData } = await supabase
         .from("job_matches")
-        .select("job_id, match_score, skills_score, education_score, experience_score, match_status, matching_skills, missing_skills, career_relevance_score, career_relevance_breakdown")
+        .select("*")
         .eq("user_id", user.id);
       const mMap = new Map((matchesData || []).map((m) => [m.job_id, m]));
       setMatchesMap(mMap);
@@ -743,7 +744,7 @@ export default function JobMatches() {
                     gap: "6px"
                   }}>
                     <div style={{ fontSize: "12px", color: isChecking ? "#64748b" : hasMatch ? (isEligible ? "#166534" : "#991b1b") : "#64748b", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                      <span>Your Match: <strong style={{ fontSize: "13px" }}>{isChecking ? "..." : hasMatch ? `${matchScore}%` : "—"}</strong></span>
+                      <span>Job Match Score: <strong style={{ fontSize: "13px" }}>{isChecking ? "..." : hasMatch ? `${matchScore}%` : "—"}</strong></span>
                       <span style={{ margin: "0 4px", opacity: 0.4 }}>|</span>
                       <span>Required Match: <strong style={{ fontSize: "13px" }}>{reqScore}%</strong></span>
                       <span style={{ margin: "0 4px", opacity: 0.4 }}>|</span>
@@ -909,6 +910,11 @@ export default function JobMatches() {
                   recalculating={recalculatingMatch}
                 />
 
+                {!eligibilityLoading && <JobMatchScore
+                  score={eligibility?.matchScore ?? matchesMap.get(selectedJob.id)?.match_score}
+                  calculation={eligibility?.matchCalculation || matchesMap.get(selectedJob.id)?.match_calculation}
+                  showScore={false}
+                />}
                 <div className="job-detail-main">
                   <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Job Description</h4>
                   <p style={{ margin: 0, fontSize: "13px", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>

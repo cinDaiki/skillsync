@@ -20,6 +20,7 @@
  */
 
 import fs from 'fs';
+import { readJobMatchEvidence } from '../src/services/jobMatchEvidence.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -1359,7 +1360,7 @@ async function runTestSuite() {
     'fetchEmployerApplicants queries job_matches and attaches job_match object');
 
   const applicantsJsx = fs.readFileSync(path.join(ROOT_DIR, 'src', 'pages', 'employer', 'Applicants.jsx'), 'utf8');
-  assert(applicantsJsx.includes('const jm = app.job_match') && applicantsJsx.includes('jm.match_score'),
+  assert(applicantsJsx.includes('readJobMatchEvidence(app)'),
     'Applicants.jsx calculateAlignment prioritizes authoritative app.job_match.match_score');
   assert(applicantsJsx.includes('🎯 ${alignment.score}% Job Match') || applicantsJsx.includes('🎯 {alignment.score}% Job Match'),
     'Applicants.jsx displays authoritative percentage as 🎯 {alignment.score}% Job Match');
@@ -1383,13 +1384,7 @@ async function runTestSuite() {
 
   // Employer side: calculateAlignment(app)
   function simulateCalculateAlignment(app) {
-    if (app.job_match && typeof app.job_match.match_score === 'number') {
-      return {
-        score: Math.round(app.job_match.match_score),
-        breakdown: app.job_match.breakdown || null
-      };
-    }
-    return { score: 50, breakdown: null };
+    return readJobMatchEvidence(app);
   }
 
   const employerAlignment = simulateCalculateAlignment({ job_match: simulatedJobMatchRow });

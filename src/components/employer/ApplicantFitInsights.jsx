@@ -18,7 +18,7 @@ export default function ApplicantFitInsights({ applicant, recruiterRoleRating = 
       <div className="fit-insights-head">
         <div>
           <h4 id="fit-insights-heading">System Job Match & HR Review</h4>
-          <p>Current System Match and an independent recruiter draft.</p>
+          <p>Saved application match when available, alongside an independent recruiter draft.</p>
         </div>
         <strong className="fit-insights-match" aria-label="Authoritative job match">
           {match.available ? `${Math.round(match.score)}%` : 'N/A'}

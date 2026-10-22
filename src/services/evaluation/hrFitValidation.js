@@ -1,3 +1,4 @@
+import { readJobMatchEvidence } from "../jobMatchEvidence.js";
 /**
  * SkillSync — HR Job-Fit Validation (display + offline benchmarking only)
  * Never alters `job_matches`, hiring decisions, or private recruiter records.
@@ -11,23 +12,8 @@ const percent = x => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x 
 
 /** No client-estimated, semantic-only, or fabricated fallback percentages. */
 export function readAuthoritativeJobMatch(application) {
-  const snap = application?.applicant_snapshot;
-  if (snap?.application_time_match_source === 'job_matches' && percent(snap.application_time_match_score)) {
-    return { score: snap.application_time_match_score, source: 'application_snapshot', available: true };
-  }
-  const record = application?.job_match;
-  if (record && percent(record.match_score)) {
-    return { score: record.match_score, source: 'job_matches', available: true };
-  }
-  // A stored application-time score is useful only when explicitly marked.
-  const snapshotScore = application?.applicant_snapshot?.application_time_match_score;
-  if (percent(snapshotScore)) {
-    return { score: snapshotScore, source: 'application_snapshot', available: true };
-  }
-  if (percent(application?.match_score) && application?.match_score_source === 'authoritative') {
-    return { score: application.match_score, source: 'application_record', available: true };
-  }
-  return { score: null, source: 'unavailable', available: false };
+  const match = readJobMatchEvidence(application);
+  return { score: match.score, source: match.score === null ? 'unavailable' : match.historical ? 'application_snapshot' : 'job_matches', available: match.score !== null };
 }
 
 export function qualificationTier(score) {

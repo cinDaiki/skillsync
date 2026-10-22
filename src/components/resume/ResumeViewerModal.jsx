@@ -1,3 +1,4 @@
+import JobMatchScore from "../alignment/JobMatchScore.jsx";
 import { useEffect, useState, useRef } from "react";
 import { getResumeViewUrl, getCertificateSignedUrl, extractResumeStoragePath } from "../../services/api.js";
 import { supabase } from "../../services/supabase.js";
@@ -102,13 +103,6 @@ export default function ResumeViewerModal({
 
   // Skills extraction: submitted application-time snapshot skills take strict priority
   const candidateSkills = parseSkills(snapshot && Object.prototype.hasOwnProperty.call(snapshot, "skills") ? snapshot.skills : profile?.skills);
-  const jobSkills = parseSkills(job?.required_skills);
-
-  // Intersections
-  const matchedSkills = jobSkills.filter(s => candidateSkills.includes(s));
-  const missingSkills = jobSkills.filter(s => !candidateSkills.includes(s));
-  const matchPct = jobSkills.length > 0 ? Math.round((matchedSkills.length / jobSkills.length) * 100) : 100;
-
   const canPreviewPdf = isUploadedResume && isPdfFile(resume);
 
   // Load view URL
@@ -339,24 +333,6 @@ export default function ResumeViewerModal({
                   <dt>Current Status</dt>
                   <dd style={{ textTransform: "capitalize", fontWeight: "bold" }}>{applicant.status || "Applied"}</dd>
                 </div>
-                {/* In archive mode, only show persisted application-time match score */}
-                {isArchiveMode ? (
-                  typeof applicant.match_score === "number" && applicant.match_score > 0 ? (
-                    <div>
-                      <dt>Application-time Match Score</dt>
-                      <dd style={{ fontWeight: "900", color: applicant.match_score >= 80 ? "#10b981" : applicant.match_score >= 50 ? "#6d28d9" : "#d97706" }}>
-                        🧠 {applicant.match_score}%
-                      </dd>
-                    </div>
-                  ) : null
-                ) : (
-                  <div>
-                    <dt>Job Skill Fit</dt>
-                    <dd style={{ color: matchPct >= 80 ? "#10b981" : matchPct >= 40 ? "#6d28d9" : "#d97706", fontWeight: "900" }}>
-                      🧠 {matchPct}% Alignment
-                    </dd>
-                  </div>
-                )}
                 {resume?.resume_score && (
                   <div>
                     <dt>Resume Score</dt>
@@ -373,6 +349,8 @@ export default function ResumeViewerModal({
                 )}
               </dl>
             </div>
+
+            <JobMatchScore application={applicant} />
 
             {/* 2. Cover Letter (if submitted) */}
             {coverLetter && (
@@ -451,37 +429,6 @@ export default function ResumeViewerModal({
                 </p>
               </div>
             </div>
-
-            {/* 5. Side-by-side Skill Matching Comparison Table (Clean Requirement vs Fit without microcredentials) */}
-            {!isArchiveMode && jobSkills.length > 0 && (
-              <div className="resume-viewer-sidebar-section">
-                <h3>Skill Alignment Details</h3>
-                <div style={{ background: "#faf8ff", border: "1px solid #f1ebfa", borderRadius: "10px", padding: "10px" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                    <thead>
-                      <tr style={{ textAlign: "left", color: "#667085" }}>
-                        <th style={{ paddingBottom: "6px" }}>Requirement</th>
-                        <th style={{ paddingBottom: "6px" }}>Candidate Fit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {matchedSkills.map(skill => (
-                        <tr key={skill} style={{ borderTop: "1px solid #f1f5f9" }}>
-                          <td style={{ padding: "6px 0", color: "#1e1b4b", textTransform: "capitalize" }}>{skill}</td>
-                          <td style={{ padding: "6px 0", color: "#10b981", fontWeight: "bold" }}>✅ Match</td>
-                        </tr>
-                      ))}
-                      {missingSkills.map(skill => (
-                        <tr key={skill} style={{ borderTop: "1px solid #f1f5f9" }}>
-                          <td style={{ padding: "6px 0", color: "#667085", textTransform: "capitalize" }}>{skill}</td>
-                          <td style={{ padding: "6px 0", color: "#f59e0b", fontWeight: "bold" }}>⚠️ Missing</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
 
             {/* 6. Uploaded Certificates */}
             {profile?.certifications && profile.certifications.length > 0 && (
