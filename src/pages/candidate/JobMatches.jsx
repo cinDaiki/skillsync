@@ -116,8 +116,10 @@ export default function JobMatches() {
         setMatchesMap(prev => {
           const next = new Map(prev);
           next.set(selectedJob.id, {
+            ...prev.get(selectedJob.id),
             job_id: selectedJob.id,
             match_score: res.matchScore,
+            match_calculation: res.eligibility?.matchCalculation || null,
             matching_skills: res.eligibility?.matchingSkills || [],
             missing_skills: res.eligibility?.missingSkills || []
           });
@@ -145,6 +147,20 @@ export default function JobMatches() {
     getJobApplicationEligibility(selectedJob.id).then((res) => {
       if (!isCancelled) {
         setEligibility(res);
+        if (typeof res?.matchScore === 'number') {
+          setMatchesMap(prev => {
+            const next = new Map(prev);
+            next.set(selectedJob.id, {
+              ...prev.get(selectedJob.id),
+              job_id: selectedJob.id,
+              match_score: res.matchScore,
+              match_calculation: res.matchCalculation || null,
+              matching_skills: res.matchingSkills || [],
+              missing_skills: res.missingSkills || [],
+            });
+            return next;
+          });
+        }
         setEligibilityLoading(false);
       }
     });
@@ -346,7 +362,7 @@ export default function JobMatches() {
 
     // Authoritative Match Threshold Gate (Phase 4B & P1 Consistency)
     const matchRecord = matchesMap.get(job.id);
-    const score = matchRecord?.match_score ?? (selectedJob?.id === job.id && eligibility ? eligibility.matchScore : 0);
+    const score = (selectedJob?.id === job.id ? eligibility?.matchScore : null) ?? matchRecord?.match_score ?? 0;
     const reqScore = typeof job.minimum_match_percentage === 'number' ? job.minimum_match_percentage : 70;
     if (score < reqScore) {
       toast.error(`Your match score (${score}%) is below this employer's requirement (${reqScore}%). You can use "Improve My Match" to view skill gaps.`);

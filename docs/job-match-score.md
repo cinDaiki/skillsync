@@ -30,9 +30,21 @@ Old application scores without calculation evidence are not backfilled from curr
 
 Implemented on `feature/explainable-job-match-score`, based on `feature/candidate-resume-builder` at `ffe9b7e99e3169da9e043e7e9b279a858ba02293`.
 
-The migration `20261022124540_explainable_job_match_score.sql` is prepared but has NOT been applied to any remote database. It requires the existing candidate source and connected recruitment migrations. Apply only to verified staging `zjzymrpifutqubffvhyt`. Never apply it to production `blekdvuovbfpuaepjvfq` as part of this work. The migration retains existing authentication and employer/candidate eligibility guards and grants no new client write access.
+The staging runtime was verified in the browser: preview deployment `5cc4d4e` reports backend `https://zjzymrpifutqubffvhyt.supabase.co`. Only after that check, `connected_recruitment` and `explainable_job_match_score` were applied to staging. Production was not queried, migrated, merged, or promoted.
 
-Vercel environment metadata access still returns HTTP 403 for team `cindaikis-projects`. The available tool advises team authorization, but no team-authorization tool is exposed in this session. The app's source includes a preview isolation guard; deployed build-time configuration and runtime routing have not been independently verified. No staging application writes or production database requests were performed.
+The candidate details and improvement panels always show the overall score, including while evidence loads. Legacy current matches fetch server evidence and calculate it once when absent. Historical application evidence remains immutable and is never reconstructed from current resume data.
+
+A live regression after switching resume sources exposed a stale marketplace card: details refreshed to 77 but Apply still checked 68. The eligibility response now updates the card cache and Apply prefers the selected job's refreshed authoritative score. Recalculate retains the calculation and existing career relevance fields.
+
+## Staging verification on October 22, 2026
+
+- Candidate sign-in and email verification succeeded with the dedicated QA account.
+- Junior Web Developer: built resume displayed 37; expanded evidence totaled 36.89 points. Switching to the existing uploaded resume displayed 33, totaling 32.56 points. Both matched saved database score and versioned evidence. Original built source was restored and verified in the database.
+- Resume Builder review and preview rendered; Word download was a valid 9,800-byte DOCX with no ZIP integrity errors. Existing upload screen and extracted skills rendered. A fresh upload/parse has not yet been exercised in this run.
+- Actual authenticated database RPC transaction: application → shortlist → online invitation → candidate acceptance (`CONFIRMED`) → one evaluation → `hired`. Saved score was 77 and versioned evidence remained unchanged. The complete transaction was rolled back; application and resume counts remained 2 each.
+- Candidate console: extension-origin metadata errors and a Transformers content-length buffer warning; no application-origin exception observed in these checks. This does not establish every screen is error-free.
+- Security advisor counts matched the pre-migration baseline (7 mutable search-path warnings, 16 anon definer warnings, 56 authenticated definer warnings, and existing platform configuration notices). No broad privilege changes were made.
+- Employer browser sign-in, fresh upload parsing, and the complete browser recruitment workflow remain pending. Database-role workflow success is not a claim of browser end-to-end completion.
 
 ## Validation
 
@@ -41,6 +53,6 @@ Vercel environment metadata access still returns HTTP 403 for team `cindaikis-pr
 - `npm run build`: Vite production build.
 - New integration suite executes the real migration and canonical scoring helpers in isolated PGlite PostgreSQL with synthetic data. It checks unchanged overall scoring, normalized contributions, optional factors, aliases, saved/returned evidence equality, forged-input rejection, immutable snapshots, both resume-source labels, legacy states, and shared React markup with exactly one percentage.
 - Auth/eligibility and career-relevance integrations are local test stubs. The vector distance operator has a scalar test stand-in. These tests do not establish Supabase RLS, embedding quality, remote auth, or live end-to-end behavior.
-- `docs/job-match-score-preview.html` is a static rendering of the actual component using synthetic SQL test data, not a live deployment screenshot. Cloud Browser disallowed opening local `file:` URLs, so visual browser verification remains pending. No workaround was attempted.
+- `docs/job-match-score-preview.html` is a synthetic static rendering. Live candidate visual verification and an expanded-score screenshot were subsequently captured on staging.
 
-Before release: verify staging runtime routing, apply the migration there, then sign in with dedicated staging Job Seeker and Employer accounts. Exercise upload and builder matching, submit an application, compare score/evidence on both roles, edit the resume, recalculate the current match, and confirm that submitted evidence stays unchanged. Check mobile layout, keyboard expansion, console/network errors, and actual persisted JSON. Do not merge or promote to production as part of staging verification.
+Before release: finish the pending browser checks, compare submitted score/evidence on both roles, and test mobile layout. Do not merge or promote to production as part of staging verification.
