@@ -902,6 +902,7 @@ export default function JobMatches() {
 
                 {/* ── AUTHORITATIVE APPLICATION ELIGIBILITY BANNER (Phase 4B & Improve Match Guidance) ── */}
                 <CandidateMatchStatusBanner
+                  showScore={false}
                   job={selectedJob}
                   eligibility={eligibility}
                   eligibilityLoading={eligibilityLoading}
@@ -910,10 +911,11 @@ export default function JobMatches() {
                   recalculating={recalculatingMatch}
                 />
 
-                {!eligibilityLoading && <JobMatchScore
+                {<JobMatchScore
                   score={eligibility?.matchScore ?? matchesMap.get(selectedJob.id)?.match_score}
                   calculation={eligibility?.matchCalculation || matchesMap.get(selectedJob.id)?.match_calculation}
-                  showScore={false}
+                  evidenceError={eligibility?.evidenceError}
+                  loading={eligibilityLoading}
                 />}
                 <div className="job-detail-main">
                   <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Job Description</h4>

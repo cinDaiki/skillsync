@@ -2,6 +2,7 @@ import React from "react";
 
 export default function CandidateMatchStatusBanner({
   job,
+  showScore = true,
   eligibility,
   eligibilityLoading = false,
   onOpenImproveMatch,
@@ -62,7 +63,7 @@ export default function CandidateMatchStatusBanner({
               <span>✓ Eligible to Apply</span>
             </div>
             <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#15803d" }}>
-              Job Match Score: <strong>{matchScore}%</strong> · Minimum: <strong>{requiredMatch}/100 points</strong>
+              {showScore && <>Job Match Score: <strong>{matchScore}%</strong> · </>}Minimum: <strong>{requiredMatch}/100 points</strong>
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -142,10 +143,10 @@ export default function CandidateMatchStatusBanner({
           fontSize: "12px"
         }}
       >
-        <div>
+        {showScore && <div>
           <span style={{ color: "#64748b" }}>Job Match Score: </span>
           <strong style={{ color: "#e11d48", fontSize: "14px" }}>{matchScore}%</strong>
-        </div>
+        </div>}
         <span style={{ color: "#cbd5e1" }}>·</span>
         <div>
           <span style={{ color: "#64748b" }}>Minimum points: </span>

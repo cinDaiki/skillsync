@@ -325,10 +325,6 @@ export default function ImproveMatchModal({
                 }}
               >
                 <div>
-                  <div style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>Job Match Score</div>
-                  <div style={{ fontSize: "20px", fontWeight: "800", color: "#e11d48" }}>{matchScore}%</div>
-                </div>
-                <div>
                   <div style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>Minimum points</div>
                   <div style={{ fontSize: "20px", fontWeight: "800", color: "#1e293b" }}>{requiredMatch}/100</div>
                 </div>
@@ -352,7 +348,7 @@ export default function ImproveMatchModal({
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span style={{ fontSize: "18px" }}>🎉</span>
                 <strong style={{ fontSize: "15px", color: "#166534" }}>
-                  Requirement Met! Your match score ({matchScore}%) satisfies this employer's requirement ({requiredMatch} out of 100 points).
+                  Requirement met. Your score satisfies this employer's minimum of {requiredMatch} out of 100 points.
                 </strong>
               </div>
               <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#15803d" }}>
@@ -394,7 +390,7 @@ export default function ImproveMatchModal({
             </div>
           )}
 
-          {loadingBreakdown ? <p>Loading calculation evidence…</p> : <JobMatchScore score={eligibility?.matchScore} calculation={matchCalculation} showScore={false} />}
+          <JobMatchScore score={eligibility?.matchScore} calculation={matchCalculation} evidenceError={eligibility?.evidenceError} loading={loadingBreakdown} />
 
           {/* ── STEP 9: Matched & Missing Required Skills ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>

@@ -21,10 +21,10 @@ import JobMatchScore from "../alignment/JobMatchScore.jsx";
  *   candidateName  {string}  – (employer view) candidate's name
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import CandidateMatchStatusBanner from '../candidate/CandidateMatchStatusBanner'
 import ImproveMatchModal from '../candidate/ImproveMatchModal'
-import { recalculateAuthoritativeMatch } from '../../services/applicationService'
+import { getJobApplicationEligibility, recalculateAuthoritativeMatch } from '../../services/applicationService'
 import { getCareerRelevanceTier, getCareerRelevanceEvidenceBullets, getCategoryLabel, getSubcategoryLabel } from '../../services/careerRelevanceService'
 import './AIMatchReport.css'
 
@@ -50,6 +50,8 @@ export default function AIMatchReport({
 }) {
   const [currentScore, setCurrentScore] = useState(matchScore)
   const [currentCalculation, setCurrentCalculation] = useState(matchCalculation)
+  const [evidenceError, setEvidenceError] = useState(null)
+  const [loadingEvidence, setLoadingEvidence] = useState(false)
   const [currentMatchedSkills, setCurrentMatchedSkills] = useState(matchedSkills)
   const [currentMissingSkills, setCurrentMissingSkills] = useState(missingSkills)
   const [showImproveModal, setShowImproveModal] = useState(false)
@@ -57,6 +59,30 @@ export default function AIMatchReport({
 
   const reqScore = typeof job?.minimum_match_percentage === 'number' ? job.minimum_match_percentage : 70
   const isEligible = currentScore !== null && currentScore >= reqScore
+
+  useEffect(() => {
+    let active = true
+    setCurrentScore(matchScore)
+    setCurrentCalculation(matchCalculation)
+    setEvidenceError(null)
+    if (mode !== 'candidate' || historical || !job?.id || matchCalculation) {
+      setLoadingEvidence(false)
+      return () => { active = false }
+    }
+    setLoadingEvidence(true)
+    getJobApplicationEligibility(job.id).then(result => {
+      if (!active) return
+      if (result.error) { setEvidenceError(result.error); return }
+      setCurrentScore(result.matchScore)
+      setCurrentCalculation(result.matchCalculation)
+      setCurrentMatchedSkills(result.matchingSkills || [])
+      setCurrentMissingSkills(result.missingSkills || [])
+      setEvidenceError(result.evidenceError || null)
+      onMatchUpdated?.(job.id, result.matchScore, result.matchCalculation)
+    }).catch(error => { if (active) setEvidenceError(error) })
+      .finally(() => { if (active) setLoadingEvidence(false) })
+    return () => { active = false }
+  }, [job?.id, mode, historical, matchScore, matchCalculation])
 
   async function handleRecalculate() {
     if (!job?.id || recalculating) return
@@ -66,6 +92,7 @@ export default function AIMatchReport({
       if (res.success) {
         setCurrentScore(res.matchScore)
         setCurrentCalculation(res.matchCalculation)
+        setEvidenceError(res.eligibility?.evidenceError || null)
         if (res.eligibility) {
           setCurrentMatchedSkills(res.eligibility.matchingSkills || [])
           setCurrentMissingSkills(res.eligibility.missingSkills || [])
@@ -105,7 +132,7 @@ export default function AIMatchReport({
           )}
         </div>
 
-        <JobMatchScore score={currentScore} calculation={currentCalculation} historical={historical} />
+        <JobMatchScore score={currentScore} calculation={currentCalculation} historical={historical} evidenceError={evidenceError} loading={loadingEvidence} />
 
         {/* ── Eligibility Badge for Candidate ── */}
         {mode === 'candidate' && (() => {
@@ -326,6 +353,7 @@ export default function AIMatchReport({
         {mode === 'candidate' && (
           <div style={{ marginTop: "16px", marginBottom: "8px" }}>
             <CandidateMatchStatusBanner
+              showScore={false}
               job={job}
               eligibility={{
                 matchScore: currentScore,

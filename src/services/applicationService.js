@@ -1,3 +1,4 @@
+import { loadCurrentJobMatchEvidence } from "./currentJobMatchEvidence.js";
 import { readJobMatchEvidence } from "./jobMatchEvidence.js";
 import { supabase } from "./supabase.js";
 import { getResume } from "./api.js";
@@ -750,7 +751,7 @@ export async function getJobApplicationEligibility(jobId) {
   }
 
   try {
-    const { data, error } = await supabase.rpc("get_job_application_eligibility", {
+    let { data, error } = await supabase.rpc("get_job_application_eligibility", {
       p_job_id: jobId
     });
 
@@ -770,33 +771,14 @@ export async function getJobApplicationEligibility(jobId) {
       };
     }
 
+    const evidence = await loadCurrentJobMatchEvidence(supabase, jobId, data);
+    data = evidence.eligibility;
     const matchScore = data.match_score ?? 0;
     const requiredMatch = data.minimum_match_percentage ?? 70;
     const gap = Math.max(0, requiredMatch - matchScore);
-
-    // Also attempt to resolve authoritative component scores from job_matches
-    let breakdown = null;
-    let matchCalculation = null;
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: matchRow } = await supabase
-          .from("job_matches")
-          .select("*")
-          .eq("user_id", user.id)
-          .eq("job_id", jobId)
-          .maybeSingle();
-
-        if (matchRow) {
-          if (matchRow.match_score === matchScore) {
-            matchCalculation = matchRow.match_calculation || null;
-            breakdown = matchCalculation?.breakdown || null;
-          }
-        }
-      }
-    } catch (_) {
-      // Non-blocking breakdown enrichment
-    }
+    const matchCalculation = evidence.calculation;
+    const breakdown = matchCalculation?.breakdown || null;
+    if (evidence.evidenceError) console.warn('[Job Match Score] Calculation evidence unavailable:', evidence.evidenceError.message);
 
     return {
       jobId: data.job_id,
@@ -809,6 +791,7 @@ export async function getJobApplicationEligibility(jobId) {
       missingSkills: Array.isArray(data.missing_skills) ? data.missing_skills : [],
       matchStatus: data.match_status || "Skills Gap",
       matchCalculation,
+      evidenceError: evidence.evidenceError,
       breakdown,
       error: null
     };

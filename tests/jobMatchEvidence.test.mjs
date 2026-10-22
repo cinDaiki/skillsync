@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import { readJobMatchEvidence, explainJobMatch, MATCH_CALCULATION_VERSION } from '../src/services/jobMatchEvidence.js';
 import { readAuthoritativeJobMatch } from '../src/services/evaluation/hrFitValidation.js';
+import { loadCurrentJobMatchEvidence } from '../src/services/currentJobMatchEvidence.js';
 
 // Isolated in-memory PostgreSQL. No network, credentials or remote Supabase access.
 // Identity/eligibility and career relevance are boundary stubs. Embedding distance
@@ -102,6 +103,36 @@ try {
   assert.equal(readJobMatchEvidence({job_match:{match_score:0}}).score,0);
   assert.equal(readJobMatchEvidence({job_match:{match_score:NaN}}).score,null);
   assert.equal(readJobMatchEvidence({match_score:100}).score,null);
+  // A current cache written before the migration must be upgraded once, not left
+  // permanently without details, and eligibility must still come from the server.
+  const calls = [];
+  const mockClient = (row, result = current, error = null) => ({
+    auth: { getUser: async () => ({ data: { user: { id: candidate } } }) },
+    from: () => ({ select() { return this }, eq() { return this }, maybeSingle: async () => ({ data: row, error: null }) }),
+    rpc: async name => {
+      calls.push(name);
+      return name === 'compute_and_save_job_match' ? {data:result,error} : {data:{match_score:result.match_score,eligible:false,minimum_match_percentage:99},error:null};
+    },
+  });
+  const initialEligibility = {match_score:74,eligible:true};
+  const upgraded = await loadCurrentJobMatchEvidence(mockClient({match_score:74}),job,initialEligibility);
+  assert.deepEqual(calls,['compute_and_save_job_match','get_job_application_eligibility']);
+  assert.equal(upgraded.calculation.match_score,current.match_score);
+  assert.equal(upgraded.eligibility.eligible,false,'preserve actual server eligibility instead of deriving it in JS');
+  calls.length = 0;
+  const cached = await loadCurrentJobMatchEvidence(mockClient({match_score:current.match_score,match_calculation:saved}),job,{match_score:current.match_score});
+  assert.deepEqual(calls,[],'complete cache requires no extra computation');
+  assert.deepEqual(cached.calculation,saved);
+  calls.length = 0;
+  const oldServer = await loadCurrentJobMatchEvidence(mockClient({match_score:74},{match_score:74}),job,initialEligibility);
+  assert.equal(oldServer.eligibility.match_score,74,'backend without evidence must not hide an existing score');
+  assert.equal(oldServer.calculation,null);
+  assert.ok(oldServer.evidenceError);
+  assert.equal(calls.length,1,'do not repeatedly retry an incompatible backend');
+  const denied = await loadCurrentJobMatchEvidence(mockClient({match_score:74},null,new Error('FORBIDDEN')),job,initialEligibility);
+  assert.equal(denied.eligibility.match_score,74);
+  assert.equal(denied.calculation,null);
+  assert.match(denied.evidenceError.message,/FORBIDDEN/);
   // Another candidate cannot forge an application for this candidate.
   await db.query("select set_config('test.uid',$1,false)",[employer]);
   await assert.rejects(()=>db.query('insert into applications(applicant_id,job_id,applicant_snapshot) values ($1,$2,$3)',[candidate,job,{}]),/FORBIDDEN/);
@@ -117,7 +148,16 @@ try {
     assert.ok(!markup.includes('Weight'));
     const legacyMarkup = renderToStaticMarkup(React.createElement(JobMatchScore,{application:{applicant_snapshot:{application_time_match_score:74}}}));
     assert.ok(legacyMarkup.includes('74%'));
-    assert.ok(legacyMarkup.includes('no saved calculation evidence'));
+    assert.ok(legacyMarkup.includes('calculation details were not recorded'));
+    const loadingMarkup = renderToStaticMarkup(React.createElement(JobMatchScore,{score:74,loading:true,showScore:false}));
+    assert.ok(loadingMarkup.includes('74%'),'score must stay visible even while evidence loads or an old caller passes showScore=false');
+    assert.ok(loadingMarkup.includes('Loading calculation details'));
+    const missingMarkup = renderToStaticMarkup(React.createElement(JobMatchScore,{score:74,evidenceError:new Error('unavailable')}));
+    assert.ok(missingMarkup.includes('74%'));
+    assert.ok(missingMarkup.includes('could not be loaded'));
+    const { default: Banner } = await vite.ssrLoadModule('/src/components/candidate/CandidateMatchStatusBanner.jsx');
+    const bannerMarkup = renderToStaticMarkup(React.createElement(Banner,{showScore:false,job:{},eligibility:{matchScore:74,requiredMatch:70}}));
+    assert.equal((bannerMarkup.match(/%/g)||[]).length,0,'eligibility banner must not repeat the overall percentage');
     const emptyMarkup = renderToStaticMarkup(React.createElement(JobMatchScore,{application:{}}));
     assert.ok(emptyMarkup.includes('Not evaluated'));
     assert.equal((emptyMarkup.match(/%/g)||[]).length,0);
