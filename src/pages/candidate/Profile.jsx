@@ -1,4 +1,5 @@
 import "./Profile.css";
+import WorkPreferencesCard from "../../components/alignment/WorkPreferencesCard.jsx";
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
@@ -756,6 +757,8 @@ export default function Profile() {
       title="Profile Builder"
       subtitle="Complete your profile to unlock custom AI job matches."
     >
+      <WorkPreferencesCard userId={userId} />
+
       {/* Profile Completeness Visual */}
       <div className="profile-completeness-banner">
         <div className="completeness-circle-container">

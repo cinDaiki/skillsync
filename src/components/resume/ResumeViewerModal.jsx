@@ -1,7 +1,9 @@
+import JobMatchScore from "../alignment/JobMatchScore.jsx";
 import { useEffect, useState, useRef } from "react";
 import { getResumeViewUrl, getCertificateSignedUrl, extractResumeStoragePath } from "../../services/api.js";
 import { supabase } from "../../services/supabase.js";
 import { isTerminalApplication, isScreeningStatus } from "../../services/recruitmentStatus.js";
+import { downloadDocxResume } from "../../services/docxResumeGenerator.js";
 
 function getFileName(resume) {
   return resume?.file_name || resume?.name || "Resume";
@@ -79,6 +81,17 @@ export default function ResumeViewerModal({
   const job = applicant?.jobs;
   const coverLetter = applicant?.cover_letter || snapshot?.cover_letter || null;
 
+  const builtResume = snapshot?.built_resume || applicant?.built_resume || null;
+  const isBuiltResume = snapshot?.resume_source === "builder" || (!resume?.file_url && !!builtResume);
+  const isUploadedResume = !isBuiltResume && !!resume?.file_url;
+
+  function handleDownloadWordResume() {
+    if (!builtResume) return;
+    const candidateName = builtResume.personalDetails?.fullName?.trim() || displayName || "Candidate";
+    const sanitized = candidateName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    downloadDocxResume(builtResume, `${sanitized}_Resume.docx`);
+  }
+
   const isTerminal = isTerminalApplication(applicant?.status);
   const isArchiveMode = readOnly || context === "hiring-records" || context === "hiring-decisions" || isTerminal;
 
@@ -88,23 +101,16 @@ export default function ResumeViewerModal({
   const isScreeningContext = context === "screening" || context === "default";
   const showScreeningActions = isInitialScreening && isScreeningContext && !isArchiveMode && !isTerminal;
 
-  // Skills extraction
-  const candidateSkills = parseSkills(profile?.skills || snapshot?.skills);
-  const jobSkills = parseSkills(job?.required_skills);
-
-  // Intersections
-  const matchedSkills = jobSkills.filter(s => candidateSkills.includes(s));
-  const missingSkills = jobSkills.filter(s => !candidateSkills.includes(s));
-  const matchPct = jobSkills.length > 0 ? Math.round((matchedSkills.length / jobSkills.length) * 100) : 100;
-
-  const canPreviewPdf = resume?.file_url && isPdfFile(resume);
+  // Skills extraction: submitted application-time snapshot skills take strict priority
+  const candidateSkills = parseSkills(snapshot && Object.prototype.hasOwnProperty.call(snapshot, "skills") ? snapshot.skills : profile?.skills);
+  const canPreviewPdf = isUploadedResume && isPdfFile(resume);
 
   // Load view URL
   useEffect(() => {
     let active = true;
 
     async function loadViewUrl() {
-      if (!resume?.file_url) {
+      if (isBuiltResume || !resume?.file_url) {
         setLoading(false);
         return;
       }
@@ -271,7 +277,16 @@ export default function ResumeViewerModal({
           </div>
 
           <div className="resume-viewer-header-actions">
-            {viewUrl && (
+            {isBuiltResume && builtResume ? (
+              <button
+                type="button"
+                className="resume-viewer-btn primary download-built-word-btn"
+                onClick={handleDownloadWordResume}
+                title="Download editable Word resume (.docx) generated from submitted Built Resume"
+              >
+                ⬇️ Download Word Resume
+              </button>
+            ) : viewUrl ? (
               <>
                 <a
                   href={viewUrl}
@@ -289,7 +304,7 @@ export default function ResumeViewerModal({
                   Download
                 </a>
               </>
-            )}
+            ) : null}
             <button type="button" className="resume-viewer-close" onClick={onClose} aria-label="Close modal">
               ×
             </button>
@@ -318,24 +333,6 @@ export default function ResumeViewerModal({
                   <dt>Current Status</dt>
                   <dd style={{ textTransform: "capitalize", fontWeight: "bold" }}>{applicant.status || "Applied"}</dd>
                 </div>
-                {/* In archive mode, only show persisted application-time match score */}
-                {isArchiveMode ? (
-                  typeof applicant.match_score === "number" && applicant.match_score > 0 ? (
-                    <div>
-                      <dt>Application-time Match Score</dt>
-                      <dd style={{ fontWeight: "900", color: applicant.match_score >= 80 ? "#10b981" : applicant.match_score >= 50 ? "#6d28d9" : "#d97706" }}>
-                        🧠 {applicant.match_score}%
-                      </dd>
-                    </div>
-                  ) : null
-                ) : (
-                  <div>
-                    <dt>Job Skill Fit</dt>
-                    <dd style={{ color: matchPct >= 80 ? "#10b981" : matchPct >= 40 ? "#6d28d9" : "#d97706", fontWeight: "900" }}>
-                      🧠 {matchPct}% Alignment
-                    </dd>
-                  </div>
-                )}
                 {resume?.resume_score && (
                   <div>
                     <dt>Resume Score</dt>
@@ -352,6 +349,8 @@ export default function ResumeViewerModal({
                 )}
               </dl>
             </div>
+
+            <JobMatchScore application={applicant} />
 
             {/* 2. Cover Letter (if submitted) */}
             {coverLetter && (
@@ -420,47 +419,16 @@ export default function ResumeViewerModal({
               <div style={{ marginBottom: "8px" }}>
                 <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Education</strong>
                 <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "#1e293b", fontWeight: "600" }}>
-                  {formatBackgroundText(profile?.education || snapshot?.education)}
+                  {formatBackgroundText(snapshot?.education || profile?.education)}
                 </p>
               </div>
               <div>
                 <strong style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Experience</strong>
                 <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "#1e293b", fontWeight: "600" }}>
-                  {formatBackgroundText(profile?.work_experience || snapshot?.work_experience)}
+                  {formatBackgroundText(snapshot?.work_experience || profile?.work_experience)}
                 </p>
               </div>
             </div>
-
-            {/* 5. Side-by-side Skill Matching Comparison Table (Clean Requirement vs Fit without microcredentials) */}
-            {!isArchiveMode && jobSkills.length > 0 && (
-              <div className="resume-viewer-sidebar-section">
-                <h3>Skill Alignment Details</h3>
-                <div style={{ background: "#faf8ff", border: "1px solid #f1ebfa", borderRadius: "10px", padding: "10px" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                    <thead>
-                      <tr style={{ textAlign: "left", color: "#667085" }}>
-                        <th style={{ paddingBottom: "6px" }}>Requirement</th>
-                        <th style={{ paddingBottom: "6px" }}>Candidate Fit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {matchedSkills.map(skill => (
-                        <tr key={skill} style={{ borderTop: "1px solid #f1f5f9" }}>
-                          <td style={{ padding: "6px 0", color: "#1e1b4b", textTransform: "capitalize" }}>{skill}</td>
-                          <td style={{ padding: "6px 0", color: "#10b981", fontWeight: "bold" }}>✅ Match</td>
-                        </tr>
-                      ))}
-                      {missingSkills.map(skill => (
-                        <tr key={skill} style={{ borderTop: "1px solid #f1f5f9" }}>
-                          <td style={{ padding: "6px 0", color: "#667085", textTransform: "capitalize" }}>{skill}</td>
-                          <td style={{ padding: "6px 0", color: "#f59e0b", fontWeight: "bold" }}>⚠️ Missing</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
 
             {/* 6. Uploaded Certificates */}
             {profile?.certifications && profile.certifications.length > 0 && (
@@ -493,21 +461,37 @@ export default function ResumeViewerModal({
               </div>
             )}
 
-            {/* 7. Submitted Resume Metadata */}
-            {resume?.file_url && (
-              <div className="resume-viewer-sidebar-section">
-                <h3>Submitted Resume</h3>
-                <p className="resume-viewer-file-meta">
-                  <strong>{getFileName(resume)}</strong>
-                  {formatFileSize(resume.file_size) && (
-                    <> · {formatFileSize(resume.file_size)}</>
-                  )}
-                  {formatDate(resume.created_at) && (
-                    <> · Uploaded {formatDate(resume.created_at)}</>
-                  )}
-                </p>
-              </div>
-            )}
+            {/* 7. Resume submitted with application */}
+            <div className="resume-viewer-sidebar-section">
+              <h3>Resume submitted with application</h3>
+              {isBuiltResume ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: "700" }}>
+                    📝 Built Resume
+                  </div>
+                  <span style={{ fontSize: "11px", color: "#64748b" }}>
+                    Submitted via SkillSync Resume Builder
+                  </span>
+                </div>
+              ) : resume?.file_url ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: "700" }}>
+                    📄 Uploaded Resume
+                  </div>
+                  <p className="resume-viewer-file-meta" style={{ margin: 0 }}>
+                    <strong>{getFileName(resume)}</strong>
+                    {formatFileSize(resume.file_size) && (
+                      <> · {formatFileSize(resume.file_size)}</>
+                    )}
+                    {formatDate(resume.created_at) && (
+                      <> · Uploaded {formatDate(resume.created_at)}</>
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <span style={{ fontSize: "12px", color: "#64748b" }}>No resume submitted</span>
+              )}
+            </div>
 
             {/* 8. Screening Quick Actions: Shortlist Applicant strictly restricted to initial screening stage */}
             {showScreeningActions && !isArchiveMode && typeof onShortlist === "function" && (
@@ -527,12 +511,196 @@ export default function ResumeViewerModal({
             )}
           </aside>
 
-          <section className="resume-viewer-preview">
-            {!resume?.file_url ? (
+          <section className="resume-viewer-preview" style={{ overflowY: "auto" }}>
+            {isBuiltResume && builtResume ? (
+              <div className="built-resume-rendered-document" style={{
+                background: "#ffffff",
+                borderRadius: "8px",
+                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)",
+                padding: "36px",
+                maxWidth: "760px",
+                margin: "20px auto",
+                fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
+                color: "#1e293b",
+                lineHeight: "1.6"
+              }}>
+                {/* Header */}
+                <div style={{ borderBottom: "2px solid #0f172a", paddingBottom: "16px", marginBottom: "20px" }}>
+                  <h1 style={{ margin: "0 0 6px 0", fontSize: "24px", fontWeight: "800", textTransform: "uppercase", color: "#0f172a", letterSpacing: "0.02em" }}>
+                    {builtResume.personalDetails?.fullName || displayName}
+                  </h1>
+                  <div style={{ fontSize: "12px", color: "#475569", display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                    {[
+                      builtResume.personalDetails?.email || profile?.email,
+                      builtResume.personalDetails?.phone || profile?.contact_number,
+                      builtResume.personalDetails?.city || builtResume.personalDetails?.region,
+                      builtResume.personalDetails?.linkedin,
+                      builtResume.personalDetails?.github
+                    ].filter(Boolean).map((item, idx) => (
+                      <span key={idx}>{idx > 0 && "• "}{item}</span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Professional Summary */}
+                {builtResume.summary && (
+                  <div style={{ marginBottom: "20px" }}>
+                    <h4 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", color: "#0f172a", borderBottom: "1px solid #cbd5e1", paddingBottom: "4px", margin: "0 0 8px 0", letterSpacing: "0.05em" }}>
+                      Professional Summary
+                    </h4>
+                    <p style={{ margin: 0, fontSize: "12px", color: "#334155", lineHeight: "1.6" }}>
+                      {builtResume.summary}
+                    </p>
+                  </div>
+                )}
+
+                {/* Skills */}
+                {Array.isArray(builtResume.skills) && builtResume.skills.length > 0 && (
+                  <div style={{ marginBottom: "20px" }}>
+                    <h4 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", color: "#0f172a", borderBottom: "1px solid #cbd5e1", paddingBottom: "4px", margin: "0 0 8px 0", letterSpacing: "0.05em" }}>
+                      Skills
+                    </h4>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                      {builtResume.skills.map((skill, idx) => {
+                        const name = typeof skill === "string" ? skill : skill?.name;
+                        if (!name) return null;
+                        return (
+                          <span key={idx} style={{ background: "#f1f5f9", color: "#1e293b", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "600" }}>
+                            {name}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Experience */}
+                {builtResume.experience?.noExperience ? (
+                  <div style={{ marginBottom: "20px" }}>
+                    <h4 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", color: "#0f172a", borderBottom: "1px solid #cbd5e1", paddingBottom: "4px", margin: "0 0 8px 0", letterSpacing: "0.05em" }}>
+                      Work Experience
+                    </h4>
+                    <p style={{ margin: 0, fontSize: "12px", color: "#64748b", fontStyle: "italic" }}>
+                      Entry-level candidate seeking first professional opportunity.
+                    </p>
+                  </div>
+                ) : Array.isArray(builtResume.experience?.entries) && builtResume.experience.entries.length > 0 ? (
+                  <div style={{ marginBottom: "20px" }}>
+                    <h4 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", color: "#0f172a", borderBottom: "1px solid #cbd5e1", paddingBottom: "4px", margin: "0 0 10px 0", letterSpacing: "0.05em" }}>
+                      Work Experience
+                    </h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      {builtResume.experience.entries.map((exp, idx) => (
+                        <div key={idx}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap" }}>
+                            <strong style={{ fontSize: "13px", color: "#0f172a" }}>{exp.title}</strong>
+                            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>
+                              {exp.startDate || ""} – {exp.isCurrent ? "Present" : (exp.endDate || "")}
+                            </span>
+                          </div>
+                          {exp.organization && (
+                            <div style={{ fontSize: "12px", color: "#475569", fontWeight: "500", marginBottom: "2px" }}>
+                              {exp.organization}
+                            </div>
+                          )}
+                          {exp.responsibilities && (
+                            <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "#334155", lineHeight: "1.5" }}>
+                              {exp.responsibilities}
+                            </p>
+                          )}
+                          {exp.achievements && (
+                            <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "#166534", fontWeight: "500" }}>
+                              <strong>Key Achievement:</strong> {exp.achievements}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Education */}
+                {builtResume.education?.noFormalEducation ? (
+                  <div style={{ marginBottom: "20px" }}>
+                    <h4 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", color: "#0f172a", borderBottom: "1px solid #cbd5e1", paddingBottom: "4px", margin: "0 0 8px 0", letterSpacing: "0.05em" }}>
+                      Education & Training
+                    </h4>
+                    <p style={{ margin: 0, fontSize: "12px", color: "#64748b", fontStyle: "italic" }}>
+                      Practical learning and on-the-job training.
+                    </p>
+                  </div>
+                ) : Array.isArray(builtResume.education?.entries) && builtResume.education.entries.length > 0 ? (
+                  <div style={{ marginBottom: "20px" }}>
+                    <h4 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", color: "#0f172a", borderBottom: "1px solid #cbd5e1", paddingBottom: "4px", margin: "0 0 10px 0", letterSpacing: "0.05em" }}>
+                      Education & Training
+                    </h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                      {builtResume.education.entries.map((edu, idx) => (
+                        <div key={idx}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap" }}>
+                            <strong style={{ fontSize: "13px", color: "#0f172a" }}>{edu.institution}</strong>
+                            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>
+                              {edu.status || ""}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: "12px", color: "#475569", fontWeight: "500" }}>
+                            {edu.level}{edu.courseOrProgram ? ` - ${edu.courseOrProgram}` : ""}
+                          </div>
+                          {edu.courseworkAndAchievements && (
+                            <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#334155" }}>
+                              {edu.courseworkAndAchievements}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Projects & Credentials */}
+                {builtResume.projectsAndCredentials && (
+                  (builtResume.projectsAndCredentials.projects?.length > 0 ||
+                   builtResume.projectsAndCredentials.certifications?.length > 0 ||
+                   builtResume.projectsAndCredentials.training?.length > 0 ||
+                   builtResume.projectsAndCredentials.awards?.length > 0) && (
+                    <div style={{ marginBottom: "20px" }}>
+                      <h4 style={{ fontSize: "13px", fontWeight: "700", textTransform: "uppercase", color: "#0f172a", borderBottom: "1px solid #cbd5e1", paddingBottom: "4px", margin: "0 0 10px 0", letterSpacing: "0.05em" }}>
+                        Projects & Credentials
+                      </h4>
+                      {builtResume.projectsAndCredentials.projects?.map((p, idx) => (
+                        <div key={`proj-${idx}`} style={{ marginBottom: "8px" }}>
+                          <strong style={{ fontSize: "12px", color: "#0f172a" }}>Project: {p.title}</strong>
+                          {p.role && <span style={{ fontSize: "11px", color: "#64748b" }}> ({p.role})</span>}
+                          {p.description && <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "#334155" }}>{p.description}</p>}
+                        </div>
+                      ))}
+                      {builtResume.projectsAndCredentials.certifications?.map((c, idx) => (
+                        <div key={`cert-${idx}`} style={{ marginBottom: "4px", fontSize: "12px" }}>
+                          <strong style={{ color: "#0f172a" }}>Certification: {c.name}</strong>
+                          {c.issuer && <span style={{ color: "#64748b" }}> | {c.issuer}</span>}
+                        </div>
+                      ))}
+                      {builtResume.projectsAndCredentials.training?.map((t, idx) => (
+                        <div key={`train-${idx}`} style={{ marginBottom: "4px", fontSize: "12px" }}>
+                          <strong style={{ color: "#0f172a" }}>Training: {t.title}</strong>
+                          {t.provider && <span style={{ color: "#64748b" }}> | {t.provider}</span>}
+                        </div>
+                      ))}
+                      {builtResume.projectsAndCredentials.awards?.map((a, idx) => (
+                        <div key={`award-${idx}`} style={{ marginBottom: "4px", fontSize: "12px" }}>
+                          <strong style={{ color: "#0f172a" }}>Award: {a.title}</strong>
+                          {a.issuer && <span style={{ color: "#64748b" }}> | {a.issuer}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
+            ) : !resume?.file_url ? (
               <div className="resume-viewer-empty">
                 <span>▤</span>
-                <h3>No resume uploaded</h3>
-                <p>This applicant has not uploaded a resume yet.</p>
+                <h3>No resume available</h3>
+                <p>This applicant has not submitted a resume with this application.</p>
               </div>
             ) : loading ? (
               <div className="resume-viewer-empty">

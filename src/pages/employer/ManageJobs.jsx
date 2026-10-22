@@ -71,6 +71,8 @@ export default function ManageJobs() {
       department: job.department || "",
       employment_type: job.employment_type || "Full-time",
       work_setup: job.work_setup || "On-site",
+      work_schedule: job.work_schedule || "",
+      travel_requirement: job.travel_requirement || "",
       location: job.location || "",
       required_skills: parseSkillsToArray(job.required_skills),
       required_certifications: parsed.cleanCertifications || "",
@@ -126,6 +128,8 @@ export default function ManageJobs() {
       department: editForm.department?.trim() || null,
       employment_type: editForm.employment_type,
       work_setup: editForm.work_setup,
+      work_schedule: editForm.work_schedule || null,
+      travel_requirement: editForm.travel_requirement || null,
       location: editForm.location.trim(),
       required_skills: serializedSkills,
       required_certifications: encodedCerts,
@@ -356,6 +360,18 @@ export default function ManageJobs() {
                         Work Setup
                         <select name="work_setup" value={editForm.work_setup || "On-site"} onChange={e => setEditForm(p => ({...p, work_setup: e.target.value}))}>
                           <option>On-site</option><option>Hybrid</option><option>Remote</option>
+                        </select>
+                      </label>
+                      <label className="job-edit-label">
+                        Typical Work Schedule
+                        <select value={editForm.work_schedule || ""} onChange={e => setEditForm(p => ({...p, work_schedule: e.target.value}))}>
+                          <option value="">Not specified</option><option>Day shift</option><option>Night shift</option><option>Rotating shifts</option><option>Flexible</option>
+                        </select>
+                      </label>
+                      <label className="job-edit-label">
+                        Travel Requirement
+                        <select value={editForm.travel_requirement || ""} onChange={e => setEditForm(p => ({...p, travel_requirement: e.target.value}))}>
+                          <option value="">Not specified</option><option>None</option><option>Occasional</option><option>Regular</option><option>Flexible</option>
                         </select>
                       </label>
                       <label className="job-edit-label">

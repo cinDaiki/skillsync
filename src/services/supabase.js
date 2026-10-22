@@ -104,3 +104,8 @@ function initSupabaseClient() {
 }
 
 export const supabase = initSupabaseClient();
+
+// Public origin only: lets staging QA verify routing without exposing any key or session.
+if (typeof window !== 'undefined') {
+  console.info('[SkillSync backend]', new URL(supabaseUrl).origin);
+}

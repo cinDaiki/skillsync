@@ -24,6 +24,8 @@ export default function PostJob() {
     department: "",
     employment_type: "Full-time",
     work_setup: "On-site",
+    work_schedule: "",
+    travel_requirement: "",
     location: "",
     salary_range: "",
     required_skills: [],
@@ -227,6 +229,8 @@ export default function PostJob() {
       department: formData.department.trim(),
       employment_type: formData.employment_type,
       work_setup: formData.work_setup,
+      work_schedule: formData.work_schedule || null,
+      travel_requirement: formData.travel_requirement || null,
       location: formData.location.trim(),
       salary_range: formData.salary_range.trim(),
       required_skills: skillsList.join(', '),
@@ -256,6 +260,17 @@ export default function PostJob() {
     }
 
     if (newJob) {
+      // create_employer_job RPC currently extracts a fixed payload and ignores extra fields.
+      // Persist optional logistics by an owner-scoped UPDATE with existing RLS after creation.
+      if (formData.work_schedule || formData.travel_requirement) {
+        const { error: termsError } = await supabase.from('jobs').update({
+          work_schedule: formData.work_schedule || null,
+          travel_requirement: formData.travel_requirement || null,
+        }).eq('id', newJob.id).eq('employer_id', user.id);
+        if (termsError) {
+          toast.error('Job created, but its optional schedule/travel details could not be saved. Review the posting in Manage Jobs.');
+        }
+      }
       // Rule-based matching (existing)
       runMatchingForJob(newJob.id).catch(console.error);
 
@@ -462,6 +477,16 @@ export default function PostJob() {
               </select>
             </label>
 
+            <label><span>Typical Work Schedule (Optional)</span>
+              <select name="work_schedule" value={formData.work_schedule} onChange={handleChange}>
+                <option value="">Not specified</option><option value="Day shift">Day shift</option><option value="Night shift">Night shift</option><option value="Rotating shifts">Rotating shifts</option><option value="Flexible">Flexible</option>
+              </select>
+            </label>
+            <label><span>Travel Requirement (Optional)</span>
+              <select name="travel_requirement" value={formData.travel_requirement} onChange={handleChange}>
+                <option value="">Not specified</option><option value="None">None</option><option value="Occasional">Occasional</option><option value="Regular">Regular</option><option value="Flexible">Flexible</option>
+              </select>
+            </label>
             <label><span>Location *</span>
               <input type="text" name="location" placeholder="e.g. Manila, Philippines" value={formData.location} onChange={handleChange} required />
             </label>

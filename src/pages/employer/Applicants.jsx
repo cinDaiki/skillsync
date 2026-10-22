@@ -1,7 +1,10 @@
+import { readJobMatchEvidence } from "../../services/jobMatchEvidence.js";
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
 import AIMatchReport from "../../components/ai/AIMatchReport";
+import ApplicantFitInsights from "../../components/employer/ApplicantFitInsights.jsx";
+import ApplicantAlignmentSummary from "../../components/alignment/ApplicantAlignmentSummary.jsx";
 import { fetchEmployerApplicants, fetchEmployerApplicantById, updateApplicationStage } from "../../services/applicationService";
 import {
   sendInterviewInvitation,
@@ -20,7 +23,6 @@ import { useModal } from "../../contexts/ModalContext";
 import { supabase } from "../../services/supabase";
 import { cosineSimilarity, fetchResumeEmbeddings, fetchJobEmbedding } from "../../services/ai/vectorSearchService";
 import { generateCandidateRecommendation, getMatchTier } from "../../services/ai/recommendationService";
-import { calculateJobFit } from "../../services/ai/jobFitEngine";
 import {
   isScreeningStatus,
   isActiveApplicant,
@@ -71,6 +73,7 @@ export default function Applicants() {
 
   // Interview state: { [applicationId]: activeInterviewRecord }
   const [interviewsMap, setInterviewsMap] = useState({});
+  const [evaluationsMap, setEvaluationsMap] = useState({});
   const [upcomingInterviews, setUpcomingInterviews] = useState([]);
   const [showUpcomingList, setShowUpcomingList] = useState(true);
   const [highlightedAppId, setHighlightedAppId] = useState(null);
@@ -100,9 +103,9 @@ export default function Applicants() {
   // Recruiter Evaluation Modal State
   const [evalModalApp, setEvalModalApp] = useState(null);
   const [evalNotes, setEvalNotes] = useState("");
-  const [evalTechRating, setEvalTechRating] = useState(5);
-  const [evalCommRating, setEvalCommRating] = useState(5);
-  const [evalRecommendation, setEvalRecommendation] = useState("Hire");
+  const [evalTechRating, setEvalTechRating] = useState(null);
+  const [evalCommRating, setEvalCommRating] = useState(null);
+  const [evalRecommendation, setEvalRecommendation] = useState("Consider");
   const [submittingEval, setSubmittingEval] = useState(false);
 
   // Final Hiring Decision Modal State
@@ -169,6 +172,18 @@ export default function Applicants() {
     });
     setInterviewsMap(map);
 
+    // Existing private HR evaluations belong to the employer and are protected by RLS.
+    const { data: evaluationsData, error: evaluationError } = await supabase.from('interview_evaluations')
+      .select('*')
+      .eq('employer_id', employerId);
+    if (evaluationError) console.warn('[Applicants] Unable to read saved HR evaluations:', evaluationError.message);
+    const savedRatings = {};
+    (evaluationsData || []).forEach(ev => {
+      const applicationId = ev.application_id || (interviewsData || []).find(inv => inv.id === ev.interview_id)?.application_id;
+      if (applicationId) savedRatings[applicationId] = ev;
+    });
+    setEvaluationsMap(savedRatings);
+
     const { data: upcoming } = await fetchUpcomingInterviews(employerId);
     setUpcomingInterviews(upcoming || []);
   }
@@ -202,27 +217,21 @@ export default function Applicants() {
   }
 
   function calculateAlignment(app) {
-    const jobObj = app.jobs || {};
-    const candObj = {
-      skills: app.profiles?.skills,
-      course: app.candidate_profiles?.course,
-      degree: app.candidate_profiles?.degree,
-      years_experience: app.candidate_profiles?.years_experience,
-      certifications: app.candidate_profiles?.certifications
-    };
-    const semScore = semanticScores[app.id] ? semanticScores[app.id] / 100 : 0.70;
-    const fitResult = calculateJobFit(candObj, jobObj, semScore);
-
+    const match = readJobMatchEvidence(app);
+    const c = match.calculation;
+    const record = match.historical ? c : app.job_match;
+    const strings = x => Array.isArray(x) ? x : [];
     return {
-      score: fitResult.jobFitScore,
-      tier: fitResult.tier,
-      matched: fitResult.matchedSkills,
-      missing: fitResult.missingSkills,
-      breakdown: fitResult.breakdown
+      score: match.score,
+      tier: getMatchTierLocal(match.score),
+      matched: strings(record?.matching_skills), missing: strings(record?.missing_skills),
+      breakdown: c?.breakdown || null, calculation: c,
+      isAuthoritative: match.score !== null, applicationTime: match.historical,
     };
   }
 
   function getMatchTierLocal(score) {
+    if (typeof score !== "number" || !Number.isFinite(score)) return "Unscored";
     if (score >= 80) return "High";
     if (score >= 40) return "Medium";
     return "Basic";
@@ -434,9 +443,9 @@ export default function Applicants() {
   function openEvalModal(app) {
     setEvalModalApp(app);
     setEvalNotes("");
-    setEvalTechRating(5);
-    setEvalCommRating(5);
-    setEvalRecommendation("Hire");
+    setEvalTechRating(null);
+    setEvalCommRating(null);
+    setEvalRecommendation("Consider");
   }
 
   function closeEvalModal() {
@@ -446,6 +455,11 @@ export default function Applicants() {
   async function handleSaveEvaluationSubmit(e) {
     e.preventDefault();
     if (!evalModalApp) return;
+
+    if (evalTechRating == null || evalCommRating == null) {
+      toast.error("Please rate role-specific skills and job-related communication before saving.");
+      return;
+    }
 
     setSubmittingEval(true);
     const { data: { session } } = await supabase.auth.getSession();
@@ -473,6 +487,7 @@ export default function Applicants() {
     } else {
       toast.success("🔒 Private recruiter evaluation saved successfully!");
       closeEvalModal();
+      await loadInterviews(session?.user?.id);
     }
   }
 
@@ -567,11 +582,13 @@ export default function Applicants() {
     })
     .sort((a, b) => {
       if (sortByAI) {
-        const aiA = semanticScores[a.id] ?? calculateAlignment(a).score;
-        const aiB = semanticScores[b.id] ?? calculateAlignment(b).score;
-        return aiB - aiA;
+        const scoreA = calculateAlignment(a).score ?? -1;
+        const scoreB = calculateAlignment(b).score ?? -1;
+        if (scoreB !== scoreA) {
+          return scoreB - scoreA;
+        }
       }
-      return 0;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
 
   const todayCount = upcomingInterviews.filter(inv => {
@@ -586,6 +603,7 @@ export default function Applicants() {
       subtitle="Verify candidate skills alignment, manage interview invitations, and progress hiring decisions."
     >
       <section className="dashboard-panel">
+        <div className="cr-page-toolbar"><span>Applications, interviews, and saved HR assessments.</span><button type="button" onClick={loadApplicants}>Refresh desk</button></div>
         <div className="panel-header emp-desk-header">
           <div className="panel-header-content">
             <h2>Review Applications & Interview Pipelines</h2>
@@ -904,16 +922,13 @@ export default function Applicants() {
                     </div>
 
                     <div className="rac-header-right">
-                      {aiScore !== undefined && (
-                        <span className="rac-ai-score-pill">
-                          🤖 {aiScore}% AI
-                        </span>
-                      )}
                       <span className={`rac-match-badge ${tier.toLowerCase()}`}>
-                        🧠 {alignment.score}% Match
+                        {typeof alignment.score === "number" ? `🎯 ${alignment.score}% Job Match Score` : "🎯 Not Evaluated"}
                       </span>
                     </div>
                   </div>
+
+                  <ApplicantAlignmentSummary applicant={app} interview={activeInv} evaluation={evaluationsMap[app.id]} />
 
                   {/* Info Snapshot Grid */}
                   <div className="rac-info-grid">
@@ -930,8 +945,8 @@ export default function Applicants() {
                       <strong>{formatUploadDate(app.created_at)}</strong>
                     </div>
                     <div className="rac-info-item">
-                      <span>Resume Score</span>
-                      <strong>{app.resume?.resume_score || "N/A"}</strong>
+                      <span>Resume Source</span>
+                      <strong>{app.applicant_snapshot?.resume_source === "builder" || app.built_resume ? "📝 Built Resume" : "📄 Uploaded"}</strong>
                     </div>
                   </div>
 
@@ -1166,25 +1181,34 @@ export default function Applicants() {
                       📝 Recruiter Notes {expandedNotes[app.id] ? "▲" : "▼"}
                     </button>
 
-                    {app.resume?.file_url ? (
+                    {app.applicant_snapshot?.resume_source === "builder" || app.applicant_snapshot?.built_resume || app.built_resume ? (
+                      <button
+                        type="button"
+                        className="rac-resume-btn"
+                        onClick={() => openResumeViewer(app)}
+                        style={{ background: "#f0fdf4", color: "#166534", borderColor: "#bbf7d0" }}
+                      >
+                        📝 View Built Resume
+                      </button>
+                    ) : app.resume?.file_url ? (
                       <button
                         type="button"
                         className="rac-resume-btn"
                         onClick={() => openResumeViewer(app)}
                       >
-                        📄 View PDF Resume
+                        📄 View Uploaded Resume
                       </button>
                     ) : (
-                      <span className="job-meta-chip" style={{ fontSize: "11px" }}>No Resume Uploaded</span>
+                      <span className="job-meta-chip" style={{ fontSize: "11px" }}>No Resume Submitted</span>
                     )}
 
-                    {semanticScores[app.id] !== undefined && (
+                    {typeof alignment.score === "number" && (
                       <button
                         type="button"
                         className="rac-ai-report-btn"
                         onClick={() => setAiReportApp(app)}
                       >
-                        🤖 View AI Match Report
+                        View Match Breakdown
                       </button>
                     )}
                   </div>
@@ -1392,8 +1416,11 @@ export default function Applicants() {
                 🔒 <strong>Strictly Private:</strong> Evaluation scores and notes are internal recruiter records and are NEVER shown to candidates.
               </p>
 
+              <ApplicantFitInsights applicant={evalModalApp} recruiterRoleRating={evalTechRating} />
+              <p className="fit-insights-disclaimer">Rate evidence from the interview or a work sample. Do not rate personality, similarity to the team, or protected personal traits.</p>
+
               <div className="form-group">
-                <label>Technical Skill Rating (1–5 Stars)</label>
+                <label>Role-Specific Fit (1–5 Stars)</label>
                 <div className="star-rating-selector">
                   {[1, 2, 3, 4, 5].map(star => (
                     <button
@@ -1405,12 +1432,12 @@ export default function Applicants() {
                       ★
                     </button>
                   ))}
-                  <span className="rating-label">{evalTechRating} / 5</span>
+                  <span className="rating-label">{evalTechRating == null ? "Not rated" : `${evalTechRating == null ? "Not rated" : `${evalTechRating == null ? "Not rated" : `${evalTechRating} / 5`}`}`}</span>
                 </div>
               </div>
 
               <div className="form-group">
-                <label>Communication & Culture Fit Rating (1–5 Stars)</label>
+                <label>Job-related Communication & Collaboration (1–5 Stars)</label>
                 <div className="star-rating-selector">
                   {[1, 2, 3, 4, 5].map(star => (
                     <button
@@ -1422,7 +1449,7 @@ export default function Applicants() {
                       ★
                     </button>
                   ))}
-                  <span className="rating-label">{evalCommRating} / 5</span>
+                  <span className="rating-label">{evalCommRating == null ? "Not rated" : `${evalCommRating == null ? "Not rated" : `${evalCommRating == null ? "Not rated" : `${evalCommRating} / 5`}`}`}</span>
                 </div>
               </div>
 
@@ -1440,7 +1467,7 @@ export default function Applicants() {
                 <label>Private Recruiter Screening Notes</label>
                 <textarea
                   rows="4"
-                  placeholder="Record interview observations, live coding results, soft skills feedback..."
+                  placeholder="Record interview observations, assessment results, role-specific competency, soft skills feedback..."
                   value={evalNotes}
                   onChange={e => setEvalNotes(e.target.value)}
                 />
@@ -1520,9 +1547,10 @@ export default function Applicants() {
       {/* AI Candidate Report Modal */}
       {aiReportApp && (() => {
         const alignment = calculateAlignment(aiReportApp);
-        const aiScore = semanticScores[aiReportApp.id] ?? alignment.score;
+        const matchScore = alignment.score;
+        const semanticSim = semanticScores[aiReportApp.id] ?? null;
         const rec = generateCandidateRecommendation(
-          aiScore,
+          matchScore,
           alignment.matched,
           alignment.missing,
           aiReportApp.displayName || "This candidate"
@@ -1530,8 +1558,10 @@ export default function Applicants() {
         return (
           <AIMatchReport
             job={aiReportApp.jobs}
-            matchScore={aiScore}
-            semanticScore={aiScore}
+            matchScore={matchScore}
+            matchCalculation={alignment.calculation}
+            historical={alignment.applicationTime}
+            semanticScore={semanticSim}
             matchedSkills={alignment.matched}
             missingSkills={alignment.missing}
             recommendation={rec}

@@ -1,5 +1,6 @@
+import JobMatchScore from "../../components/alignment/JobMatchScore.jsx";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabase";
 import { applyForJobWithSnapshot, getJobApplicationEligibility, recalculateAuthoritativeMatch } from "../../services/applicationService";
@@ -15,6 +16,8 @@ import { isEmployerSuspended, fetchSuspendedEmployerIds, filterAvailableJobs } f
 import { getCareerRelevanceTier, getCareerRelevanceEvidenceBullets, getCategoryLabel, getSubcategoryLabel, getAllCategories } from "../../services/careerRelevanceService";
 import CareerRelevanceBadge from "../../components/candidate/CareerRelevanceBadge";
 import "./JobMatches.css";
+import WorkAlignmentMini from "../../components/alignment/WorkAlignmentMini.jsx";
+import { getCandidateWorkPreferences } from "../../services/alignment/workPreferencesService.js";
 
 function formatPostedDate(dateStr) {
   if (!dateStr) return "Recently posted";
@@ -34,6 +37,32 @@ function formatPostedDate(dateStr) {
 
 export default function JobMatches() {
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialMode = searchParams.get("view") === "recommended"
+    ? "recommended"
+    : (localStorage.getItem("skillsync_job_marketplace_mode") || "all");
+  const [marketplaceMode, setMarketplaceMode] = useState(initialMode);
+
+  useEffect(() => {
+    const viewParam = searchParams.get("view");
+    if (viewParam === "recommended") {
+      setMarketplaceMode("recommended");
+    }
+  }, [searchParams]);
+
+  function handleModeChange(newMode) {
+    setMarketplaceMode(newMode);
+    try {
+      localStorage.setItem("skillsync_job_marketplace_mode", newMode);
+    } catch (_) {}
+    if (newMode === "recommended") {
+      setSearchParams({ view: "recommended" });
+    } else {
+      setSearchParams({});
+    }
+    setCurrentPage(1);
+  }
+
   const [jobs, setJobs] = useState([]);
   const [applications, setApplications] = useState([]);
   const [bookmarks, setBookmarks] = useState([]);
@@ -53,6 +82,15 @@ export default function JobMatches() {
   const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
 
   const [userId, setUserId] = useState(null);
+  const [workPreferences, setWorkPreferences] = useState(null);
+  useEffect(() => {
+    if (!userId) return;
+    let mounted = true;
+    getCandidateWorkPreferences(userId).then(({ data }) => {
+      if (mounted) setWorkPreferences(data || null);
+    });
+    return () => { mounted = false; };
+  }, [userId]);
 
   // Detail Modal
   const [selectedJob, setSelectedJob] = useState(null);
@@ -78,8 +116,10 @@ export default function JobMatches() {
         setMatchesMap(prev => {
           const next = new Map(prev);
           next.set(selectedJob.id, {
+            ...prev.get(selectedJob.id),
             job_id: selectedJob.id,
             match_score: res.matchScore,
+            match_calculation: res.eligibility?.matchCalculation || null,
             matching_skills: res.eligibility?.matchingSkills || [],
             missing_skills: res.eligibility?.missingSkills || []
           });
@@ -107,6 +147,20 @@ export default function JobMatches() {
     getJobApplicationEligibility(selectedJob.id).then((res) => {
       if (!isCancelled) {
         setEligibility(res);
+        if (typeof res?.matchScore === 'number') {
+          setMatchesMap(prev => {
+            const next = new Map(prev);
+            next.set(selectedJob.id, {
+              ...prev.get(selectedJob.id),
+              job_id: selectedJob.id,
+              match_score: res.matchScore,
+              match_calculation: res.matchCalculation || null,
+              matching_skills: res.matchingSkills || [],
+              missing_skills: res.missingSkills || [],
+            });
+            return next;
+          });
+        }
         setEligibilityLoading(false);
       }
     });
@@ -128,10 +182,9 @@ export default function JobMatches() {
       // 1. Check resume existence & candidate skills
       const { data: resumeRow } = await supabase
         .from("resumes")
-        .select("id, extracted_skills")
+        .select("id, extracted_skills, file_url")
         .eq("applicant_id", user.id)
         .maybeSingle();
-      setHasResume(!!resumeRow);
 
       const { data: candProfRow } = await supabase
         .from("candidate_profiles")
@@ -139,14 +192,24 @@ export default function JobMatches() {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      const candidateSkills = getCandidateSkillEvidence(candProfRow, resumeRow);
+      const activeSource = candProfRow?.active_resume_source || "upload";
+
+      const candidateSkills = getCandidateSkillEvidence(
+        candProfRow,
+        activeSource === "upload" ? resumeRow : null
+      );
+
+      const activeResumeExists = activeSource === "builder"
+        ? (candProfRow?.skills && candProfRow.skills.length > 0) || !!resumeRow
+        : (resumeRow?.file_url ? true : !!resumeRow);
+      setHasResume(activeResumeExists);
 
       setCandidateProfile({
         ...(candProfRow || {}),
         skills: candidateSkills
       });
 
-      if (resumeRow) {
+      if (activeResumeExists) {
         // Trigger background refresh of candidate recommendations against latest open jobs
         refreshCandidateRecommendations(user.id).catch((err) => {
           console.warn("[Marketplace] Background recommendation refresh info:", err);
@@ -171,7 +234,7 @@ export default function JobMatches() {
       // 4. Fetch authoritative job_matches for candidate (including Phase 4C Career Relevance)
       const { data: matchesData } = await supabase
         .from("job_matches")
-        .select("job_id, match_score, skills_score, education_score, experience_score, match_status, matching_skills, missing_skills, career_relevance_score, career_relevance_breakdown")
+        .select("*")
         .eq("user_id", user.id);
       const mMap = new Map((matchesData || []).map((m) => [m.job_id, m]));
       setMatchesMap(mMap);
@@ -299,7 +362,7 @@ export default function JobMatches() {
 
     // Authoritative Match Threshold Gate (Phase 4B & P1 Consistency)
     const matchRecord = matchesMap.get(job.id);
-    const score = matchRecord?.match_score ?? (selectedJob?.id === job.id && eligibility ? eligibility.matchScore : 0);
+    const score = (selectedJob?.id === job.id ? eligibility?.matchScore : null) ?? matchRecord?.match_score ?? 0;
     const reqScore = typeof job.minimum_match_percentage === 'number' ? job.minimum_match_percentage : 70;
     if (score < reqScore) {
       toast.error(`Your match score (${score}%) is below this employer's requirement (${reqScore}%). You can use "Improve My Match" to view skill gaps.`);
@@ -340,8 +403,30 @@ export default function JobMatches() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 6;
 
-  // Chronological sort: newest first (created_at DESC)
-  const sortedJobs = [...jobs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  // Mode-aware sort:
+  // Recommended mode: sorted by match_score DESC, secondary newest (created_at DESC)
+  // Mode-aware list & sort:
+  // Recommended mode: ONLY jobs with a valid calculated match record, sorted by match_score DESC, secondary newest (created_at DESC)
+  // All Jobs mode: all verified open positions, sorted newest first (created_at DESC)
+  const candidateJobs = marketplaceMode === "recommended"
+    ? jobs.filter(job => {
+        const match = matchesMap.get(job.id);
+        return match && typeof match.match_score === "number" && match.match_score >= 0;
+      })
+    : jobs;
+
+  const sortedJobs = [...candidateJobs].sort((a, b) => {
+    if (marketplaceMode === "recommended") {
+      const matchA = matchesMap.get(a.id);
+      const matchB = matchesMap.get(b.id);
+      const scoreA = typeof matchA?.match_score === "number" ? matchA.match_score : -1;
+      const scoreB = typeof matchB?.match_score === "number" ? matchB.match_score : -1;
+      if (scoreB !== scoreA) {
+        return scoreB - scoreA;
+      }
+    }
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+  });
 
   const filteredJobs = sortedJobs.filter(job => {
     // Search filter
@@ -389,13 +474,41 @@ export default function JobMatches() {
     <DashboardLayout
       role="candidate"
       title="Job Marketplace"
-      subtitle="Browse all available employer job postings, ordered by newest first."
+      subtitle={marketplaceMode === "recommended"
+        ? "Curated job opportunities tailored to your active resume qualifications, ranked by system match score."
+        : "Browse all available verified employer job postings across all industries."}
     >
       <section className="dashboard-panel">
+        {/* ── Top-Level Marketplace Modes ── */}
+        <div className="marketplace-mode-tabs" role="tablist" aria-label="Marketplace view mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={marketplaceMode === "recommended"}
+            className={`marketplace-mode-tab ${marketplaceMode === "recommended" ? "active" : ""}`}
+            onClick={() => handleModeChange("recommended")}
+          >
+            🎯 Recommended for You
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={marketplaceMode === "all"}
+            className={`marketplace-mode-tab ${marketplaceMode === "all" ? "active" : ""}`}
+            onClick={() => handleModeChange("all")}
+          >
+            💼 All Jobs
+          </button>
+        </div>
+
         <div className="panel-header">
           <div>
-            <h2>Active Job Openings</h2>
-            <p>Explore current opportunities posted by employers across all industries.</p>
+            <h2>{marketplaceMode === "recommended" ? "Recommended for You" : "All Job Openings"}</h2>
+            <p>
+              {marketplaceMode === "recommended"
+                ? "Jobs prioritized by your active resume qualification and skills alignment."
+                : "Explore current opportunities posted by employers across all industries."}
+            </p>
           </div>
         </div>
 
@@ -506,9 +619,27 @@ export default function JobMatches() {
 
         {filteredJobs.length === 0 ? (
           <div className="empty-state">
-            <span>◎</span>
-            <h3>No jobs found</h3>
-            <p>There are currently no active job openings matching your search criteria. Please check back later.</p>
+            <span>{marketplaceMode === "recommended" ? "🎯" : "◎"}</span>
+            <h3>{marketplaceMode === "recommended" ? "No recommendations calculated yet" : "No jobs found"}</h3>
+            <p>
+              {marketplaceMode === "recommended"
+                ? "No matching jobs were found for your current active resume qualifications. You can explore all open positions or update your resume."
+                : "There are currently no active job openings matching your search criteria. Please check back later."}
+            </p>
+            {marketplaceMode === "recommended" && (
+              <div style={{ display: "flex", gap: "10px", justifyContent: "center", marginTop: "14px" }}>
+                <button
+                  type="button"
+                  className="panel-action secondary"
+                  onClick={() => handleModeChange("all")}
+                >
+                  View All Open Jobs
+                </button>
+                <Link to="/candidate/resume" className="panel-action" style={{ textDecoration: "none" }}>
+                  Update Resume →
+                </Link>
+              </div>
+            )}
           </div>
         ) : (
           <div>
@@ -552,9 +683,9 @@ export default function JobMatches() {
                         if (isUncomputed) {
                           return (
                             <div className="rec-job-score-badge uncomputed" style={{ minWidth: "105px", boxSizing: "border-box", background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b" }}>
-                              <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
+                              <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB MATCH</span>
                               <span className="rec-job-score-num" style={{ fontSize: "14px", margin: "2px 0" }}>N/A</span>
-                              <span className="rec-job-score-label">Not Available</span>
+                              <span className="rec-job-score-label">Not Evaluated</span>
                             </div>
                           );
                         }
@@ -564,7 +695,7 @@ export default function JobMatches() {
                             className={`rec-job-score-badge ${numScore >= 80 ? 'excellent' : numScore >= 60 ? 'good' : numScore >= 40 ? 'partial' : 'skills-gap'}`}
                             style={{ minWidth: "105px", boxSizing: "border-box" }}
                           >
-                            <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB FIT</span>
+                            <span style={{ fontSize: "9px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.85, marginBottom: "2px" }}>JOB MATCH</span>
                             <span className="rec-job-score-num">{numScore}%</span>
                             <span className="rec-job-score-label">
                               {numScore >= 80 ? "Strong Match" : numScore >= 60 ? "Good Match" : numScore >= 40 ? "Potential Match" : "Skills Gap"}
@@ -583,6 +714,8 @@ export default function JobMatches() {
                   </div>
 
                   <p className="job-description-excerpt">{job.description || "No job description provided."}</p>
+
+                  <WorkAlignmentMini preferences={workPreferences} job={job} />
 
                   {/* Required Skills Tags */}
                   <div className="job-skills-list">
@@ -627,7 +760,7 @@ export default function JobMatches() {
                     gap: "6px"
                   }}>
                     <div style={{ fontSize: "12px", color: isChecking ? "#64748b" : hasMatch ? (isEligible ? "#166534" : "#991b1b") : "#64748b", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                      <span>Your Match: <strong style={{ fontSize: "13px" }}>{isChecking ? "..." : hasMatch ? `${matchScore}%` : "—"}</strong></span>
+                      <span>Job Match Score: <strong style={{ fontSize: "13px" }}>{isChecking ? "..." : hasMatch ? `${matchScore}%` : "—"}</strong></span>
                       <span style={{ margin: "0 4px", opacity: 0.4 }}>|</span>
                       <span>Required Match: <strong style={{ fontSize: "13px" }}>{reqScore}%</strong></span>
                       <span style={{ margin: "0 4px", opacity: 0.4 }}>|</span>
@@ -785,6 +918,7 @@ export default function JobMatches() {
 
                 {/* ── AUTHORITATIVE APPLICATION ELIGIBILITY BANNER (Phase 4B & Improve Match Guidance) ── */}
                 <CandidateMatchStatusBanner
+                  showScore={false}
                   job={selectedJob}
                   eligibility={eligibility}
                   eligibilityLoading={eligibilityLoading}
@@ -793,6 +927,12 @@ export default function JobMatches() {
                   recalculating={recalculatingMatch}
                 />
 
+                {<JobMatchScore
+                  score={eligibility?.matchScore ?? matchesMap.get(selectedJob.id)?.match_score}
+                  calculation={eligibility?.matchCalculation || matchesMap.get(selectedJob.id)?.match_calculation}
+                  evidenceError={eligibility?.evidenceError}
+                  loading={eligibilityLoading}
+                />}
                 <div className="job-detail-main">
                   <h4 style={{ color: "#58158f", margin: "0 0 6px 0", fontSize: "14px", fontWeight: "800" }}>Job Description</h4>
                   <p style={{ margin: 0, fontSize: "13px", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>

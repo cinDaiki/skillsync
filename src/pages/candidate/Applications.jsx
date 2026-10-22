@@ -1,3 +1,4 @@
+import JobMatchScore from "../../components/alignment/JobMatchScore.jsx";
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import CandidateInterviewModal from "../../components/candidate/CandidateInterviewModal";
@@ -15,6 +16,7 @@ import {
 import { fetchSuspendedEmployerIds } from "../../services/jobAvailability";
 import { withdrawJobApplication } from "../../services/applicationService";
 import "./Applications.css";
+import ConnectedStatusStrip from "../../components/alignment/ConnectedStatusStrip.jsx";
 
 function formatDate(dateString) {
   if (!dateString) return "No date";
@@ -107,8 +109,17 @@ export default function Applications() {
       });
     }
 
+    // Legacy applications may lack a frozen score. Both roles then show the same
+    // latest authoritative match, explicitly labelled as a current result.
+    let matchesByJob = {};
+    if (jobIds.length) {
+      const { data: matchRows } = await supabase.from("job_matches").select("*")
+        .eq("user_id", user.id).in("job_id", jobIds);
+      matchesByJob = Object.fromEntries((matchRows || []).map(row => [row.job_id, row]));
+    }
     const enriched = dedupedApps.map((app) => ({
       ...app,
+      job_match: matchesByJob[app.job_id] || null,
       jobs: jobMap[app.job_id] || null,
       isEmployerSuspended: Boolean(jobMap[app.job_id]?.is_employer_suspended),
     }));
@@ -231,6 +242,7 @@ export default function Applications() {
       subtitle="Track recruitment pipelines, confirm interview invitations, and monitor hiring decisions."
     >
       <section className="dashboard-panel applications-page">
+        <div className="cr-page-toolbar"><span>Application progress is shared with the employer.</span><button type="button" onClick={loadApplications}>Refresh status</button></div>
         {/* ── CLEAN HEADER & FILTER TABS ────────────────────────────────── */}
         <div className="applications-page-header">
           <div className="panel-header">
@@ -312,6 +324,7 @@ export default function Applications() {
                       <span>Decided {formatDate(app.updated_at || app.created_at)}</span>
                     </div>
 
+                    <JobMatchScore application={app} />
                     <p className="app-card-outcome-text">{stageInfo.statusMessage}</p>
 
                     <div className="app-card-footer">
@@ -348,30 +361,9 @@ export default function Applications() {
                     <span>Applied {formatDate(app.created_at)}</span>
                   </div>
 
-                  {/* Compact 5-Stage Progress Track */}
-                  <div className="application-timeline-track">
-                    <div
-                      className="application-timeline-progress"
-                      style={{ width: stageInfo.percent }}
-                    />
-                    {stageInfo.steps.map((step, idx) => {
-                      const stepNum = idx + 1;
-                      const isCompleted = step.state === "completed";
-                      const isActive = step.state === "active";
-
-                      return (
-                        <div
-                          key={step.id}
-                          className={`timeline-step ${isCompleted ? "completed" : ""} ${isActive ? "active" : ""}`}
-                        >
-                          <div className="timeline-step-circle">
-                            {isCompleted ? "✓" : isActive ? "●" : stepNum}
-                          </div>
-                          <span className="timeline-step-label">{step.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {/* The same recorded application/interview status is shown to both roles. */}
+                  <ConnectedStatusStrip status={app.status} interviewStatus={invStatus} audience="candidate" />
+                  <JobMatchScore application={app} />
 
                   {/* Action Indicator (if candidate action required) */}
                   {stageInfo.actionIndicator && (

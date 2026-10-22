@@ -294,6 +294,7 @@ export async function fetchSemanticMatchesForCandidate(userId) {
       ...m.jobs,
       rank:                      idx + 1,
       matchScore:                m.match_score      ?? 0,
+      matchCalculation:          m.match_calculation || null,
       matchStatus:               m.match_status     ?? 'Recommended',
       semanticScore:             m.semantic_score   ?? 0,
       skillsScore:               m.skills_score     ?? 0,

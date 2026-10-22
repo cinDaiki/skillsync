@@ -1,5 +1,6 @@
 import { normalizeSkillName } from "./normalization.js";
 import { runPipeline } from "./parser/index.js";
+import { assessResumeQuality } from "./parser/qualityAssessor.js";
 
 /**
  * LARGE curated skill dictionary spanning ALL industries.
@@ -96,10 +97,65 @@ async function extractTextFromDocx(file) {
       return extractTextFallback(arrayBuffer);
     }
 
-    const blob = new Blob([arrayBuffer], { type: "application/zip" });
-    const rawString = new TextDecoder("utf-8", { fatal: false }).decode(uint8);
+    // Try structured ZIP extraction for word/document.xml
+    try {
+      let idx = 0;
+      while (idx + 30 < uint8.length) {
+        if (uint8[idx] === 0x50 && uint8[idx + 1] === 0x4B && uint8[idx + 2] === 0x03 && uint8[idx + 3] === 0x04) {
+          const view = new DataView(uint8.buffer, uint8.byteOffset + idx);
+          const method = view.getUint16(8, true);
+          const compressedSize = view.getUint32(18, true);
+          const filenameLen = view.getUint16(26, true);
+          const extraLen = view.getUint16(28, true);
+          const filenameStart = idx + 30;
+          const dataStart = filenameStart + filenameLen + extraLen;
+          const filename = new TextDecoder("utf-8").decode(uint8.subarray(filenameStart, filenameStart + filenameLen));
 
-    // Find the document.xml content — DOCX stores content in <w:t> tags
+          if (filename === "word/document.xml") {
+            const fileData = uint8.subarray(dataStart, dataStart + compressedSize);
+            let xml = "";
+            if (method === 0) {
+              xml = new TextDecoder("utf-8").decode(fileData);
+            } else if (method === 8 && typeof DecompressionStream !== "undefined") {
+              const ds = new DecompressionStream("deflate-raw");
+              const writer = ds.writable.getWriter();
+              writer.write(fileData);
+              writer.close();
+              xml = await new Response(ds.readable).text();
+            }
+
+            if (xml) {
+              const pRegex = /<w:p(?:\s[^>]*)?>([\s\S]*?)<\/w:p>/gi;
+              const wTextRegex = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/gi;
+              const lines = [];
+              let pMatch;
+              while ((pMatch = pRegex.exec(xml)) !== null) {
+                const pContent = pMatch[1];
+                const words = [];
+                let tMatch;
+                while ((tMatch = wTextRegex.exec(pContent)) !== null) {
+                  const t = tMatch[1].trim();
+                  if (t.length > 0) words.push(t);
+                }
+                if (words.length > 0) lines.push(words.join(" "));
+              }
+
+              if (lines.length > 0) {
+                return lines.join("\n");
+              }
+            }
+          }
+          idx = dataStart + compressedSize;
+        } else {
+          idx++;
+        }
+      }
+    } catch (zipErr) {
+      console.warn("[Parser] Structured DOCX extraction failed, using fallback:", zipErr);
+    }
+
+    // Fallback: search entire raw buffer for <w:t> tags
+    const rawString = new TextDecoder("utf-8", { fatal: false }).decode(uint8);
     const wTextRegex = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/gi;
     const texts = [];
     let match;
@@ -337,7 +393,18 @@ export async function parseResumeFile(file) {
   const hasEducationSection  = /education|university|college|school|degree|bachelor|master|doctorate|diploma|graduate|bsit|bscs|course|edukasyon|pinag-aralan/i.test(text);
   const hasCertificationsSection = /certif|license|credential|training|seminar|award|nc\s*ii|tesda|prc|sertipiko/i.test(text);
   const hasContact = !!(emailMatch || phoneMatch || /linkedin|github|portfolio/i.test(text));
-  const isComplexFormat = isDocx || isDoc || isPdf;
+  const authenticHasExperience = Boolean(
+    hasExperienceSection ||
+    (pipelineResult?.experience && pipelineResult.experience.length > 0) ||
+    pipelineResult?.meta?.sectionOrder?.includes('EXPERIENCE')
+  );
+
+  const authenticHasEducation = Boolean(
+    hasEducationSection ||
+    (pipelineResult?.education && pipelineResult.education.length > 0) ||
+    pipelineResult?.meta?.sectionOrder?.includes('EDUCATION') ||
+    extractedDegree
+  );
 
   // ── Step 4: Prefer pipeline contact over legacy regex ────────────────────
   const pContact = pipelineResult?.contact;
@@ -346,8 +413,8 @@ export async function parseResumeFile(file) {
     phone:    pContact?.phone?.normalized    || phoneMatch?.[0]    || null,
     linkedin: pContact?.linkedin?.normalized || (linkedinMatch ? "https://" + linkedinMatch[0] : null),
     github:   pContact?.github?.normalized   || (githubMatch   ? "https://" + githubMatch[0]   : null),
-    hasExperienceSection:     hasExperienceSection || isComplexFormat,
-    hasEducationSection:      hasEducationSection  || isComplexFormat,
+    hasExperienceSection:     authenticHasExperience,
+    hasEducationSection:      authenticHasEducation,
     hasCertificationsSection: hasCertificationsSection,
     hasContact:               hasContact,
     degree:   extractedDegree,
@@ -385,7 +452,16 @@ export async function parseResumeFile(file) {
   if (parsedDetails.hasExperienceSection)   completeness += 20;
   if (parsedDetails.hasEducationSection)    completeness += 20;
 
-  // ── Step 7: Return legacy shape + new `parsed` field (additive) ──────────
+  // ── Step 7: Phase 2 — Resume Quality and Extraction Validation ────────────
+  const qualityAssessment = assessResumeQuality({
+    rawText: text,
+    details: parsedDetails,
+    skills: mergedSkills,
+    parsedPipeline: pipelineResult,
+    fileName: file.name
+  });
+
+  // ── Step 8: Return legacy shape + new fields (additive) ───────────────────
   return {
     // ─ Legacy fields — 100% backward compatible ─
     score:        Math.round(score),
@@ -393,8 +469,9 @@ export async function parseResumeFile(file) {
     skills:       mergedSkills,
     details:      parsedDetails,
     extractedText: text,   // used by embeddingService for semantic encoding
-    // ─ New fields — existing callers safely ignore these ─
+    // ─ Phase 1 & 2 additions ─
     parsed:       pipelineResult,
+    qualityAssessment,     // Phase 2 Quality & Extraction Assessment
   };
 }
 

@@ -1,3 +1,5 @@
+import { loadCurrentJobMatchEvidence } from "./currentJobMatchEvidence.js";
+import { readJobMatchEvidence } from "./jobMatchEvidence.js";
 import { supabase } from "./supabase.js";
 import { getResume } from "./api.js";
 import { isEmployerSuspended, fetchSuspendedEmployerIds } from "./jobAvailability.js";
@@ -61,34 +63,89 @@ export function resolveApplicantIdentity(app) {
 }
 
 export async function buildApplicantSnapshot(userId) {
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, email, contact_number, skills, education, work_experience, certifications, verification_status")
-    .eq("id", userId)
-    .maybeSingle();
+  const [
+    { data: profile },
+    { data: candProf },
+    { data: formResume },
+    { data: resume }
+  ] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name, email, contact_number, skills, education, work_experience, certifications, verification_status")
+      .eq("id", userId)
+      .maybeSingle(),
+    supabase
+      .from("candidate_profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase
+      .from("candidate_form_resumes")
+      .select("resume_data, updated_at")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    getResume(userId)
+  ]);
 
   const { data: { session } } = await supabase.auth.getSession();
   const authEmail = session?.user?.id === userId ? session.user.email || "" : "";
 
-  const { data: resume } = await getResume(userId);
+  const activeSource = candProf?.active_resume_source || (formResume?.resume_data && !resume?.file_url ? "builder" : "upload");
+  const isBuilder = activeSource === "builder";
+
+  // Deep clone candidate builder data so future edits do NOT mutate historical snapshot
+  const builtResumeSnapshot = isBuilder && formResume?.resume_data
+    ? JSON.parse(JSON.stringify(formResume.resume_data))
+    : null;
+
+  const uploadedResumeSnapshot = (!isBuilder && resume?.file_url)
+    ? {
+        file_url: resume.file_url,
+        file_name: resume.file_name || resume.name || "Resume",
+        file_size: resume.file_size || null,
+        created_at: resume.created_at || null,
+      }
+    : null;
+
+  // Active-source qualifications snapshot
+  const activeSkills = isBuilder
+    ? (builtResumeSnapshot?.skills
+        ? builtResumeSnapshot.skills.map(s => (typeof s === "string" ? s : s?.name)).filter(Boolean).join(", ")
+        : (Array.isArray(candProf?.skills) ? candProf.skills.join(", ") : (candProf?.skills || profile?.skills || "")))
+    : (profile?.skills || "");
+
+  const activeEducation = isBuilder
+    ? (builtResumeSnapshot?.education?.entries || candProf?.degree || profile?.education || null)
+    : (profile?.education || candProf?.degree || null);
+
+  const activeExperience = isBuilder
+    ? (builtResumeSnapshot?.experience?.entries || profile?.work_experience || null)
+    : (profile?.work_experience || null);
+
+  const activeCertifications = isBuilder
+    ? (builtResumeSnapshot?.projectsAndCredentials?.certifications || candProf?.certifications || profile?.certifications || null)
+    : (candProf?.certifications || profile?.certifications || null);
 
   return {
-    full_name: profile?.full_name?.trim() || "",
-    email: profile?.email?.trim() || authEmail,
-    contact_number: profile?.contact_number || "",
-    skills: profile?.skills || "",
-    education: profile?.education || null,
-    work_experience: profile?.work_experience || null,
-    certifications: profile?.certifications || null,
+    full_name: builtResumeSnapshot?.personalDetails?.fullName?.trim() || profile?.full_name?.trim() || "",
+    email: builtResumeSnapshot?.personalDetails?.email?.trim() || profile?.email?.trim() || authEmail,
+    contact_number: builtResumeSnapshot?.personalDetails?.phone || profile?.contact_number || "",
+    skills: activeSkills,
+    education: activeEducation,
+    work_experience: activeExperience,
+    certifications: activeCertifications,
     verification_status: profile?.verification_status || null,
-    resume: resume?.file_url
-      ? {
-          file_url: resume.file_url,
-          file_name: resume.file_name || resume.name || "Resume",
-          file_size: resume.file_size || null,
-          created_at: resume.created_at || null,
-        }
-      : null,
+    resume_source: isBuilder ? "builder" : "upload",
+    built_resume: builtResumeSnapshot,
+    resume: uploadedResumeSnapshot,
+    candidate_profiles: candProf ? {
+      active_resume_source: activeSource,
+      degree: candProf.degree || null,
+      course: candProf.course || null,
+      years_experience: candProf.years_experience || null,
+      certifications: candProf.certifications || null,
+      skills: candProf.skills || null
+    } : null
   };
 }
 
@@ -98,15 +155,24 @@ export async function syncApplicantSnapshot(userId) {
   }
 
   try {
-    const snapshot = await buildApplicantSnapshot(userId);
     const { data: apps } = await supabase
       .from("applications")
-      .select("id")
+      .select("id, applicant_snapshot")
       .eq("applicant_id", userId);
 
     if (!apps?.length) return { error: null };
 
+    const snapshot = await buildApplicantSnapshot(userId);
+
     for (const app of apps) {
+      const existingSnap = parseSnapshot(app.applicant_snapshot);
+      // STRICT FROZEN RESUME PRESERVATION:
+      // If the application already has a frozen submitted resume (built_resume or resume),
+      // DO NOT overwrite the submitted resume data!
+      if (existingSnap?.resume_source || existingSnap?.built_resume || existingSnap?.resume) {
+        continue;
+      }
+
       const { error } = await withTimeout(
         supabase
           .from("applications")
@@ -299,6 +365,8 @@ export async function applyForJobWithSnapshot(jobId, applicantId) {
 export function enrichApplicationRecord(app) {
   const snapshot = parseSnapshot(app?.applicant_snapshot);
   const snapshotResume = snapshot.resume || null;
+  const snapshotBuiltResume = snapshot.built_resume || null;
+  const resumeSource = snapshot.resume_source || (snapshotBuiltResume ? "builder" : (snapshotResume?.file_url || app.resume?.file_url ? "upload" : null));
 
   const profileFromJoin = app.profiles || null;
   const profileFromSnapshot =
@@ -314,8 +382,15 @@ export function enrichApplicationRecord(app) {
           verification_status: snapshot.verification_status || null,
         }
       : null;
-
-  const profiles = profileFromJoin || profileFromSnapshot;
+  // Application-time submitted qualifications must strictly take priority over subsequent live profile modifications
+  const profiles = {
+    ...(profileFromJoin || {}),
+    ...(profileFromSnapshot || {}),
+    skills: Object.prototype.hasOwnProperty.call(snapshot, "skills") ? snapshot.skills : (profileFromJoin?.skills ?? ""),
+    education: Object.prototype.hasOwnProperty.call(snapshot, "education") ? snapshot.education : (profileFromJoin?.education ?? null),
+    work_experience: Object.prototype.hasOwnProperty.call(snapshot, "work_experience") ? snapshot.work_experience : (profileFromJoin?.work_experience ?? null),
+    certifications: Object.prototype.hasOwnProperty.call(snapshot, "certifications") ? snapshot.certifications : (profileFromJoin?.certifications ?? null),
+  };
 
   // IMPORTANT: Prioritize submitted resume snapshot captured at application time over current candidate upload
   const resumeFromSnapshot = snapshotResume?.file_url
@@ -344,6 +419,12 @@ export function enrichApplicationRecord(app) {
 
   return {
     ...app,
+    applicant_snapshot: snapshot,
+    resume_source: resumeSource,
+    built_resume: snapshotBuiltResume,
+    candidate_profiles: app.candidate_profiles || snapshot.candidate_profiles || null,
+    job_match: app.job_match || null,
+    match_score: readJobMatchEvidence(app).score,
     profiles: {
       ...(profiles || {}),
       full_name: identity.displayName,
@@ -360,7 +441,7 @@ export async function fetchEmployerApplicants(employerId) {
   try {
     const { data: jobs, error: jobsError } = await supabase
       .from("jobs")
-      .select("id, title, employment_type, location, required_skills")
+      .select("id, title, employment_type, location, required_skills, work_setup, work_schedule, travel_requirement")
       .eq("employer_id", employerId);
 
     if (!jobsError && jobs && jobs.length > 0) {
@@ -378,35 +459,63 @@ export async function fetchEmployerApplicants(employerId) {
         const applicantIds = [...new Set(apps.map((a) => a.applicant_id).filter(Boolean))];
         let profileMap = {};
         let resumeMap = {};
+        let candidateProfileMap = {};
+        let jobMatchMap = {};
 
         if (applicantIds.length > 0) {
-          const { data: profilesData } = await supabase
-            .from("profiles")
-            .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
-            .in("id", applicantIds);
+          const [
+            { data: profilesData },
+            { data: resumesData },
+            { data: candProfilesData },
+            { data: jobMatchesData }
+          ] = await Promise.all([
+            supabase
+              .from("profiles")
+              .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
+              .in("id", applicantIds),
+            supabase
+              .from("resumes")
+              .select("*")
+              .in("applicant_id", applicantIds),
+            supabase
+              .from("candidate_profiles")
+              .select("*")
+              .in("user_id", applicantIds),
+            supabase
+              .from("job_matches")
+              .select("*")
+              .in("user_id", applicantIds)
+              .in("job_id", jobIds)
+          ]);
+
           (profilesData || []).forEach((p) => {
             profileMap[p.id] = p;
           });
-
-          const { data: resumesData } = await supabase
-            .from("resumes")
-            .select("*")
-            .in("applicant_id", applicantIds);
           (resumesData || []).forEach((r) => {
             resumeMap[r.applicant_id] = r;
+          });
+          (candProfilesData || []).forEach((cp) => {
+            candidateProfileMap[cp.user_id] = cp;
+          });
+          (jobMatchesData || []).forEach((jm) => {
+            jobMatchMap[`${jm.user_id}_${jm.job_id}`] = jm;
           });
         }
 
         return {
-          data: apps.map((app) =>
-            enrichApplicationRecord({
+          data: apps.map((app) => {
+            const jm = jobMatchMap[`${app.applicant_id}_${app.job_id}`] || null;
+            return enrichApplicationRecord({
               ...app,
               jobs: jobMap[app.job_id] || null,
               profiles: profileMap[app.applicant_id] || null,
               resume: resumeMap[app.applicant_id] || null,
               applicant_email: profileMap[app.applicant_id]?.email || null,
-            })
-          ),
+              candidate_profiles: candidateProfileMap[app.applicant_id] || null,
+              job_match: jm,
+              match_score: jm?.match_score ?? app.match_score ?? null
+            });
+          }),
           error: null,
         };
       }
@@ -430,7 +539,7 @@ export async function fetchEmployerApplicants(employerId) {
           status: row.status,
           created_at: row.created_at,
           updated_at: row.updated_at || null,
-          match_score: row.match_score || null,
+          match_score: row.match_score ?? null,
           recruiter_notes: row.recruiter_notes || null,
           reject_reason: row.reject_reason || null,
           applicant_snapshot: row.applicant_snapshot,
@@ -500,27 +609,51 @@ export async function fetchEmployerApplicantById(applicationId, employerId = nul
 
     let profile = null;
     let resume = null;
+    let candProf = null;
+    let jobMatch = null;
 
     if (appData.applicant_id) {
-      const { data: profData } = await supabase
-        .from("profiles")
-        .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
-        .eq("id", appData.applicant_id)
-        .maybeSingle();
+      const [
+        { data: profData },
+        { data: resumeData },
+        { data: candProfData },
+        { data: jobMatchData }
+      ] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id, full_name, email, contact_number, address, skills, education, work_experience, certifications, verification_status")
+          .eq("id", appData.applicant_id)
+          .maybeSingle(),
+        supabase
+          .from("resumes")
+          .select("*")
+          .eq("applicant_id", appData.applicant_id)
+          .maybeSingle(),
+        supabase
+          .from("candidate_profiles")
+          .select("*")
+          .eq("user_id", appData.applicant_id)
+          .maybeSingle(),
+        supabase
+          .from("job_matches")
+          .select("*")
+          .eq("user_id", appData.applicant_id)
+          .eq("job_id", appData.job_id)
+          .maybeSingle()
+      ]);
       profile = profData;
-
-      const { data: resumeData } = await supabase
-        .from("resumes")
-        .select("*")
-        .eq("applicant_id", appData.applicant_id)
-        .maybeSingle();
       resume = resumeData;
+      candProf = candProfData;
+      jobMatch = jobMatchData;
     }
 
     const enriched = enrichApplicationRecord({
       ...appData,
       profiles: profile,
       resume: resume,
+      candidate_profiles: candProf,
+      job_match: jobMatch,
+      match_score: jobMatch?.match_score ?? appData.match_score ?? null,
       applicant_email: profile?.email || null,
     });
 
@@ -618,7 +751,7 @@ export async function getJobApplicationEligibility(jobId) {
   }
 
   try {
-    const { data, error } = await supabase.rpc("get_job_application_eligibility", {
+    let { data, error } = await supabase.rpc("get_job_application_eligibility", {
       p_job_id: jobId
     });
 
@@ -638,37 +771,14 @@ export async function getJobApplicationEligibility(jobId) {
       };
     }
 
+    const evidence = await loadCurrentJobMatchEvidence(supabase, jobId, data);
+    data = evidence.eligibility;
     const matchScore = data.match_score ?? 0;
     const requiredMatch = data.minimum_match_percentage ?? 70;
     const gap = Math.max(0, requiredMatch - matchScore);
-
-    // Also attempt to resolve authoritative component scores from job_matches
-    let breakdown = null;
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: matchRow } = await supabase
-          .from("job_matches")
-          .select("skills_score, education_score, experience_score, semantic_score, matched_certs, matching_skills, missing_skills")
-          .eq("user_id", user.id)
-          .eq("job_id", jobId)
-          .maybeSingle();
-
-        if (matchRow) {
-          const certCount = Array.isArray(matchRow.matched_certs) ? matchRow.matched_certs.length : 0;
-          breakdown = {
-            requiredSkillsScore: matchRow.skills_score ?? 0,
-            transferableSkillsScore: 100, // Normalized default when not stored separately
-            educationCompatibility: matchRow.education_score ?? 0,
-            experienceCompatibility: matchRow.experience_score ?? 0,
-            semanticRelevance: matchRow.semantic_score ?? 0,
-            credentialsScore: certCount > 0 ? 100 : 50,
-          };
-        }
-      }
-    } catch (_) {
-      // Non-blocking breakdown enrichment
-    }
+    const matchCalculation = evidence.calculation;
+    const breakdown = matchCalculation?.breakdown || null;
+    if (evidence.evidenceError) console.warn('[Job Match Score] Calculation evidence unavailable:', evidence.evidenceError.message);
 
     return {
       jobId: data.job_id,
@@ -680,6 +790,8 @@ export async function getJobApplicationEligibility(jobId) {
       matchingSkills: Array.isArray(data.matching_skills) ? data.matching_skills : [],
       missingSkills: Array.isArray(data.missing_skills) ? data.missing_skills : [],
       matchStatus: data.match_status || "Skills Gap",
+      matchCalculation,
+      evidenceError: evidence.evidenceError,
       breakdown,
       error: null
     };
@@ -737,15 +849,9 @@ export async function getAuthoritativeJobMatchBreakdown(jobId) {
     if (!compErr && compResult?.breakdown) {
       return {
         matchScore: compResult.match_score ?? 0,
+        matchCalculation: compResult.match_calculation || null,
         matchStatus: compResult.match_status || "Skills Gap",
-        breakdown: {
-          requiredSkillsScore: compResult.breakdown.requiredSkillsScore ?? 0,
-          transferableSkillsScore: compResult.breakdown.transferableSkillsScore ?? 0,
-          educationCompatibility: compResult.breakdown.educationCompatibility ?? 0,
-          experienceCompatibility: compResult.breakdown.experienceCompatibility ?? 0,
-          semanticRelevance: compResult.breakdown.semanticRelevance ?? 0,
-          credentialsScore: compResult.breakdown.credentialsScore ?? 50,
-        },
+        breakdown: compResult.breakdown,
         matchingSkills: Array.isArray(compResult.matching_skills) ? compResult.matching_skills : [],
         missingSkills: Array.isArray(compResult.missing_skills) ? compResult.missing_skills : [],
         matchedCerts: Array.isArray(compResult.matched_certs) ? compResult.matched_certs : [],
@@ -764,18 +870,11 @@ export async function getAuthoritativeJobMatchBreakdown(jobId) {
     if (rowErr) return { error: rowErr };
     if (!row) return { error: new Error("No match record found") };
 
-    const certCount = Array.isArray(row.matched_certs) ? row.matched_certs.length : 0;
     return {
       matchScore: row.match_score ?? 0,
       matchStatus: row.match_status || "Skills Gap",
-      breakdown: {
-        requiredSkillsScore: row.skills_score ?? 0,
-        transferableSkillsScore: 100,
-        educationCompatibility: row.education_score ?? 0,
-        experienceCompatibility: row.experience_score ?? 0,
-        semanticRelevance: row.semantic_score ?? 0,
-        credentialsScore: certCount > 0 ? 100 : 50,
-      },
+      matchCalculation: row.match_calculation || null,
+      breakdown: row.match_calculation?.breakdown || null,
       matchingSkills: Array.isArray(row.matching_skills) ? row.matching_skills : [],
       missingSkills: Array.isArray(row.missing_skills) ? row.missing_skills : [],
       matchedCerts: Array.isArray(row.matched_certs) ? row.matched_certs : [],
@@ -828,6 +927,7 @@ export async function recalculateAuthoritativeMatch(jobId) {
       eligibility,
       breakdown,
       matchResult,
+      matchCalculation: matchResult?.match_calculation || null,
       error: null
     };
   } catch (err) {
