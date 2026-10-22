@@ -44,7 +44,9 @@ A live regression after switching resume sources exposed a stale marketplace car
 - Actual authenticated database RPC transaction: application → shortlist → online invitation → candidate acceptance (`CONFIRMED`) → one evaluation → `hired`. Saved score was 77 and versioned evidence remained unchanged. The complete transaction was rolled back; application and resume counts remained 2 each.
 - Candidate console: extension-origin metadata errors and a Transformers content-length buffer warning; no application-origin exception observed in these checks. This does not establish every screen is error-free.
 - Security advisor counts matched the pre-migration baseline (7 mutable search-path warnings, 16 anon definer warnings, 56 authenticated definer warnings, and existing platform configuration notices). No broad privilege changes were made.
-- Employer browser sign-in, fresh upload parsing, and the complete browser recruitment workflow remain pending. Database-role workflow success is not a claim of browser end-to-end completion.
+- Latest preview browser Apply succeeded and persisted QA application `68068180-2c43-408e-93b7-f988f6b31c12` with score 77 and saved evidence. Employer-authenticated RPCs shortlisted it and created QA interview `6edb7496-3c1e-4bb1-a560-4f9b44052a74`. These test rows are retained for review.
+- Live interview acceptance exposed a global CSS collision: Profile.css lowered the generic confirmation overlay below the application-details modal. Namespaced confirmation styles now avoid that collision and a nested keyboard focus trap keeps confirmation usable.
+- Employer browser sign-in, fresh upload parsing, and complete browser recruitment verification remain pending. Database-role workflow success is not a claim of browser end-to-end completion.
 
 ## Validation
 
