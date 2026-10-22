@@ -1,60 +1,23 @@
 # Job Match Score
 
-The employer resume viewer used a skills-only intersection percentage (including a 100 fallback when no requirements were listed) while other views used the authoritative six-factor score. The shared Job Match Score component now presents the authoritative result and its calculation evidence on both sides. There is no new scoring rubric and no change to hiring decisions or independent HR evaluations.
+Candidate and employer application views use the same server-owned score and saved calculation evidence. The interface shows one overall percentage and an expandable visual breakdown.
 
-## What the user sees
+## Visual breakdown
 
-One overall percentage, an expandable "How this score was calculated" section, criterion contribution points out of available points, matched/missing evidence, data sources, date, and scoring version. Weights and criterion percentages are not displayed. Compatibility rule results are expressed out of 100, so the conversion to contribution points can be reproduced.
+Each criterion appears in a card with an icon, whole contribution points, a short evidence summary, and found/missing skill chips where available. Unspecified requirements use a **Default rule** label, rather than implying verified qualification evidence. Excluded criteria say **Not counted**. No weight percentages, per-criterion percentages, long formulas, or decimal contribution points appear in the interface.
 
-The existing canonical engine uses required skills, transferable skills, education, experience, and optional certifications and resume/job context. Maximum contribution points are normalized over applicable factors. Certification requirements absent from a job and missing embeddings are excluded. Original education/experience baseline rules remain unchanged and are disclosed in the evidence; full compatibility is not represented as verified proof of qualification.
+The total strip adds the displayed contributions. To avoid rounding discrepancies, the presentation floors each exact contribution and distributes the remaining points to the largest fractional contributions until their sum equals the authoritative rounded score. For example, exact contributions of 26.25, 13.125, 18.75, and 18.75 appear as 26 + 13 + 19 + 19 = 77. A short note explains that whole displayed points are adjusted to add up and the underlying calculation keeps full precision.
 
-For each included criterion:
+This is a display change. It does not change factor weights, canonical scores, eligibility, application snapshots, or historical evidence. The engine uses required skills, transferable skills, education, experience, and optional certifications and resume/job context. It does not use a four-factor 50/25/15/10 rubric.
 
-```
-available points = 100 × internal factor weight / sum of applicable weights
-contribution = recorded criterion compatibility × available points / 100
-Job Match Score = PostgreSQL-rounded sum of contributions
-```
+## Data contract
 
-Each displayed contribution is rounded to two decimal places, independently. The server score is authoritative, including floating point half-way rounding. The sample mockup's 50/25/15/10 weights are not used.
+`compute_and_save_job_match` saves score and calculation evidence together. Application insertion freezes this result in the snapshot, and later updates preserve it. Both roles resolve the saved application result before any newer match. A current match can request missing evidence from the server; an earlier application's missing evidence cannot be reconstructed from a newer resume.
 
-## Data flow and historical consistency
+Whole points are presentation-only. The complete versioned calculation, original precision, evidence inputs, timestamp, and internal applicable weights remain stored for audit. Human HR evaluation remains independent of the job-alignment score.
 
-`compute_and_save_job_match` calculates and stores `job_matches.match_calculation` in the same upsert as `match_score`. The JSON includes a scoring version, timestamp, candidate/job IDs, actual factor results and denominator, matched/missing skills and certifications, education and experience inputs, and embedding availability/similarity. Candidate evidence is extracted/structured data, not invented verbatim resume quotations or document page citations.
+## Verification
 
-On application INSERT, the existing server trigger discards client-authored score claims and freezes the score and matching calculation into `applicant_snapshot`. A before-UPDATE trigger retains those saved score fields during stage changes and client snapshot refreshes. Both roles use `readJobMatchEvidence`, which prefers the application snapshot over a later match row. Legacy applications without a frozen score can show the latest authoritative record, explicitly labelled as current.
+The evidence suite runs the real SQL migration in isolated PGlite with synthetic fixtures. It checks unchanged scoring, calculation persistence, optional factors, aliases, immutable snapshots, forged-input rejection, and candidate/employer parity. Shared React rendering checks a single percentage, visual cards, whole-point labels that reconcile to the score, explicit baseline/exclusion states, loading/error/legacy states, and escaped evidence text.
 
-Old application scores without calculation evidence are not backfilled from current data. The UI states that historical evidence was not saved. Recalculate can create evidence for the current match, but cannot rewrite an earlier application.
-
-## Rollout status
-
-Implemented on `feature/explainable-job-match-score`, based on `feature/candidate-resume-builder` at `ffe9b7e99e3169da9e043e7e9b279a858ba02293`.
-
-The staging runtime was verified in the browser: preview deployment `5cc4d4e` reports backend `https://zjzymrpifutqubffvhyt.supabase.co`. Only after that check, `connected_recruitment` and `explainable_job_match_score` were applied to staging. Production was not queried, migrated, merged, or promoted.
-
-The candidate details and improvement panels always show the overall score, including while evidence loads. Legacy current matches fetch server evidence and calculate it once when absent. Historical application evidence remains immutable and is never reconstructed from current resume data.
-
-A live regression after switching resume sources exposed a stale marketplace card: details refreshed to 77 but Apply still checked 68. The eligibility response now updates the card cache and Apply prefers the selected job's refreshed authoritative score. Recalculate retains the calculation and existing career relevance fields.
-
-## Staging verification on October 22, 2026
-
-- Candidate sign-in and email verification succeeded with the dedicated QA account.
-- Junior Web Developer: built resume displayed 37; expanded evidence totaled 36.89 points. Switching to the existing uploaded resume displayed 33, totaling 32.56 points. Both matched saved database score and versioned evidence. Original built source was restored and verified in the database.
-- Resume Builder review and preview rendered; Word download was a valid 9,800-byte DOCX with no ZIP integrity errors. Existing upload screen and extracted skills rendered. A fresh upload/parse has not yet been exercised in this run.
-- Actual authenticated database RPC transaction: application → shortlist → online invitation → candidate acceptance (`CONFIRMED`) → one evaluation → `hired`. Saved score was 77 and versioned evidence remained unchanged. The complete transaction was rolled back; application and resume counts remained 2 each.
-- Candidate console: extension-origin metadata errors and a Transformers content-length buffer warning; no application-origin exception observed in these checks. This does not establish every screen is error-free.
-- Security advisor counts matched the pre-migration baseline (7 mutable search-path warnings, 16 anon definer warnings, 56 authenticated definer warnings, and existing platform configuration notices). No broad privilege changes were made.
-- Latest preview browser Apply succeeded and persisted QA application `68068180-2c43-408e-93b7-f988f6b31c12` with score 77 and saved evidence. Employer-authenticated RPCs shortlisted it and created QA interview `6edb7496-3c1e-4bb1-a560-4f9b44052a74`. These test rows are retained for review.
-- Live interview acceptance exposed a global CSS collision: Profile.css lowered the generic confirmation overlay below the application-details modal. Namespaced confirmation styles now avoid that collision and a nested keyboard focus trap keeps confirmation usable.
-- Employer browser sign-in, fresh upload parsing, and complete browser recruitment verification remain pending. Database-role workflow success is not a claim of browser end-to-end completion.
-
-## Validation
-
-- `npm test`: existing regression suites, HR validation, plus the new evidence integration suite.
-- `node tests/phase6ConnectedRecruitment.test.mjs`: connected status/preference contracts.
-- `npm run build`: Vite production build.
-- New integration suite executes the real migration and canonical scoring helpers in isolated PGlite PostgreSQL with synthetic data. It checks unchanged overall scoring, normalized contributions, optional factors, aliases, saved/returned evidence equality, forged-input rejection, immutable snapshots, both resume-source labels, legacy states, and shared React markup with exactly one percentage.
-- Auth/eligibility and career-relevance integrations are local test stubs. The vector distance operator has a scalar test stand-in. These tests do not establish Supabase RLS, embedding quality, remote auth, or live end-to-end behavior.
-- `docs/job-match-score-preview.html` is a synthetic static rendering. Live candidate visual verification and an expanded-score screenshot were subsequently captured on staging.
-
-Before release: finish the pending browser checks, compare submitted score/evidence on both roles, and test mobile layout. Do not merge or promote to production as part of staging verification.
+`docs/job-match-score-preview.html` renders the actual component with illustrative software-role data. It contains no real accounts, deployment identifiers, or database results.

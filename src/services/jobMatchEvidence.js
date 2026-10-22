@@ -48,7 +48,19 @@ export function explainJobMatch(raw, expectedScore) {
   // PostgreSQL rounds float ties to even; decimal serialization and JS summation
   // can also differ at the last bit. Keep the server's rounded score authoritative.
   if (Math.abs(total - c.match_score) > 0.50000001) return null;
-  return { rows, total, score: c.match_score, calculatedAt: c.calculated_at, version: c.version };
+  return { rows, total, score: c.match_score, calculatedAt: c.calculated_at, version: c.version, evidence: c.evidence || {} };
+}
+
+// Presentation only: distribute rounding across contributions so the whole-point
+// cards add up to the saved server score. Never replace the stored calculation.
+export function wholeMatchContributions(explanation) {
+  const rows = explanation.rows.map(row => ({ ...row, displayPoints: Math.floor(row.points) }));
+  const remaining = Math.round(explanation.score) - rows.reduce((sum, row) => sum + row.displayPoints, 0);
+  const order = rows.map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.included)
+    .sort((a, b) => (b.row.points - b.row.displayPoints) - (a.row.points - a.row.displayPoints) || a.index - b.index);
+  for (let index = 0; index < remaining; index++) order[index].row.displayPoints++;
+  return rows;
 }
 
 function factorEvidence(key, c) {

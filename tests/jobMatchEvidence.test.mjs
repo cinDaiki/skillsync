@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
-import { readJobMatchEvidence, explainJobMatch, MATCH_CALCULATION_VERSION } from '../src/services/jobMatchEvidence.js';
+import { readJobMatchEvidence, explainJobMatch, wholeMatchContributions, MATCH_CALCULATION_VERSION } from '../src/services/jobMatchEvidence.js';
 import { readAuthoritativeJobMatch } from '../src/services/evaluation/hrFitValidation.js';
 import { loadCurrentJobMatchEvidence } from '../src/services/currentJobMatchEvidence.js';
 
@@ -62,6 +62,18 @@ try {
   assert.equal(explanation.rows.filter(x=>x.included).length,4,'missing embeddings and unrequired certs excluded');
   assert.equal(Math.round(explanation.total),current.match_score);
   assert.ok(Math.abs(explanation.rows.reduce((sum,x)=>sum+x.maximum,0)-100)<1e-8);
+  // Whole-point presentation reconciles to the saved result, including .75 ties.
+  // The exact calculation and cached evidence must remain untouched.
+  const roundingExample = {score:77,rows:[26.25,13.125,18.75,18.75,0,0].map((points,index)=>({points,included:index<4}))};
+  const unchangedExample = JSON.stringify(roundingExample);
+  assert.deepEqual(wholeMatchContributions(roundingExample).map(r=>r.displayPoints),[26,13,19,19,0,0]);
+  assert.equal(JSON.stringify(roundingExample),unchangedExample);
+  for (const total of [explanation, ...Array.from({length:101},(_,score)=>({score,rows:[score/2,score/2,0].map((points,index)=>({points,included:index<2}))}))]) {
+    const rounded = wholeMatchContributions(total);
+    assert.equal(rounded.reduce((sum,r)=>sum+r.displayPoints,0),Math.round(total.score));
+    assert.ok(rounded.every(r=>Number.isInteger(r.displayPoints)&&r.displayPoints>=0&&Math.abs(r.displayPoints-r.points)<1.00000001));
+    assert.ok(rounded.filter(r=>!r.included).every(r=>r.displayPoints===0));
+  }
   // No invented evidence for old scores or malformed results.
   assert.equal(explainJobMatch(null,74),null);
   assert.equal(explainJobMatch(saved,100),null);
@@ -142,9 +154,21 @@ try {
     const application = {applicant_snapshot:retained,job_match:{match_score:edited.match_score}};
     const markup = renderToStaticMarkup(React.createElement(JobMatchScore,{application}));
     assert.equal((markup.match(/%/g)||[]).length,1,'only the overall score is a percentage');
-    assert.ok(markup.includes('Points earned / available'));
-    assert.ok(markup.includes('Matched: html, css, javascript, react'));
-    assert.ok(markup.includes('Not found: sql'));
+    assert.ok(markup.includes('Where your points came from'));
+    assert.ok(markup.includes('aria-label="Required skills found"'));
+    assert.ok(markup.includes('aria-label="Required skills missing"'));
+    assert.ok(markup.includes('>sql</li>'));
+    assert.ok(markup.includes('Default rule'),'baseline points are not presented as verified evidence');
+    assert.ok(!markup.includes('Rule result:'));
+    assert.ok(!markup.includes('Calculation:'));
+    assert.ok(!markup.includes('<table'));
+    assert.ok(!markup.includes('Scoring version:'));
+    const optionalMarkup = renderToStaticMarkup(React.createElement(JobMatchScore,{score:current.match_score,calculation:saved}));
+    assert.ok(optionalMarkup.includes('Not counted'),'excluded factors are not shown as zero-score failures');
+    const pointLabels = [...markup.matchAll(/class="jms-points"><span>\+(\d+)<\/span>/g)].map(m=>Number(m[1]));
+    assert.equal(pointLabels.length,6,'each included criterion has a whole-point label');
+    assert.equal(pointLabels.reduce((sum,n)=>sum+n,0),Math.round(allFactors.match_score));
+    assert.ok(markup.includes('keeps full precision'));
     assert.ok(!markup.includes('Weight'));
     const legacyMarkup = renderToStaticMarkup(React.createElement(JobMatchScore,{application:{applicant_snapshot:{application_time_match_score:74}}}));
     assert.ok(legacyMarkup.includes('74%'));
@@ -165,8 +189,16 @@ try {
     assert.ok(!escaped.includes('<script>'));
     if (process.env.MATCH_PREVIEW_PATH) {
       const css = readFileSync(new URL('../src/components/alignment/JobMatchScore.css',import.meta.url),'utf8');
-      const panel = markup.replace('<details>','<details open>');
-      writeFileSync(process.env.MATCH_PREVIEW_PATH,`<!doctype html><html><meta charset="utf-8"><title>Job Match Score — local component preview</title><style>body{font:15px system-ui;background:#f5f7fb;color:#172033;margin:30px}main{max-width:1200px;margin:auto}.screens{display:grid;grid-template-columns:1fr 1fr;gap:24px}h1{font-size:26px}h2{font-size:18px}@media(max-width:850px){.screens{grid-template-columns:1fr}}${css}</style><main><h1>SkillSync · Job Match Score</h1><p>Local component preview · Synthetic SQL test data · Same saved application shown to both roles</p><div class="screens"><div><h2>Job Seeker · Submitted application</h2>${panel}</div><div><h2>Employer · Applicant resume</h2>${panel}</div></div></main></html>`);
+      const sample = {
+        ...saved, match_score:77, calculated_at:null,
+        applicable_weights:{skills:0.35,transferable:0.15,education:0.15,experience:0.15,credentials:0,semantic:0,total:0.8},
+        breakdown:{requiredSkillsScore:60,transferableSkillsScore:70,educationCompatibility:100,experienceCompatibility:100,credentialsScore:100,semanticRelevance:0},
+        matching_skills:['html','css','javascript'], missing_skills:['react','sql'], matched_transferable:[], matched_certs:[],
+        evidence:{required_skills:['html','css','javascript','react','sql'],required_transferable:[],required_certifications:[],required_education:null,candidate_education:'BS Computer Science',experience_required:null,candidate_years:2},
+      };
+      const sampleApplication = {applicant_snapshot:{application_time_match_score:77,application_time_match_calculation:sample}};
+      const panel = renderToStaticMarkup(React.createElement(JobMatchScore,{application:sampleApplication})).replace('<details class="jms-breakdown">','<details class="jms-breakdown" open>');
+      writeFileSync(process.env.MATCH_PREVIEW_PATH,`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Job Match Score — design preview</title><style>body{font:15px system-ui;background:#f5f7fb;color:#172033;margin:30px}main{max-width:1200px;margin:auto}.screens{display:grid;grid-template-columns:1fr 1fr;gap:24px}h1{font-size:26px}h2{font-size:16px;color:#59697b}@media(max-width:850px){.screens{grid-template-columns:1fr}body{margin:16px}}${css}</style><main><h1>SkillSync · Job Match Score</h1><p>Design preview · Illustrative software-role data · Same saved result for both roles</p><div class="screens"><div><h2>Job Seeker · Submitted application</h2>${panel}</div><div><h2>Employer · Applicant resume</h2>${panel}</div></div></main></html>`);
     }
   } finally { await vite.close(); }
   console.log('Job Match Score: SQL calculation, persistence, optional factors, immutable snapshots, forged input rejection, candidate/employer parity, and real React rendering passed.');
