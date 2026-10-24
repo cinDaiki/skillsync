@@ -2281,6 +2281,17 @@ export async function resolveJobReport(reportId, decision = "dismissed", resolut
 export async function logAdminAction({ action, targetType, targetId, reason, metadata = {} }) {
   try {
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    // This table is reserved for administrators. Recruitment records and
+    // notifications are saved by their own protected workflows; non-admin
+    // callers must not attempt an admin audit insert or widen its RLS policy.
+    const { data: actor, error: actorError } = await supabase
+      .from("profiles").select("role").eq("id", user.id).maybeSingle();
+    if (actorError) {
+      console.warn("[AdminService] Could not verify audit actor:", actorError.message);
+      return;
+    }
+    if (actor?.role !== "admin") return;
     const payload = {
       admin_id: user?.id || null,
       action,

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+import DashboardInterviewCard from "../../components/candidate/DashboardInterviewCard";
 import { supabase } from "../../services/supabase";
 import { 
   getNotifications, 
@@ -16,6 +17,8 @@ export default function CandidateDashboard() {
   const [profile, setProfile] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [applications, setApplications] = useState([]);
+  const [interviews, setInterviews] = useState([]);
+  const [interviewError, setInterviewError] = useState(false);
   
   // Notifications states
   const [notifications, setNotifications] = useState([]);
@@ -87,6 +90,20 @@ export default function CandidateDashboard() {
       }));
       setApplications(enriched);
     }
+
+    // Read actual invitations, rather than inventing schedules from application stages.
+    const { data: interviewData, error: scheduleError } = await supabase
+      .from("interviews")
+      .select("id, application_id, status, interview_type, scheduled_date, scheduled_time, platform, meeting_url, address")
+      .eq("candidate_id", user.id)
+      .in("status", ["PENDING_CONFIRMATION", "CONFIRMED", "RESCHEDULE_REQUESTED"])
+      .order("scheduled_date", { ascending: true });
+    setInterviewError(Boolean(scheduleError));
+    const applicationMap = new Map(enriched.map(app => [app.id, app]));
+    setInterviews((interviewData || []).map(inv => ({
+      ...inv,
+      job_title: applicationMap.get(inv.application_id)?.jobs?.title,
+    })));
 
     // 5. Fetch Real-time DB Notifications
     const { data: notifies } = await getNotifications(user.id);
@@ -182,12 +199,6 @@ export default function CandidateDashboard() {
   const dashInterview = totalApps > 0 ? (interviewCount / totalApps) * 100 : 0;
   const dashOffer = totalApps > 0 ? (offerCount / totalApps) * 100 : 0;
   const dashRejected = totalApps > 0 ? (rejectedCount / totalApps) * 100 : 0;
-
-  // Map simulated upcoming interviews (when application status includes interview or shortlisted)
-  const interviewApplications = applications.filter(a => 
-    String(a.status || "").toLowerCase().includes("interview") || 
-    String(a.status || "").toLowerCase() === "shortlisted"
-  );
 
   const unreadNotificationsCount = notifications.filter(n => !n.is_read).length;
   const recentJobs = jobs.slice(0, 3);
@@ -485,7 +496,9 @@ export default function CandidateDashboard() {
             </div>
 
             <div className="overview-panel-body">
-              {interviewApplications.length === 0 ? (
+              {interviewError ? (
+                <p role="alert">Interview details could not be loaded. <Link to="/candidate/applications">Open My Applications</Link> to review your invitations.</p>
+              ) : interviews.length === 0 ? (
                 <div className="enterprise-empty-state">
                   <span>📅</span>
                   <h3>No interviews scheduled</h3>
@@ -493,27 +506,7 @@ export default function CandidateDashboard() {
                 </div>
               ) : (
                 <div className="interview-schedule-list">
-                  {interviewApplications.map((app, index) => (
-                    <div className="interview-card-item" key={app.id || index}>
-                      <div className="interview-time-box">
-                        <strong>{24 + index}</strong>
-                        <span>May</span>
-                      </div>
-                      <div className="interview-details">
-                        <h4>{app.jobs?.title || "Screening Interview"}</h4>
-                        <p>Platform: Google Meet Video Call</p>
-                        <small style={{ color: "#9b24ff", fontWeight: "800" }}>Time: 10:00 AM PST</small>
-                      </div>
-                      <a 
-                        href="https://meet.google.com" 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="join-link"
-                      >
-                        Join call
-                      </a>
-                    </div>
-                  ))}
+                  {interviews.map(interview => <DashboardInterviewCard key={interview.id} interview={interview} />)}
                 </div>
               )}
             </div>

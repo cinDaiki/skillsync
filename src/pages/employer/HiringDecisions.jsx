@@ -6,6 +6,8 @@ import { fetchEmployerApplicants } from "../../services/applicationService";
 import { fetchInterviewsForEmployer, makeHiringDecision } from "../../services/interviewService";
 import { isDecisionPending, deduplicateByApplicationId } from "../../services/recruitmentStatus";
 import ResumeViewerModal from "../../components/resume/ResumeViewerModal";
+import RecruiterEvaluationModal from "../../components/employer/RecruiterEvaluationModal";
+import JobMatchScore from "../../components/alignment/JobMatchScore";
 import { useToast } from "../../contexts/ToastContext";
 import { useModal } from "../../contexts/ModalContext";
 import "./HiringDecisions.css";
@@ -27,6 +29,7 @@ export default function HiringDecisions() {
   // Modals & Active Selections
   const [selectedResumeApp, setSelectedResumeApp] = useState(null);
   const [evaluationModalApp, setEvaluationModalApp] = useState(null);
+  const [editingEvaluation, setEditingEvaluation] = useState(null);
   const [actionLoadingId, setActionLoadingId] = useState(null);
 
   useEffect(() => {
@@ -218,10 +221,7 @@ export default function HiringDecisions() {
                       </div>
                     )}
 
-                    <div className="hd-detail-row">
-                      <span>ATS Match Score:</span>
-                      <strong>{app.match_score ? `${app.match_score}%` : "Evaluated"}</strong>
-                    </div>
+                    <JobMatchScore application={app} />
                   </div>
 
                   {/* PROMINENT INTERVIEWER EVALUATION SECTION */}
@@ -231,7 +231,7 @@ export default function HiringDecisions() {
                         📝 Interviewer Evaluation
                       </h5>
                       {recommendation && (
-                        <span style={{ fontSize: "11px", fontWeight: "700", background: recommendation.includes("RECOMMEND") ? "#dcfce7" : "#fee2e2", color: recommendation.includes("RECOMMEND") ? "#166534" : "#991b1b", padding: "2px 8px", borderRadius: "12px" }}>
+                        <span style={{ fontSize: "11px", fontWeight: "700", background: ["Strong Hire", "Hire", "RECOMMEND", "STRONGLY_RECOMMEND"].includes(recommendation) ? "#dcfce7" : "#f1f5f9", color: "#334155", padding: "2px 8px", borderRadius: "12px" }}>
                           {recommendation.replace("_", " ")}
                         </span>
                       )}
@@ -268,6 +268,9 @@ export default function HiringDecisions() {
 
                 <div className="hd-card-actions">
                   <div className="hd-action-row-secondary">
+                    <button type="button" className="hd-sub-btn" onClick={() => setEditingEvaluation({ app, inv, ev })} disabled={inv?.status !== "COMPLETED"}>
+                      {ev ? "Edit Private Evaluation" : "Add Private Evaluation"}
+                    </button>
                     <button
                       type="button"
                       className="hd-sub-btn"
@@ -304,6 +307,20 @@ export default function HiringDecisions() {
       )}
 
       {/* FULL EVALUATION MODAL */}
+      {editingEvaluation && (
+        <RecruiterEvaluationModal
+          applicant={editingEvaluation.app}
+          interview={editingEvaluation.inv}
+          employerId={currentUserId}
+          saved={editingEvaluation.ev}
+          onClose={() => setEditingEvaluation(null)}
+          onSaved={async () => {
+            setEditingEvaluation(null);
+            toast.success("Private recruiter evaluation saved.");
+            await loadDecisionData();
+          }}
+        />
+      )}
       {evaluationModalApp && (
         <div className="modal-backdrop">
           <div className="modal-dialog">

@@ -37,7 +37,17 @@ function formatBackgroundText(val) {
   if (!val) return "Not provided";
   if (Array.isArray(val)) {
     if (val.length === 0) return "Not provided";
-    return val.filter(Boolean).join(", ") || "Not provided";
+    return val.map(formatBackgroundText).filter(text => text !== "Not provided").join("; ") || "Not provided";
+  }
+  if (typeof val === "object") {
+    const details = [val.title || val.job_title || val.position, val.organization || val.company,
+      val.courseOrProgram || val.degree || val.course, val.institution || val.school, val.level, val.status]
+      .filter(item => typeof item === "string" && item.trim()).map(item => item.trim());
+    const start = val.startDate || val.startYear;
+    const end = val.isCurrent ? "Present" : val.endDate || val.endYear;
+    const dates = [start, end].filter(item => typeof item === "string" && item.trim()).join(" – ");
+    if (dates) details.push(dates);
+    return details.join(" · ") || "Not provided";
   }
   if (typeof val === "string") {
     const trimmed = val.trim();
