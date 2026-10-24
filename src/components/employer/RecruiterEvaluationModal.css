@@ -1,0 +1,14 @@
+.recruiter-evaluation-backdrop { position: fixed; inset: 0; z-index: 12000; background: #160e3066; display: grid; place-items: center; padding: 20px; }
+.recruiter-evaluation-dialog { width: min(680px, 100%); max-height: 90vh; overflow-y: auto; background: white; border-radius: 16px; box-shadow: 0 20px 80px #160e3040; color: #253047; }
+.recruiter-evaluation-dialog header, .recruiter-evaluation-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.recruiter-evaluation-dialog header { padding: 20px 24px; border-bottom: 1px solid #e2e8f0; }
+.recruiter-evaluation-dialog h2 { margin: 0; font-size: 20px; }
+.recruiter-evaluation-dialog form { padding: 20px 24px; display: grid; gap: 12px; }
+.recruiter-evaluation-dialog p { margin: 0; line-height: 1.5; }
+.recruiter-evaluation-notice { padding: 12px; background: #f3f0ff; border-radius: 8px; }
+.recruiter-evaluation-dialog label { font-weight: 700; }
+.recruiter-evaluation-dialog select, .recruiter-evaluation-dialog textarea { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+.recruiter-evaluation-dialog button { cursor: pointer; padding: 10px 16px; border: 1px solid #d8dce7; background: #fff; border-radius: 8px; font: inherit; }
+.recruiter-evaluation-dialog button[type="submit"] { background: #6b21a8; color: white; }
+.recruiter-evaluation-dialog button:disabled { opacity: .6; cursor: wait; }
+.recruiter-evaluation-dialog [role="alert"] { color: #b42318; }
